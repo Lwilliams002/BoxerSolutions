@@ -31,7 +31,7 @@ export default function ScheduleScreen() {
   return (
     <View style={{ flex: 1 }}>
       <SyncBanner />
-      <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.dayBar} contentContainerStyle={{ paddingHorizontal: 12 }}>
+      <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.dayBar} contentContainerStyle={{ paddingHorizontal: 12, alignItems: 'center' }}>
         {days.map((d) => {
           const dt = new Date(`${d}T12:00:00`);
           const active = d === date;
@@ -84,11 +84,11 @@ export default function ScheduleScreen() {
 }
 
 const styles = StyleSheet.create({
-  dayBar: { flexGrow: 0, backgroundColor: colors.card, borderBottomWidth: 1, borderColor: colors.border, paddingVertical: 8 },
-  day: { alignItems: 'center', paddingVertical: 6, paddingHorizontal: 12, borderRadius: 10, marginRight: 4 },
+  dayBar: { flexGrow: 0, height: 72, backgroundColor: colors.card, borderBottomWidth: 1, borderColor: colors.border, paddingVertical: 8 },
+  day: { height: 56, minWidth: 48, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 10, borderRadius: 12, marginRight: 4 },
   dayActive: { backgroundColor: colors.primary },
-  dayName: { fontSize: 12, color: colors.textMuted, fontWeight: '600' },
-  dayNum: { fontSize: 17, color: colors.text, fontWeight: '800' },
+  dayName: { fontSize: 12, lineHeight: 16, color: colors.textMuted, fontWeight: '600' },
+  dayNum: { fontSize: 17, lineHeight: 22, color: colors.text, fontWeight: '800', marginTop: 2 },
   dayTextActive: { color: '#0D0D0D' },
   card: {
     flexDirection: 'row',

@@ -60,7 +60,7 @@ export default function RoutesScreen() {
         horizontal
         showsHorizontalScrollIndicator={false}
         style={styles.dayBar}
-        contentContainerStyle={{ paddingHorizontal: 14 }}
+        contentContainerStyle={{ paddingHorizontal: 14, alignItems: 'center' }}
       >
         {days.map((d) => {
           const dt = new Date(`${d}T12:00:00`);
@@ -155,15 +155,15 @@ const styles = StyleSheet.create({
   },
   createBtnText: { color: '#0D0D0D', fontWeight: '800', fontSize: 14, marginLeft: 4 },
   dayBar: {
-    flexGrow: 0, backgroundColor: '#111', paddingVertical: 8,
+    flexGrow: 0, height: 72, backgroundColor: '#111', paddingVertical: 8,
   },
   day: {
-    alignItems: 'center', paddingVertical: 8, paddingHorizontal: 13,
+    height: 56, minWidth: 48, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 11,
     borderRadius: 12, marginRight: 6,
   },
   dayActive: { backgroundColor: '#2DC4A2' },
-  dayName: { fontSize: 11, color: '#6B7C78', fontWeight: '700' },
-  dayNum: { fontSize: 18, color: '#fff', fontWeight: '900' },
+  dayName: { fontSize: 11, lineHeight: 15, color: '#6B7C78', fontWeight: '700' },
+  dayNum: { fontSize: 18, lineHeight: 23, color: '#fff', fontWeight: '900', marginTop: 1 },
   dayTextActive: { color: '#0D0D0D' },
   empty: { alignItems: 'center', paddingVertical: 60 },
   emptyTitle: { fontSize: 16, color: colors.textMuted, fontWeight: '600', marginTop: 12 },
