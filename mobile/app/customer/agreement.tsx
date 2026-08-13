@@ -10,14 +10,25 @@ import {
   Image,
 } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
-import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { useQueryClient } from '@tanstack/react-query';
 import { captureRef } from 'react-native-view-shot';
 import { Ionicons } from '@expo/vector-icons';
 import { api } from '../../src/lib/api';
 import { persistLocally, uploadPendingPhoto } from '../../src/lib/photos';
 import { SignaturePad, SignaturePadHandle } from '../../src/components/SignaturePad';
 import { colors, company, money } from '../../src/lib/theme';
-import { Loading } from '../../src/components/ui';
+import {
+  HOME_SIZES,
+  STANDARD_PESTS,
+  YARD_ANT_TIERS,
+  YARD_ANT_PESTS,
+  ADDONS,
+  WEB_REMOVAL,
+  webRemovalFee,
+  ODD_JOBS,
+  AGREEMENT_TERM_MONTHS as TERM_MONTHS,
+  SizeTier,
+} from '../../src/lib/pricing';
 
 interface ServiceLocation {
   addressLine1: string;
@@ -38,25 +49,11 @@ interface CustomerPayload {
   billingPostalCode: string | null;
   serviceLocation: ServiceLocation;
 }
-interface ServiceItem {
-  id: string;
-  name: string;
-  price: string;
-  isRecurring: boolean;
-  serviceType: string;
-  categoryName: string | null;
-  durationMinutes: number;
+interface LineItem {
+  label: string;
+  initial: number;
+  regular: number;
 }
-
-const TERM_MONTHS = 12;
-
-const PEST_GROUPS: { group: string; pests: string[] }[] = [
-  { group: 'General Pest Control', pests: ['Roaches', 'Ants', 'Spiders', 'Earwigs', 'Silverfish', 'Centipedes', 'Millipedes'] },
-  { group: 'Flying / Insect Control', pests: ['Mosquitoes', 'Wasps', 'Hornets', 'No-see-ums', 'Fleas'] },
-  { group: 'Wood-Destroying Pests', pests: ['Termites'] },
-  { group: 'Wildlife / Other', pests: ['Rodents'] },
-  { group: 'Commercial', pests: ['Commercial Pest Control / IPM'] },
-];
 
 export default function AgreementScreen() {
   const { payload } = useLocalSearchParams<{ payload: string }>();
@@ -64,12 +61,18 @@ export default function AgreementScreen() {
   const qc = useQueryClient();
   const padRef = useRef<SignaturePadHandle>(null);
   const docRef = useRef<View>(null);
+
   const [initials, setInitials] = useState('');
   const [agreed, setAgreed] = useState(false);
   const [busy, setBusy] = useState(false);
-  const [recurringId, setRecurringId] = useState<string | null>(null);
-  const [initialId, setInitialId] = useState<string | null>(null);
-  const [pests, setPests] = useState<string[]>([]);
+
+  const [homeSizeIdx, setHomeSizeIdx] = useState<number | null>(null);
+  const [yardOn, setYardOn] = useState(false);
+  const [yardTierIdx, setYardTierIdx] = useState<number | null>(null);
+  const [addonKeys, setAddonKeys] = useState<string[]>([]);
+  const [webOn, setWebOn] = useState(false);
+  const [webSqft, setWebSqft] = useState('');
+  const [oddKeys, setOddKeys] = useState<string[]>([]);
 
   const data = useMemo<CustomerPayload | null>(() => {
     try {
@@ -79,19 +82,43 @@ export default function AgreementScreen() {
     }
   }, [payload]);
 
-  const { data: servicesData, isLoading: loadingServices } = useQuery({
-    queryKey: ['services-catalog'],
-    queryFn: () => api<{ items: ServiceItem[] }>('/services?pageSize=100'),
-  });
+  const homeSize = homeSizeIdx != null ? HOME_SIZES[homeSizeIdx] : null;
+  const yardTier: SizeTier | null = yardOn && yardTierIdx != null ? YARD_ANT_TIERS[yardTierIdx] : null;
+  const webFee = webOn ? webRemovalFee(parseFloat(webSqft) || 0) : 0;
 
-  const services = (servicesData?.items ?? []).filter((s: any) => s.isActive !== false);
-  const recurringPlans = services.filter((s) => s.isRecurring);
-  const initialOptions = services.filter((s) => !s.isRecurring);
+  const { lineItems, initialTotal, regularTotal, coveredPests } = useMemo(() => {
+    const items: LineItem[] = [];
+    const pests = new Set<string>();
 
-  const recurringPlan = recurringPlans.find((s) => s.id === recurringId) ?? null;
-  const initialPlan = initialOptions.find((s) => s.id === initialId) ?? null;
-  const recurringPrice = recurringPlan ? parseFloat(recurringPlan.price) : 0;
-  const initialPrice = initialPlan ? parseFloat(initialPlan.price) : 0;
+    if (homeSize) {
+      items.push({ label: `Standard Four Point Service · ${homeSize.label}`, initial: homeSize.initial, regular: homeSize.regular });
+      STANDARD_PESTS.forEach((p) => pests.add(p));
+    }
+    if (yardTier) {
+      items.push({ label: `All Yard Ants · ${yardTier.label}`, initial: yardTier.initial, regular: yardTier.regular });
+      YARD_ANT_PESTS.forEach((p) => pests.add(p));
+    }
+    ADDONS.forEach((a) => {
+      if (addonKeys.includes(a.key)) {
+        items.push({ label: a.label, initial: 0, regular: a.addRegular });
+        a.pests.forEach((p) => pests.add(p));
+      }
+    });
+    if (webOn) {
+      items.push({ label: `Web Removal + Prevention (${parseFloat(webSqft) || 0} sf)`, initial: webFee, regular: 0 });
+      pests.add(WEB_REMOVAL.pest);
+    }
+    ODD_JOBS.forEach((o) => {
+      if (oddKeys.includes(o.key)) {
+        items.push({ label: `${o.label} (${o.treatments} treatment${o.treatments > 1 ? 's' : ''})`, initial: o.total, regular: 0 });
+        pests.add(o.pest);
+      }
+    });
+
+    const initialTotal = items.reduce((s, i) => s + i.initial, 0);
+    const regularTotal = items.reduce((s, i) => s + i.regular, 0);
+    return { lineItems: items, initialTotal, regularTotal, coveredPests: Array.from(pests) };
+  }, [homeSize, yardTier, addonKeys, webOn, webSqft, webFee, oddKeys]);
 
   if (!data) {
     return (
@@ -110,16 +137,22 @@ export default function AgreementScreen() {
     day: 'numeric',
   });
 
-  const togglePest = (p: string) =>
-    setPests((prev) => (prev.includes(p) ? prev.filter((x) => x !== p) : [...prev, p]));
+  const toggleAddon = (k: string) =>
+    setAddonKeys((prev) => (prev.includes(k) ? prev.filter((x) => x !== k) : [...prev, k]));
+  const toggleOdd = (k: string) =>
+    setOddKeys((prev) => (prev.includes(k) ? prev.filter((x) => x !== k) : [...prev, k]));
 
   const submit = async () => {
-    if (!recurringPlan && !initialPlan) {
-      Alert.alert('Select a plan', 'Please choose at least an initial or recurring service.');
+    if (!homeSize) {
+      Alert.alert('Select home size', 'Please choose a home size for the Standard Four Point Service.');
       return;
     }
-    if (pests.length === 0) {
-      Alert.alert('Select pests', 'Please select at least one pest to be serviced.');
+    if (yardOn && !yardTier) {
+      Alert.alert('Select yard size', 'Please choose a size tier for All Yard Ants.');
+      return;
+    }
+    if (webOn && !(parseFloat(webSqft) > 0)) {
+      Alert.alert('Enter square footage', 'Please enter the structure size for Web Removal.');
       return;
     }
     if (!agreed) {
@@ -139,17 +172,15 @@ export default function AgreementScreen() {
       const docUri = await captureRef(docRef, { format: 'png', quality: 0.95, result: 'tmpfile' });
       const created = await api<{ id: string }>('/customers', { method: 'POST', body: data });
 
-      // Persist a structured summary of the plan & covered pests as a customer note.
       const summary = [
         'SERVICE AGREEMENT',
-        initialPlan ? `Initial: ${initialPlan.name} (${money(initialPrice)})` : null,
-        recurringPlan ? `Recurring: ${recurringPlan.name} (${money(recurringPrice)}/service)` : null,
+        ...lineItems.map((i) => `• ${i.label} — Initial ${money(i.initial)} / Regular ${money(i.regular)}`),
+        `Initial Total: ${money(initialTotal)}`,
+        `Recurring Total: ${money(regularTotal)}/service`,
         `Term: ${TERM_MONTHS} months`,
-        `Covered pests: ${pests.join(', ')}`,
+        `Covered pests: ${coveredPests.join(', ')}`,
         `Signed: ${signedDate}`,
-      ]
-        .filter(Boolean)
-        .join('\n');
+      ].join('\n');
       await api('/notes', {
         method: 'POST',
         body: { customerId: created.id, body: summary, isInternal: false },
@@ -158,15 +189,9 @@ export default function AgreementScreen() {
       const fileName = `service-agreement-${Date.now()}.png`;
       const localUri = await persistLocally(docUri, fileName);
       try {
-        await uploadPendingPhoto({
-          localUri,
-          fileType: 'document',
-          fileName,
-          mimeType: 'image/png',
-          customerId: created.id,
-        });
+        await uploadPendingPhoto({ localUri, fileType: 'document', fileName, mimeType: 'image/png', customerId: created.id });
       } catch {
-        // Non-fatal; customer exists and document can be retried later.
+        // Non-fatal; retryable later.
       }
 
       void qc.invalidateQueries({ queryKey: ['customers'] });
@@ -180,99 +205,131 @@ export default function AgreementScreen() {
     }
   };
 
-  if (loadingServices) return <Loading />;
-
   return (
     <View style={{ flex: 1, backgroundColor: colors.bg }}>
       <ScrollView contentContainerStyle={styles.scroll} keyboardShouldPersistTaps="handled">
-        {/* ---- Interactive: plan selection ---- */}
-        <Text style={styles.pickHeader}>Choose a Recurring Plan</Text>
-        <View style={styles.planWrap}>
-          {recurringPlans.length === 0 ? (
-            <Text style={styles.muted}>No recurring plans available.</Text>
-          ) : (
-            recurringPlans.map((s) => {
-              const active = recurringId === s.id;
-              return (
-                <TouchableOpacity
-                  key={s.id}
-                  style={[styles.planCard, active && styles.planCardActive]}
-                  onPress={() => setRecurringId(active ? null : s.id)}
-                  activeOpacity={0.85}
-                >
-                  <View style={{ flex: 1 }}>
-                    <Text style={[styles.planName, active && styles.planNameActive]}>{s.name}</Text>
-                    <Text style={[styles.planMeta, active && styles.planMetaActive]}>
-                      {s.categoryName ?? 'Service'} · {s.durationMinutes} min
-                    </Text>
-                  </View>
-                  <Text style={[styles.planPrice, active && styles.planNameActive]}>{money(s.price)}</Text>
-                  <Ionicons
-                    name={active ? 'checkmark-circle' : 'ellipse-outline'}
-                    size={22}
-                    color={active ? '#0D0D0D' : colors.border}
-                    style={{ marginLeft: 8 }}
-                  />
-                </TouchableOpacity>
-              );
-            })
-          )}
-        </View>
+        {/* ---------- Standard Four Point Service ---------- */}
+        <Text style={styles.pickHeader}>Standard Four Point Service</Text>
+        <Text style={styles.pickSub}>Select home size — sets the initial &amp; recurring rate.</Text>
+        {HOME_SIZES.map((t, i) => {
+          const active = homeSizeIdx === i;
+          return (
+            <TouchableOpacity
+              key={t.label}
+              style={[styles.tierRow, active && styles.tierRowActive]}
+              onPress={() => setHomeSizeIdx(i)}
+              activeOpacity={0.85}
+            >
+              <Ionicons
+                name={active ? 'radio-button-on' : 'radio-button-off'}
+                size={20}
+                color={active ? colors.primaryDark : colors.border}
+              />
+              <Text style={[styles.tierLabel, active && styles.tierLabelActive]}>{t.label}</Text>
+              <Text style={styles.tierPrice}>{money(t.initial)} <Text style={styles.tierPriceSub}>init</Text></Text>
+              <Text style={styles.tierPrice}>{money(t.regular)} <Text style={styles.tierPriceSub}>reg</Text></Text>
+            </TouchableOpacity>
+          );
+        })}
 
-        <Text style={styles.pickHeader}>Initial Service (optional)</Text>
-        <View style={styles.planWrap}>
-          {initialOptions.map((s) => {
-            const active = initialId === s.id;
+        {/* ---------- All Yard Ants ---------- */}
+        <TouchableOpacity style={styles.toggleHeader} onPress={() => setYardOn((v) => !v)} activeOpacity={0.8}>
+          <View style={[styles.checkbox, yardOn && styles.checkboxOn]}>
+            {yardOn && <Ionicons name="checkmark" size={15} color="#0D0D0D" />}
+          </View>
+          <Text style={styles.toggleTitle}>All Yard Ants (Fire &amp; Carpenter Ants)</Text>
+        </TouchableOpacity>
+        {yardOn &&
+          YARD_ANT_TIERS.map((t, i) => {
+            const active = yardTierIdx === i;
             return (
               <TouchableOpacity
-                key={s.id}
-                style={[styles.planCard, active && styles.planCardActive]}
-                onPress={() => setInitialId(active ? null : s.id)}
+                key={t.label}
+                style={[styles.tierRow, styles.subTierRow, active && styles.tierRowActive]}
+                onPress={() => setYardTierIdx(i)}
                 activeOpacity={0.85}
               >
-                <View style={{ flex: 1 }}>
-                  <Text style={[styles.planName, active && styles.planNameActive]}>{s.name}</Text>
-                  <Text style={[styles.planMeta, active && styles.planMetaActive]}>
-                    {s.categoryName ?? 'Service'}
-                  </Text>
-                </View>
-                <Text style={[styles.planPrice, active && styles.planNameActive]}>{money(s.price)}</Text>
                 <Ionicons
-                  name={active ? 'checkmark-circle' : 'ellipse-outline'}
-                  size={22}
-                  color={active ? '#0D0D0D' : colors.border}
-                  style={{ marginLeft: 8 }}
+                  name={active ? 'radio-button-on' : 'radio-button-off'}
+                  size={20}
+                  color={active ? colors.primaryDark : colors.border}
                 />
+                <Text style={[styles.tierLabel, active && styles.tierLabelActive]}>{t.label}</Text>
+                <Text style={styles.tierPrice}>{money(t.initial)} <Text style={styles.tierPriceSub}>init</Text></Text>
+                <Text style={styles.tierPrice}>{money(t.regular)} <Text style={styles.tierPriceSub}>reg</Text></Text>
               </TouchableOpacity>
             );
           })}
+
+        {/* ---------- Recurring add-ons ---------- */}
+        <Text style={styles.pickHeader}>Add-Ons</Text>
+        {ADDONS.map((a) => {
+          const active = addonKeys.includes(a.key);
+          return (
+            <TouchableOpacity key={a.key} style={[styles.addonRow, active && styles.addonRowActive]} onPress={() => toggleAddon(a.key)} activeOpacity={0.85}>
+              <View style={[styles.checkbox, active && styles.checkboxOn]}>
+                {active && <Ionicons name="checkmark" size={15} color="#0D0D0D" />}
+              </View>
+              <Text style={[styles.addonLabel, active && { color: '#0D0D0D' }]}>{a.label}</Text>
+              <Text style={styles.addonPrice}>+{money(a.addRegular)}/reg</Text>
+            </TouchableOpacity>
+          );
+        })}
+        {/* Web removal */}
+        <TouchableOpacity style={[styles.addonRow, webOn && styles.addonRowActive]} onPress={() => setWebOn((v) => !v)} activeOpacity={0.85}>
+          <View style={[styles.checkbox, webOn && styles.checkboxOn]}>
+            {webOn && <Ionicons name="checkmark" size={15} color="#0D0D0D" />}
+          </View>
+          <Text style={[styles.addonLabel, webOn && { color: '#0D0D0D' }]}>Web Removal + Prevention</Text>
+          <Text style={styles.addonPrice}>${WEB_REMOVAL.perSqft}/sf · ${WEB_REMOVAL.minimum} min</Text>
+        </TouchableOpacity>
+        {webOn && (
+          <View style={styles.webRow}>
+            <Text style={styles.webLabel}>Structure sq ft</Text>
+            <TextInput
+              style={styles.webInput}
+              value={webSqft}
+              onChangeText={setWebSqft}
+              keyboardType="number-pad"
+              placeholder="e.g. 2400"
+              placeholderTextColor={colors.textMuted}
+            />
+            <Text style={styles.webFee}>= {money(webFee)}</Text>
+          </View>
+        )}
+
+        {/* ---------- Odd jobs ---------- */}
+        <Text style={styles.pickHeader}>Single-Pest Specialized (Odd Jobs)</Text>
+        {ODD_JOBS.map((o) => {
+          const active = oddKeys.includes(o.key);
+          return (
+            <TouchableOpacity key={o.key} style={[styles.addonRow, active && styles.addonRowActive]} onPress={() => toggleOdd(o.key)} activeOpacity={0.85}>
+              <View style={[styles.checkbox, active && styles.checkboxOn]}>
+                {active && <Ionicons name="checkmark" size={15} color="#0D0D0D" />}
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text style={[styles.addonLabel, active && { color: '#0D0D0D' }]}>{o.label}</Text>
+                <Text style={styles.addonMeta}>{o.treatments} treatment{o.treatments > 1 ? 's' : ''}</Text>
+              </View>
+              <Text style={styles.addonPrice}>{money(o.total)}</Text>
+            </TouchableOpacity>
+          );
+        })}
+
+        {/* Running totals */}
+        <View style={styles.totalsBar}>
+          <View style={styles.totalCol}>
+            <Text style={styles.totalLabel}>INITIAL</Text>
+            <Text style={styles.totalValue}>{money(initialTotal)}</Text>
+          </View>
+          <View style={styles.totalDivider} />
+          <View style={styles.totalCol}>
+            <Text style={styles.totalLabel}>RECURRING</Text>
+            <Text style={styles.totalValue}>{money(regularTotal)}<Text style={styles.totalPer}>/service</Text></Text>
+          </View>
         </View>
 
-        {/* ---- Interactive: pest selection ---- */}
-        <Text style={styles.pickHeader}>Pests To Be Serviced</Text>
-        {PEST_GROUPS.map((g) => (
-          <View key={g.group} style={{ marginBottom: 8 }}>
-            <Text style={styles.pestGroup}>{g.group}</Text>
-            <View style={styles.chipWrap}>
-              {g.pests.map((p) => {
-                const active = pests.includes(p);
-                return (
-                  <TouchableOpacity
-                    key={p}
-                    style={[styles.pestChip, active && styles.pestChipActive]}
-                    onPress={() => togglePest(p)}
-                    activeOpacity={0.8}
-                  >
-                    {active && <Ionicons name="checkmark" size={14} color="#0D0D0D" style={{ marginRight: 4 }} />}
-                    <Text style={[styles.pestChipText, active && styles.pestChipTextActive]}>{p}</Text>
-                  </TouchableOpacity>
-                );
-              })}
-            </View>
-          </View>
-        ))}
-
-        {/* ---- Captured document ---- */}
+        {/* ---------- Captured document ---------- */}
         <View ref={docRef} collapsable={false} style={styles.doc}>
           <View style={styles.brandHeader}>
             <Image source={require('../../assets/logo-mark.png')} style={styles.logo} resizeMode="contain" />
@@ -301,19 +358,41 @@ export default function AgreementScreen() {
               <Text style={styles.sectionBar}>Customer Information</Text>
               {data.email ? <Text style={styles.body}>{data.email}</Text> : null}
               {data.phone ? <Text style={styles.body}>{data.phone}</Text> : null}
-              <Text style={styles.body}>
-                {data.customerType === 'commercial' ? 'Commercial' : 'Residential'} Account
-              </Text>
+              <Text style={styles.body}>{data.customerType === 'commercial' ? 'Commercial' : 'Residential'} Account</Text>
             </View>
+          </View>
+
+          {/* Pricing table */}
+          <Text style={styles.sectionBarFull}>Services &amp; Pricing</Text>
+          <View style={styles.tblHead}>
+            <Text style={[styles.tblCell, styles.tblItem, styles.tblHeadText]}>Service</Text>
+            <Text style={[styles.tblCell, styles.tblNum, styles.tblHeadText]}>Initial</Text>
+            <Text style={[styles.tblCell, styles.tblNum, styles.tblHeadText]}>Regular</Text>
+          </View>
+          {lineItems.length === 0 ? (
+            <Text style={styles.termsMuted}>No services selected yet.</Text>
+          ) : (
+            lineItems.map((i, idx) => (
+              <View key={idx} style={styles.tblRow}>
+                <Text style={[styles.tblCell, styles.tblItem]}>{i.label}</Text>
+                <Text style={[styles.tblCell, styles.tblNum]}>{i.initial ? money(i.initial) : '—'}</Text>
+                <Text style={[styles.tblCell, styles.tblNum]}>{i.regular ? money(i.regular) : '—'}</Text>
+              </View>
+            ))
+          )}
+          <View style={styles.tblTotal}>
+            <Text style={[styles.tblCell, styles.tblItem, styles.tblTotalText]}>TOTAL</Text>
+            <Text style={[styles.tblCell, styles.tblNum, styles.tblTotalText]}>{money(initialTotal)}</Text>
+            <Text style={[styles.tblCell, styles.tblNum, styles.tblTotalText]}>{money(regularTotal)}</Text>
           </View>
 
           {/* Covered pests */}
           <Text style={styles.sectionBarFull}>Covered Pests</Text>
-          {pests.length === 0 ? (
+          {coveredPests.length === 0 ? (
             <Text style={styles.termsMuted}>No pests selected yet.</Text>
           ) : (
             <View style={styles.pestListWrap}>
-              {pests.map((p) => (
+              {coveredPests.map((p) => (
                 <View key={p} style={styles.pestTag}>
                   <Text style={styles.pestTagText}>{p}</Text>
                 </View>
@@ -321,35 +400,13 @@ export default function AgreementScreen() {
             </View>
           )}
 
-          {/* Plan / pricing */}
-          <Text style={styles.sectionBarFull}>Service Plan &amp; Pricing</Text>
-          {initialPlan ? (
-            <View style={styles.priceRow}>
-              <Text style={styles.priceLabel}>Initial · {initialPlan.name}</Text>
-              <Text style={styles.priceValue}>{money(initialPrice)}</Text>
-            </View>
-          ) : null}
-          {recurringPlan ? (
-            <View style={styles.priceRow}>
-              <Text style={styles.priceLabel}>Recurring · {recurringPlan.name}</Text>
-              <Text style={styles.priceValue}>{money(recurringPrice)}/service</Text>
-            </View>
-          ) : null}
-          {!initialPlan && !recurringPlan ? (
-            <Text style={styles.termsMuted}>No plan selected yet.</Text>
-          ) : null}
-          <View style={styles.priceRow}>
-            <Text style={styles.priceLabel}>Agreement Term</Text>
-            <Text style={styles.priceValue}>{TERM_MONTHS} months</Text>
-          </View>
-
           {/* Terms */}
           <Text style={styles.sectionBarFull}>Terms &amp; Conditions</Text>
           <Text style={styles.terms}>
             This agreement is for an initial period of {TERM_MONTHS} month(s). You, the customer, may cancel this
             transaction any time prior to midnight of the third business day after the date of this transaction by
             giving written notice of cancellation to {company.name}. Upon completion of the initial service, the
-            customer agrees to pay the full service charge. Recurring treatments will continue at the agreed
+            customer agrees to pay the full initial service charge. Recurring treatments continue at the agreed
             frequency until canceled by the customer. {company.name} will re-treat at no additional charge between
             scheduled visits if covered pest activity persists.
           </Text>
@@ -359,7 +416,7 @@ export default function AgreementScreen() {
             account notifications electronically.
           </Text>
 
-          {/* Signature block */}
+          {/* Signature */}
           <View style={styles.signBlock}>
             <View style={styles.initialsRow}>
               <Text style={styles.signLabel}>Customer Initials:</Text>
@@ -371,7 +428,7 @@ export default function AgreementScreen() {
           </View>
         </View>
 
-        {/* ---- Interactive controls ---- */}
+        {/* ---------- Controls ---------- */}
         <View style={styles.controls}>
           <Text style={styles.controlLabel}>Your Initials</Text>
           <TextInput
@@ -383,30 +440,21 @@ export default function AgreementScreen() {
             placeholderTextColor={colors.textMuted}
             maxLength={4}
           />
-
           <TouchableOpacity style={styles.clearBtn} onPress={() => padRef.current?.clear()}>
             <Ionicons name="refresh" size={16} color={colors.primaryDark} />
             <Text style={styles.clearBtnText}>Clear Signature</Text>
           </TouchableOpacity>
-
           <TouchableOpacity style={styles.agreeRow} onPress={() => setAgreed((v) => !v)} activeOpacity={0.7}>
             <View style={[styles.checkbox, agreed && styles.checkboxOn]}>
               {agreed && <Ionicons name="checkmark" size={16} color="#0D0D0D" />}
             </View>
-            <Text style={styles.agreeText}>
-              I have read and accept the terms of this service agreement.
-            </Text>
+            <Text style={styles.agreeText}>I have read and accept the terms of this service agreement.</Text>
           </TouchableOpacity>
         </View>
       </ScrollView>
 
       <View style={styles.bottomBar}>
-        <TouchableOpacity
-          style={[styles.submitBtn, busy && { opacity: 0.6 }]}
-          onPress={submit}
-          disabled={busy}
-          activeOpacity={0.85}
-        >
+        <TouchableOpacity style={[styles.submitBtn, busy && { opacity: 0.6 }]} onPress={submit} disabled={busy} activeOpacity={0.85}>
           <Ionicons name="checkmark-circle" size={20} color="#0D0D0D" />
           <Text style={styles.submitText}>{busy ? 'Saving…' : 'Agree & Create Customer'}</Text>
         </TouchableOpacity>
@@ -418,122 +466,106 @@ export default function AgreementScreen() {
 const styles = StyleSheet.create({
   centered: { flex: 1, alignItems: 'center', justifyContent: 'center' },
   scroll: { padding: 12, paddingBottom: 24 },
-  muted: { color: colors.textMuted, fontSize: 13, padding: 8 },
-  pickHeader: { fontSize: 15, fontWeight: '900', color: colors.text, marginTop: 12, marginBottom: 8 },
-  planWrap: { marginBottom: 4 },
-  planCard: {
+  pickHeader: { fontSize: 15, fontWeight: '900', color: colors.text, marginTop: 16, marginBottom: 2 },
+  pickSub: { fontSize: 12, color: colors.textMuted, marginBottom: 8 },
+  tierRow: {
     flexDirection: 'row',
     alignItems: 'center',
     backgroundColor: '#fff',
-    borderRadius: 12,
+    borderRadius: 10,
     borderWidth: 1.5,
     borderColor: colors.border,
-    padding: 12,
-    marginBottom: 8,
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+    marginBottom: 6,
   },
-  planCardActive: { borderColor: colors.primary, backgroundColor: '#E9FBF6' },
-  planName: { fontSize: 15, fontWeight: '800', color: colors.text },
-  planNameActive: { color: '#0D0D0D' },
-  planMeta: { fontSize: 12, color: colors.textMuted, marginTop: 2 },
-  planMetaActive: { color: colors.primaryDark },
-  planPrice: { fontSize: 15, fontWeight: '900', color: colors.text },
-  pestGroup: { fontSize: 12, fontWeight: '800', color: colors.primaryDark, marginBottom: 6, marginTop: 4 },
-  chipWrap: { flexDirection: 'row', flexWrap: 'wrap' },
-  pestChip: {
+  subTierRow: { marginLeft: 16 },
+  tierRowActive: { borderColor: colors.primary, backgroundColor: '#E9FBF6' },
+  tierLabel: { flex: 1, fontSize: 14, fontWeight: '700', color: colors.text, marginLeft: 10 },
+  tierLabelActive: { color: '#0D0D0D' },
+  tierPrice: { fontSize: 13, fontWeight: '800', color: colors.text, width: 78, textAlign: 'right' },
+  tierPriceSub: { fontSize: 10, fontWeight: '600', color: colors.textMuted },
+  toggleHeader: { flexDirection: 'row', alignItems: 'center', marginTop: 14, marginBottom: 8 },
+  toggleTitle: { fontSize: 15, fontWeight: '900', color: colors.text, marginLeft: 10 },
+  addonRow: {
     flexDirection: 'row',
     alignItems: 'center',
     backgroundColor: '#fff',
-    borderRadius: 18,
+    borderRadius: 10,
     borderWidth: 1.5,
+    borderColor: colors.border,
+    paddingVertical: 11,
+    paddingHorizontal: 12,
+    marginBottom: 6,
+  },
+  addonRowActive: { borderColor: colors.primary, backgroundColor: '#E9FBF6' },
+  addonLabel: { flex: 1, fontSize: 14, fontWeight: '700', color: colors.text, marginLeft: 10 },
+  addonMeta: { fontSize: 11, color: colors.textMuted, marginLeft: 10, marginTop: 1 },
+  addonPrice: { fontSize: 13, fontWeight: '800', color: colors.primaryDark, marginLeft: 8 },
+  webRow: { flexDirection: 'row', alignItems: 'center', marginLeft: 16, marginBottom: 8 },
+  webLabel: { fontSize: 13, color: colors.textMuted, fontWeight: '600' },
+  webInput: {
+    backgroundColor: '#fff',
+    borderRadius: 8,
+    borderWidth: 1,
     borderColor: colors.border,
     paddingVertical: 8,
-    paddingHorizontal: 14,
-    marginRight: 8,
-    marginBottom: 8,
+    paddingHorizontal: 12,
+    fontSize: 14,
+    color: colors.text,
+    marginHorizontal: 10,
+    minWidth: 90,
   },
-  pestChipActive: { backgroundColor: colors.primary, borderColor: colors.primary },
-  pestChipText: { fontSize: 13, fontWeight: '600', color: colors.text },
-  pestChipTextActive: { color: '#0D0D0D', fontWeight: '800' },
+  webFee: { fontSize: 14, fontWeight: '800', color: colors.text },
+  totalsBar: {
+    flexDirection: 'row',
+    backgroundColor: '#0D0D0D',
+    borderRadius: 14,
+    paddingVertical: 14,
+    marginTop: 14,
+  },
+  totalCol: { flex: 1, alignItems: 'center' },
+  totalDivider: { width: 1, backgroundColor: '#2A2A2A' },
+  totalLabel: { color: '#6B7C78', fontSize: 11, fontWeight: '800', letterSpacing: 1 },
+  totalValue: { color: '#2DC4A2', fontSize: 22, fontWeight: '900', marginTop: 2 },
+  totalPer: { color: '#6B7C78', fontSize: 12, fontWeight: '700' },
   doc: {
     backgroundColor: '#fff',
     borderRadius: 14,
     padding: 16,
-    marginTop: 8,
+    marginTop: 14,
     shadowColor: '#0D0D0D',
     shadowOffset: { width: 0, height: 3 },
     shadowOpacity: 0.08,
     shadowRadius: 10,
     elevation: 3,
   },
-  brandHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#0D0D0D',
-    borderRadius: 10,
-    padding: 12,
-  },
+  brandHeader: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#0D0D0D', borderRadius: 10, padding: 12 },
   logo: { width: 44, height: 44 },
   brandName: { color: '#fff', fontSize: 18, fontWeight: '900' },
   brandTagline: { color: '#2DC4A2', fontSize: 11, fontWeight: '800', letterSpacing: 2 },
   brandContact: { alignItems: 'flex-end' },
   brandContactLine: { color: '#B9C9C5', fontSize: 9, lineHeight: 13 },
-  docTitle: {
-    textAlign: 'center',
-    fontSize: 18,
-    fontWeight: '900',
-    color: colors.text,
-    marginTop: 14,
-    marginBottom: 12,
-    letterSpacing: 1,
-  },
+  docTitle: { textAlign: 'center', fontSize: 18, fontWeight: '900', color: colors.text, marginTop: 14, marginBottom: 12, letterSpacing: 1 },
   twoCol: { flexDirection: 'row', marginHorizontal: -4 },
   col: { flex: 1, marginHorizontal: 4 },
-  sectionBar: {
-    backgroundColor: colors.primary,
-    color: '#0D0D0D',
-    fontWeight: '800',
-    fontSize: 12,
-    textAlign: 'center',
-    paddingVertical: 4,
-    borderRadius: 4,
-    marginBottom: 6,
-  },
-  sectionBarFull: {
-    backgroundColor: colors.primary,
-    color: '#0D0D0D',
-    fontWeight: '800',
-    fontSize: 12,
-    textAlign: 'center',
-    paddingVertical: 4,
-    borderRadius: 4,
-    marginTop: 14,
-    marginBottom: 8,
-  },
+  sectionBar: { backgroundColor: colors.primary, color: '#0D0D0D', fontWeight: '800', fontSize: 12, textAlign: 'center', paddingVertical: 4, borderRadius: 4, marginBottom: 6 },
+  sectionBarFull: { backgroundColor: colors.primary, color: '#0D0D0D', fontWeight: '800', fontSize: 12, textAlign: 'center', paddingVertical: 4, borderRadius: 4, marginTop: 14, marginBottom: 8 },
   body: { fontSize: 12, color: colors.text, lineHeight: 17 },
   bodyStrong: { fontSize: 12, color: colors.text, fontWeight: '800', lineHeight: 17 },
-  pestListWrap: { flexDirection: 'row', flexWrap: 'wrap' },
-  pestTag: {
-    backgroundColor: '#E9FBF6',
-    borderRadius: 6,
-    paddingVertical: 3,
-    paddingHorizontal: 8,
-    marginRight: 6,
-    marginBottom: 6,
-    borderWidth: 1,
-    borderColor: colors.border,
-  },
-  pestTagText: { fontSize: 11, color: colors.primaryDark, fontWeight: '700' },
-  priceRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    paddingVertical: 5,
-    borderBottomWidth: 1,
-    borderColor: colors.border,
-  },
-  priceLabel: { fontSize: 12, color: colors.text, flex: 1, marginRight: 8 },
-  priceValue: { fontSize: 12, color: colors.text, fontWeight: '800' },
-  terms: { fontSize: 10.5, color: colors.textMuted, lineHeight: 15, marginBottom: 8 },
+  tblHead: { flexDirection: 'row', borderBottomWidth: 1.5, borderColor: colors.text, paddingBottom: 4, marginBottom: 2 },
+  tblRow: { flexDirection: 'row', borderBottomWidth: 1, borderColor: colors.border, paddingVertical: 5 },
+  tblTotal: { flexDirection: 'row', paddingVertical: 6, marginTop: 2, borderTopWidth: 1.5, borderColor: colors.text },
+  tblCell: { fontSize: 11.5, color: colors.text },
+  tblItem: { flex: 1, paddingRight: 6 },
+  tblNum: { width: 66, textAlign: 'right', fontWeight: '700' },
+  tblHeadText: { fontWeight: '800', fontSize: 11, color: colors.textMuted },
+  tblTotalText: { fontWeight: '900', fontSize: 12.5 },
   termsMuted: { fontSize: 11, color: colors.textMuted, fontStyle: 'italic', marginBottom: 4 },
+  pestListWrap: { flexDirection: 'row', flexWrap: 'wrap' },
+  pestTag: { backgroundColor: '#E9FBF6', borderRadius: 6, paddingVertical: 3, paddingHorizontal: 8, marginRight: 6, marginBottom: 6, borderWidth: 1, borderColor: colors.border },
+  pestTagText: { fontSize: 11, color: colors.primaryDark, fontWeight: '700' },
+  terms: { fontSize: 10.5, color: colors.textMuted, lineHeight: 15, marginBottom: 8 },
   signBlock: { marginTop: 12, borderTopWidth: 1, borderColor: colors.border, paddingTop: 12 },
   initialsRow: { flexDirection: 'row', alignItems: 'center' },
   signLabel: { fontSize: 12, fontWeight: '800', color: colors.text },
@@ -541,39 +573,14 @@ const styles = StyleSheet.create({
   signedOn: { fontSize: 10, color: colors.textMuted, marginTop: 6, fontStyle: 'italic' },
   controls: { marginTop: 14 },
   controlLabel: { fontSize: 13, color: colors.textMuted, fontWeight: '700', marginBottom: 4 },
-  input: {
-    backgroundColor: '#fff',
-    borderRadius: 10,
-    borderWidth: 1,
-    borderColor: colors.border,
-    padding: 12,
-    fontSize: 15,
-    color: colors.text,
-    letterSpacing: 2,
-  },
+  input: { backgroundColor: '#fff', borderRadius: 10, borderWidth: 1, borderColor: colors.border, padding: 12, fontSize: 15, color: colors.text, letterSpacing: 2 },
   clearBtn: { flexDirection: 'row', alignItems: 'center', alignSelf: 'flex-end', marginTop: 8 },
   clearBtnText: { color: colors.primaryDark, fontWeight: '700', fontSize: 13, marginLeft: 4 },
   agreeRow: { flexDirection: 'row', alignItems: 'center', marginTop: 14 },
-  checkbox: {
-    width: 24,
-    height: 24,
-    borderRadius: 6,
-    borderWidth: 2,
-    borderColor: colors.primary,
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginRight: 10,
-  },
+  checkbox: { width: 24, height: 24, borderRadius: 6, borderWidth: 2, borderColor: colors.primary, alignItems: 'center', justifyContent: 'center' },
   checkboxOn: { backgroundColor: colors.primary },
-  agreeText: { flex: 1, fontSize: 13, color: colors.text, lineHeight: 18 },
+  agreeText: { flex: 1, fontSize: 13, color: colors.text, lineHeight: 18, marginLeft: 10 },
   bottomBar: { padding: 14, backgroundColor: '#fff', borderTopWidth: 1, borderColor: colors.border },
-  submitBtn: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: colors.primary,
-    borderRadius: 14,
-    paddingVertical: 15,
-  },
+  submitBtn: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', backgroundColor: colors.primary, borderRadius: 14, paddingVertical: 15 },
   submitText: { color: '#0D0D0D', fontWeight: '900', fontSize: 16, marginLeft: 8 },
 });
