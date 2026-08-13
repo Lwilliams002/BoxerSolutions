@@ -71,14 +71,14 @@ export default function CustomersScreen() {
           autoCapitalize="none"
         />
       </View>
-      <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.filters} contentContainerStyle={{ paddingHorizontal: 16 }}>
+      <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.filters} contentContainerStyle={{ paddingHorizontal: 16, paddingRight: 24, alignItems: 'center' }}>
         {FILTERS.map((f) => (
           <TouchableOpacity
             key={f.label}
             style={[styles.chip, filter === f.key && styles.chipActive]}
             onPress={() => setFilter(f.key)}
           >
-            <Text style={[styles.chipText, filter === f.key && styles.chipTextActive]}>{f.label}</Text>
+            <Text numberOfLines={1} style={[styles.chipText, filter === f.key && styles.chipTextActive]}>{f.label}</Text>
           </TouchableOpacity>
         ))}
       </ScrollView>
@@ -141,9 +141,12 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: colors.border,
     marginRight: 8,
+    flexShrink: 0,
+    flexDirection: 'row',
+    alignItems: 'center',
   },
   chipActive: { backgroundColor: colors.primary, borderColor: colors.primary },
-  chipText: { fontSize: 13, color: colors.text, fontWeight: '600' },
+  chipText: { fontSize: 13, color: colors.text, fontWeight: '600', flexShrink: 0 },
   chipTextActive: { color: '#0D0D0D', fontWeight: '800' },
   card: {
     backgroundColor: colors.card,
