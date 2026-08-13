@@ -76,7 +76,7 @@ export default function CustomersScreen() {
         data={FILTERS}
         keyExtractor={(f) => f.label}
         style={styles.filters}
-        contentContainerStyle={{ paddingLeft: 16, paddingRight: 16 }}
+        contentContainerStyle={{ paddingLeft: 16, paddingRight: 16, alignItems: 'center' }}
         renderItem={({ item: f }) => (
           <TouchableOpacity
             style={[styles.chip, filter === f.key && styles.chipActive]}
@@ -136,18 +136,20 @@ const styles = StyleSheet.create({
     fontSize: 15,
     color: colors.text,
   },
-  filters: { flexGrow: 0, marginVertical: 10 },
+  filters: { flexGrow: 0, height: 56, marginTop: 8, marginBottom: 4 },
   chip: {
+    height: 38,
     paddingHorizontal: 16,
-    paddingVertical: 8,
     borderRadius: 20,
     backgroundColor: '#fff',
     borderWidth: 1,
     borderColor: colors.border,
     marginRight: 8,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   chipActive: { backgroundColor: colors.primary, borderColor: colors.primary },
-  chipText: { fontSize: 13, color: colors.text, fontWeight: '600' },
+  chipText: { fontSize: 13, lineHeight: 18, color: colors.text, fontWeight: '600' },
   chipTextActive: { color: '#0D0D0D', fontWeight: '800' },
   card: {
     backgroundColor: colors.card,
