@@ -65,6 +65,7 @@ export default function AgreementScreen() {
   const [initials, setInitials] = useState('');
   const [agreed, setAgreed] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [scrollEnabled, setScrollEnabled] = useState(true);
 
   const [homeSizeIdx, setHomeSizeIdx] = useState<number | null>(null);
   const [yardOn, setYardOn] = useState(false);
@@ -207,7 +208,7 @@ export default function AgreementScreen() {
 
   return (
     <View style={{ flex: 1, backgroundColor: colors.bg }}>
-      <ScrollView contentContainerStyle={styles.scroll} keyboardShouldPersistTaps="handled">
+      <ScrollView contentContainerStyle={styles.scroll} keyboardShouldPersistTaps="handled" scrollEnabled={scrollEnabled}>
         {/* ---------- Standard Four Point Service ---------- */}
         <Text style={styles.pickHeader}>Standard Four Point Service</Text>
         <Text style={styles.pickSub}>Select home size — sets the initial &amp; recurring rate.</Text>
@@ -423,7 +424,12 @@ export default function AgreementScreen() {
               <Text style={styles.initialsValue}>{initials.toUpperCase()}</Text>
             </View>
             <Text style={[styles.signLabel, { marginTop: 10 }]}>Customer Signature:</Text>
-            <SignaturePad ref={padRef} height={160} />
+            <SignaturePad
+              ref={padRef}
+              height={160}
+              onStrokeStart={() => setScrollEnabled(false)}
+              onStrokeEnd={() => setScrollEnabled(true)}
+            />
             <Text style={styles.signedOn}>Signed on: {signedDate}</Text>
           </View>
         </View>

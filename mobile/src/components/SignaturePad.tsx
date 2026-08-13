@@ -10,8 +10,10 @@ export interface SignaturePadHandle {
   capture: () => Promise<string>;
 }
 
-export const SignaturePad = React.forwardRef<SignaturePadHandle, { height?: number }>(
-  ({ height = 260 }, ref) => {
+export const SignaturePad = React.forwardRef<
+  SignaturePadHandle,
+  { height?: number; onStrokeStart?: () => void; onStrokeEnd?: () => void }
+>(({ height = 260, onStrokeStart, onStrokeEnd }, ref) => {
     const [paths, setPaths] = useState<string[]>([]);
     const currentPath = useRef<string>('');
     const [livePath, setLivePath] = useState<string>('');
@@ -20,8 +22,13 @@ export const SignaturePad = React.forwardRef<SignaturePadHandle, { height?: numb
     const panResponder = useRef(
       PanResponder.create({
         onStartShouldSetPanResponder: () => true,
+        onStartShouldSetPanResponderCapture: () => true,
         onMoveShouldSetPanResponder: () => true,
+        onMoveShouldSetPanResponderCapture: () => true,
+        onPanResponderTerminationRequest: () => false,
+        onShouldBlockNativeResponder: () => true,
         onPanResponderGrant: (evt) => {
+          onStrokeStart?.();
           const { locationX, locationY } = evt.nativeEvent;
           currentPath.current = `M${locationX.toFixed(1)},${locationY.toFixed(1)}`;
           setLivePath(currentPath.current);
@@ -37,6 +44,10 @@ export const SignaturePad = React.forwardRef<SignaturePadHandle, { height?: numb
             currentPath.current = '';
             setLivePath('');
           }
+          onStrokeEnd?.();
+        },
+        onPanResponderTerminate: () => {
+          onStrokeEnd?.();
         },
       }),
     ).current;
