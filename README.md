@@ -1,97 +1,110 @@
-This is a new [**React Native**](https://reactnative.dev) project, bootstrapped using [`@react-native-community/cli`](https://github.com/react-native-community/cli).
+# AntServe — Field Service Management Platform
 
-# Getting Started
+A production-ready field service management platform: React Native (Expo) mobile app, Node.js + TypeScript REST API, PostgreSQL (Amazon RDS-ready), and S3-compatible object storage (Wasabi in production, MinIO locally).
 
-> **Note**: Make sure you have completed the [Set Up Your Environment](https://reactnative.dev/docs/set-up-your-environment) guide before proceeding.
-
-## Step 1: Start Metro
-
-First, you will need to run **Metro**, the JavaScript build tool for React Native.
-
-To start the Metro dev server, run the following command from the root of your React Native project:
-
-```sh
-# Using npm
-npm start
-
-# OR using Yarn
-yarn start
+```text
+React Native (Expo)
+        │
+        ▼
+REST API  (Express, /api/v1)
+        │
+Controllers → Services → Repositories
+        │
+PostgreSQL (RDS)          Object Storage (Wasabi / MinIO)
 ```
 
-## Step 2: Build and run your app
+## Repository layout
 
-With Metro running, open a new terminal window/pane from the root of your React Native project, and use one of the following commands to build and run your Android or iOS app:
-
-### Android
-
-```sh
-# Using npm
-npm run android
-
-# OR using Yarn
-yarn android
+```text
+backend/    Node.js + TypeScript API (Express, pg, zod, pino)
+mobile/     React Native app (Expo Router, TanStack Query, Zustand)
+infra/      Local infrastructure (docker-compose: Postgres + MinIO)
+docs/       AWS deployment & Wasabi switchover guides
 ```
 
-### iOS
+## Quick start (local development)
 
-For iOS, remember to install CocoaPods dependencies (this only needs to be run on first clone or after updating native deps).
+Prerequisites: Docker Desktop, Node 20+, npm.
 
-The first time you create a new project, run the Ruby bundler to install CocoaPods itself:
+### 1. Start infrastructure
 
-```sh
-bundle install
+```bash
+cd infra
+docker compose up -d
 ```
 
-Then, and every time you update your native dependencies, run:
+Starts PostgreSQL on `localhost:5433` and MinIO (Wasabi-compatible) on `localhost:9000` (console: `localhost:9001`, user `sfa-storage-key` / `sfa-storage-secret`).
 
-```sh
-bundle exec pod install
+### 2. Start the API
+
+```bash
+cd backend
+cp .env.example .env      # local defaults work out of the box
+npm install
+npm run migrate           # apply database migrations
+npm run seed              # load demo data
+npm run dev               # API on http://localhost:4000
 ```
 
-For more information, please visit [CocoaPods Getting Started guide](https://guides.cocoapods.org/using/getting-started.html).
+### 3. Run the mobile app
 
-```sh
-# Using npm
-npm run ios
-
-# OR using Yarn
-yarn ios
+```bash
+cd mobile
+npm install
+npm start                 # Expo dev server; press i for iOS simulator
 ```
 
-If everything is set up correctly, you should see your new app running in the Android Emulator, iOS Simulator, or your connected device.
+The app auto-detects the API host from the Expo dev server. For a physical device on another network path, set it explicitly:
 
-This is one way to run your app — you can also build it directly from Android Studio or Xcode.
+```bash
+EXPO_PUBLIC_API_URL=http://<your-lan-ip>:4000 npm start
+```
 
-## Step 3: Modify your app
+## Demo logins
 
-Now that you have successfully run the app, let's make changes!
+All passwords: `Demo1234!`
 
-Open `App.tsx` in your text editor of choice and make some changes. When you save, your app will automatically update and reflect these changes — this is powered by [Fast Refresh](https://reactnative.dev/docs/fast-refresh).
+| Email | Role |
+|---|---|
+| owner@antserve.dev | OWNER (full access) |
+| admin@antserve.dev | ADMIN |
+| office@antserve.dev | OFFICE_MANAGER |
+| sales@antserve.dev | SALES |
+| tech1@antserve.dev … tech5@antserve.dev | TECHNICIAN |
 
-When you want to forcefully reload, for example to reset the state of your app, you can perform a full reload:
+Demo payment tokens (mock provider): `tok_visa_4242`, `tok_mastercard_5454`, `tok_amex_0005`. Any token containing `declined` (e.g. `tok_declined_0002`) produces a card that fails charges — useful for testing the failed-payment path.
 
-- **Android**: Press the <kbd>R</kbd> key twice or select **"Reload"** from the **Dev Menu**, accessed via <kbd>Ctrl</kbd> + <kbd>M</kbd> (Windows/Linux) or <kbd>Cmd ⌘</kbd> + <kbd>M</kbd> (macOS).
-- **iOS**: Press <kbd>R</kbd> in iOS Simulator.
+## Key features
 
-## Congratulations! :tada:
+- **Technician workflow**: today's route → stop → On My Way → Arrived → Start Service → notes/photos/signature → Complete → auto-invoice → collect payment → receipt → service history.
+- **Routes**: map + ordered stop list, time-window-aware route optimization (provider-abstracted), Start Navigation deep link.
+- **Scheduling**: day-view schedule, conflict detection, recurring subscriptions generating future appointments.
+- **Invoicing**: automatic invoice generation on completion, PDF generation stored in object storage, signed download URLs.
+- **Payments**: tokenized payment methods (no card data stored), charge/receipt/failed-payment handling, AutoPay job.
+- **Offline-first mobile**: local mutation queue with idempotency keys, photos kept on device until upload is confirmed, OFFLINE / SYNCING / SYNC ERROR states.
+- **Security**: JWT access + rotating refresh tokens, DB-stored RBAC permissions, technician data scoping, audit logging, presigned URLs only (no storage credentials on device).
 
-You've successfully run and modified your React Native App. :partying_face:
+## API overview
 
-### Now what?
+Base URL `/api/v1`. Response envelope:
 
-- If you want to add this new React Native code to an existing application, check out the [Integration guide](https://reactnative.dev/docs/integration-with-existing-apps).
-- If you're curious to learn more about React Native, check out the [docs](https://reactnative.dev/docs/getting-started).
+```json
+{ "success": true, "data": {}, "message": null }
+```
 
-# Troubleshooting
+Resources: `auth`, `users`, `customers`, `locations`, `services`, `appointments`, `routes`, `invoices`, `payments`, `payment-methods`, `subscriptions`, `files`, `notes`, `notifications`, `dashboard`, `reports`.
 
-If you're having issues getting the above steps to work, see the [Troubleshooting](https://reactnative.dev/docs/troubleshooting) page.
+Mutating endpoints accept an `Idempotency-Key` header; replays return the original response without duplicating records.
 
-# Learn More
+## Verification
 
-To learn more about React Native, take a look at the following resources:
+`backend/scripts/e2e-milestone.sh` exercises the full end-to-end milestone (login → customer → appointment → route → technician workflow → photo upload → signature → complete → invoice PDF → declined + successful charge → receipt → service history → security checks). Run it with the API and infra up:
 
-- [React Native Website](https://reactnative.dev) - learn more about React Native.
-- [Getting Started](https://reactnative.dev/docs/environment-setup) - an **overview** of React Native and how setup your environment.
-- [Learn the Basics](https://reactnative.dev/docs/getting-started) - a **guided tour** of the React Native **basics**.
-- [Blog](https://reactnative.dev/blog) - read the latest official React Native **Blog** posts.
-- [`@facebook/react-native`](https://github.com/facebook/react-native) - the Open Source; GitHub **repository** for React Native.
+```bash
+backend/scripts/e2e-milestone.sh
+```
+
+## Production deployment
+
+- [AWS deployment guide](docs/aws-deployment.md) — RDS, ECS/Fargate, Secrets Manager, API Gateway, CloudWatch.
+- [Wasabi switchover](docs/wasabi.md) — moving object storage from local MinIO to Wasabi (env-only change).
