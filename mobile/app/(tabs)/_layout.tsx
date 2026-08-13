@@ -43,7 +43,7 @@ export default function TabsLayout() {
       />
       <Tabs.Screen
         name="routes"
-        options={{ title: 'Routes', tabBarIcon: icon('navigate', 'navigate-outline') }}
+        options={{ title: 'Routes', headerShown: false, tabBarIcon: icon('navigate', 'navigate-outline') }}
       />
       <Tabs.Screen
         name="schedule"
