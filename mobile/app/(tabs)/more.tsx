@@ -70,5 +70,5 @@ const styles = StyleSheet.create({
   meta: { fontSize: 13, color: colors.textMuted, marginTop: 4 },
   brandRow: { marginBottom: 12, paddingBottom: 12, borderBottomWidth: StyleSheet.hairlineWidth, borderColor: colors.border },
   brandName: { fontSize: 18, fontWeight: '900', color: colors.text, letterSpacing: 0.5 },
-  brandSub: { fontSize: 13, fontWeight: '700', color: colors.primary, letterSpacing: 1, textTransform: 'uppercase', marginTop: 2 },
+  brandSub: { fontSize: 13, fontWeight: '700', color: colors.primaryDark, letterSpacing: 1, textTransform: 'uppercase', marginTop: 2 },
 });

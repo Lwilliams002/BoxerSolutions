@@ -39,10 +39,13 @@ export default function LoginScreen() {
       {/* Brand header — dark background matching the logo */}
       <View style={styles.header}>
         <Image
-          source={require('../../assets/logo.png')}
+          source={require('../../assets/logo-mark.png')}
           style={styles.logo}
           resizeMode="contain"
         />
+        <Text style={styles.brandName}>BOXER SOLUTIONS</Text>
+        <View style={styles.brandRule} />
+        <Text style={styles.brandSub}>PEST CONTROL</Text>
       </View>
 
       {/* Login card */}
@@ -92,8 +95,28 @@ const styles = StyleSheet.create({
     paddingTop: 40,
   },
   logo: {
-    width: 260,
-    height: 260,
+    width: 170,
+    height: 170,
+    marginBottom: 18,
+  },
+  brandName: {
+    color: '#FFFFFF',
+    fontSize: 26,
+    fontWeight: '900',
+    letterSpacing: 2,
+  },
+  brandRule: {
+    width: 56,
+    height: 3,
+    backgroundColor: '#2DC4A2',
+    borderRadius: 2,
+    marginVertical: 10,
+  },
+  brandSub: {
+    color: '#2DC4A2',
+    fontSize: 14,
+    fontWeight: '700',
+    letterSpacing: 6,
   },
   card: {
     backgroundColor: '#FFFFFF',

@@ -1,11 +1,15 @@
 import React from 'react';
-import { ColorValue, Text } from 'react-native';
+import { ColorValue } from 'react-native';
 import { Tabs } from 'expo-router';
+import { Ionicons } from '@expo/vector-icons';
 import { useAuth } from '../../src/lib/authStore';
-import { colors } from '../../src/lib/theme';
 
-function TabIcon({ glyph, color }: { glyph: string; color: ColorValue }) {
-  return <Text style={{ fontSize: 20, color }}>{glyph}</Text>;
+type IconName = keyof typeof Ionicons.glyphMap;
+
+function icon(focused: IconName, unfocused: IconName) {
+  return ({ color, focused: f, size }: { color: ColorValue; focused: boolean; size: number }) => (
+    <Ionicons name={f ? focused : unfocused} size={size} color={color} />
+  );
 }
 
 export default function TabsLayout() {
@@ -18,28 +22,35 @@ export default function TabsLayout() {
   return (
     <Tabs
       screenOptions={{
-        tabBarStyle: { backgroundColor: '#0D0D0D', borderTopColor: '#1A1A1A' },
+        tabBarStyle: {
+          backgroundColor: '#0D0D0D',
+          borderTopColor: '#222',
+          borderTopWidth: 1,
+          paddingTop: 4,
+        },
         tabBarActiveTintColor: '#2DC4A2',
-        tabBarInactiveTintColor: '#607D78',
+        tabBarInactiveTintColor: '#6B7C78',
+        tabBarLabelStyle: { fontSize: 11, fontWeight: '600' },
         headerStyle: { backgroundColor: '#0D0D0D' },
         headerTintColor: '#2DC4A2',
         headerTitleStyle: { color: '#FFFFFF', fontWeight: '700' },
+        headerShadowVisible: false,
       }}
     >
       <Tabs.Screen
         name="index"
-        options={{ title: 'Dashboard', tabBarIcon: ({ color }) => <TabIcon glyph="◈" color={color} /> }}
+        options={{ title: 'Dashboard', headerShown: false, tabBarIcon: icon('grid', 'grid-outline') }}
       />
       <Tabs.Screen
         name="routes"
-        options={{ title: 'Routes', tabBarIcon: ({ color }) => <TabIcon glyph="⚑" color={color} /> }}
+        options={{ title: 'Routes', tabBarIcon: icon('navigate', 'navigate-outline') }}
       />
       <Tabs.Screen
         name="schedule"
         options={{
           title: 'Schedule',
           href: canSchedule ? undefined : null,
-          tabBarIcon: ({ color }) => <TabIcon glyph="▦" color={color} />,
+          tabBarIcon: icon('calendar', 'calendar-outline'),
         }}
       />
       <Tabs.Screen
@@ -47,7 +58,7 @@ export default function TabsLayout() {
         options={{
           title: 'Customers',
           href: canCustomers ? undefined : null,
-          tabBarIcon: ({ color }) => <TabIcon glyph="◉" color={color} />,
+          tabBarIcon: icon('people', 'people-outline'),
         }}
       />
       <Tabs.Screen
@@ -55,12 +66,12 @@ export default function TabsLayout() {
         options={{
           title: 'Invoices',
           href: canInvoices ? undefined : null,
-          tabBarIcon: ({ color }) => <TabIcon glyph="▤" color={color} />,
+          tabBarIcon: icon('receipt', 'receipt-outline'),
         }}
       />
       <Tabs.Screen
         name="more"
-        options={{ title: 'More', tabBarIcon: ({ color }) => <TabIcon glyph="≡" color={color} /> }}
+        options={{ title: 'More', tabBarIcon: icon('menu', 'menu-outline') }}
       />
     </Tabs>
   );

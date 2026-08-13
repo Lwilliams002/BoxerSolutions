@@ -120,7 +120,7 @@ export default function CustomerScreen() {
         <Text style={styles.name}>{name}</Text>
         <Row style={{ marginTop: 6 }}>
           <StatusBadge status={cust.status} />
-          <Text style={[styles.balance, parseFloat(cust.balance) > 0 && { color: colors.danger }]}>
+          <Text style={[styles.balance, parseFloat(cust.balance) > 0 && { color: '#FF7A6E' }]}>
             Balance {money(cust.balance)}
           </Text>
         </Row>
@@ -339,14 +339,14 @@ export default function CustomerScreen() {
 }
 
 const styles = StyleSheet.create({
-  headerCard: { backgroundColor: colors.card, padding: 16, borderBottomWidth: 1, borderColor: colors.border },
-  name: { fontSize: 20, fontWeight: '800', color: colors.text },
-  balance: { fontSize: 15, fontWeight: '700', color: colors.success },
+  headerCard: { backgroundColor: '#0D0D0D', padding: 18, paddingBottom: 16 },
+  name: { fontSize: 21, fontWeight: '900', color: '#FFFFFF' },
+  balance: { fontSize: 15, fontWeight: '800', color: '#2DC4A2' },
   tabs: { flexGrow: 0, backgroundColor: colors.card, borderBottomWidth: 1, borderColor: colors.border },
   tab: { paddingHorizontal: 14, paddingVertical: 12 },
   tabActive: { borderBottomWidth: 3, borderColor: colors.primary },
   tabText: { fontSize: 14, color: colors.textMuted, fontWeight: '600' },
-  tabTextActive: { color: colors.primary },
+  tabTextActive: { color: colors.primaryDark, fontWeight: '800' },
   content: { padding: 16, paddingBottom: 60 },
   metaText: { fontSize: 13, color: colors.textMuted, marginTop: 4 },
   accessNotes: { fontSize: 13, color: colors.warning, marginTop: 4, fontStyle: 'italic' },
@@ -361,5 +361,5 @@ const styles = StyleSheet.create({
     marginVertical: 8,
     color: colors.text,
   },
-  link: { color: colors.primary, fontWeight: '700', fontSize: 14 },
+  link: { color: colors.primaryDark, fontWeight: '700', fontSize: 14 },
 });

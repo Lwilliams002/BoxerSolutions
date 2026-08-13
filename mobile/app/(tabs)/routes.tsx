@@ -67,11 +67,14 @@ export default function RoutesScreen() {
 const styles = StyleSheet.create({
   card: {
     backgroundColor: colors.card,
-    borderRadius: 12,
+    borderRadius: 16,
     padding: 14,
-    marginBottom: 10,
-    borderWidth: StyleSheet.hairlineWidth,
-    borderColor: colors.border,
+    marginBottom: 12,
+    shadowColor: '#0D0D0D',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.06,
+    shadowRadius: 8,
+    elevation: 2,
   },
   header: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
   title: { fontSize: 16, fontWeight: '700', color: colors.text, flex: 1, marginRight: 8 },
