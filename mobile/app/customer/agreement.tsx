@@ -496,8 +496,11 @@ function SigningOverlay({ onCancel, onDone }: { onCancel: () => void; onDone: (u
     }
     setSaving(true);
     try {
-      const uri = await padRef.current!.capture();
-      onDone(uri);
+      const tmp = await padRef.current!.capture();
+      // Copy out of the volatile tmp dir immediately and normalize to a file:// URI.
+      const src = tmp.startsWith('file://') ? tmp : `file://${tmp}`;
+      const stored = await persistLocally(src, `signature-${Date.now()}.png`);
+      onDone(stored.startsWith('file://') ? stored : `file://${stored}`);
     } catch (e) {
       Alert.alert('Error', (e as Error).message);
     } finally {
