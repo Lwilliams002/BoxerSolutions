@@ -8,8 +8,9 @@ import {
   Alert,
   TouchableOpacity,
   Image,
+  Modal,
 } from 'react-native';
-import { useLocalSearchParams, useRouter } from 'expo-router';
+import { useLocalSearchParams, useRouter, Stack } from 'expo-router';
 import { useQueryClient } from '@tanstack/react-query';
 import { captureRef } from 'react-native-view-shot';
 import { Ionicons } from '@expo/vector-icons';
@@ -208,6 +209,7 @@ export default function AgreementScreen() {
 
   return (
     <View style={{ flex: 1, backgroundColor: colors.bg }}>
+      <Stack.Screen options={{ gestureEnabled: !signing }} />
       <ScrollView contentContainerStyle={styles.scroll} keyboardShouldPersistTaps="handled">
         {/* ---------- Standard Four Point Service ---------- */}
         <Text style={styles.pickHeader}>Standard Four Point Service</Text>
@@ -504,30 +506,32 @@ function SigningOverlay({ onCancel, onDone }: { onCancel: () => void; onDone: (u
   };
 
   return (
-    <View style={styles.overlay}>
-      <View style={styles.overlayHeader}>
-        <TouchableOpacity onPress={onCancel} style={styles.overlayClose}>
-          <Ionicons name="close" size={26} color={colors.text} />
-        </TouchableOpacity>
-        <Text style={styles.overlayTitle}>Sign Agreement</Text>
-        <View style={{ width: 26 }} />
+    <Modal visible animationType="fade" presentationStyle="fullScreen" onRequestClose={onCancel}>
+      <View style={styles.overlay}>
+        <View style={styles.overlayHeader}>
+          <TouchableOpacity onPress={onCancel} style={styles.overlayClose}>
+            <Ionicons name="close" size={26} color={colors.text} />
+          </TouchableOpacity>
+          <Text style={styles.overlayTitle}>Sign Agreement</Text>
+          <View style={{ width: 26 }} />
+        </View>
+        <Text style={styles.overlayHint}>Sign inside the box below. The page won't move.</Text>
+        <View style={styles.overlayPadWrap}>
+          <SignaturePad ref={padRef} height={320} />
+          <View style={styles.overlaySignLine} />
+        </View>
+        <View style={styles.overlayActions}>
+          <TouchableOpacity style={styles.overlayClearBtn} onPress={() => padRef.current?.clear()}>
+            <Ionicons name="refresh" size={18} color={colors.primaryDark} />
+            <Text style={styles.overlayClearText}>Clear</Text>
+          </TouchableOpacity>
+          <TouchableOpacity style={[styles.overlaySaveBtn, saving && { opacity: 0.6 }]} onPress={save} disabled={saving}>
+            <Ionicons name="checkmark" size={20} color="#0D0D0D" />
+            <Text style={styles.overlaySaveText}>{saving ? 'Saving…' : 'Done'}</Text>
+          </TouchableOpacity>
+        </View>
       </View>
-      <Text style={styles.overlayHint}>Sign inside the box below. The page won't move.</Text>
-      <View style={styles.overlayPadWrap}>
-        <SignaturePad ref={padRef} height={320} />
-        <View style={styles.overlaySignLine} />
-      </View>
-      <View style={styles.overlayActions}>
-        <TouchableOpacity style={styles.overlayClearBtn} onPress={() => padRef.current?.clear()}>
-          <Ionicons name="refresh" size={18} color={colors.primaryDark} />
-          <Text style={styles.overlayClearText}>Clear</Text>
-        </TouchableOpacity>
-        <TouchableOpacity style={[styles.overlaySaveBtn, saving && { opacity: 0.6 }]} onPress={save} disabled={saving}>
-          <Ionicons name="checkmark" size={20} color="#0D0D0D" />
-          <Text style={styles.overlaySaveText}>{saving ? 'Saving…' : 'Done'}</Text>
-        </TouchableOpacity>
-      </View>
-    </View>
+    </Modal>
   );
 }
 
@@ -667,15 +671,10 @@ const styles = StyleSheet.create({
   signPlaceholder: { alignItems: 'center' },
   signPlaceholderText: { color: colors.primaryDark, fontWeight: '800', fontSize: 14, marginTop: 4 },
   overlay: {
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
-    bottom: 0,
+    flex: 1,
     backgroundColor: '#fff',
     paddingTop: 54,
     paddingHorizontal: 16,
-    zIndex: 100,
   },
   overlayHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
   overlayClose: { padding: 4 },
