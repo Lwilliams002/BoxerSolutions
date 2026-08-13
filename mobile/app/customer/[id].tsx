@@ -7,7 +7,7 @@ import { useAuth } from '../../src/lib/authStore';
 import { colors, money, fmtDate, fmtTime } from '../../src/lib/theme';
 import { Card, Button, StatusBadge, Loading, Row, Value, Label, EmptyState } from '../../src/components/ui';
 
-const TABS = ['Overview', 'Appointments', 'Invoices', 'Payments', 'Notes', 'Payment Methods', 'History'] as const;
+const TABS = ['Overview', 'Appointments', 'Invoices', 'Payments', 'Notes', 'Documents', 'Payment Methods', 'History'] as const;
 type Tab = (typeof TABS)[number];
 
 export default function CustomerScreen() {
@@ -54,6 +54,20 @@ export default function CustomerScreen() {
     queryFn: () => api<any[]>(`/customers/${id}/service-history`),
     enabled: tab === 'History',
   });
+  const { data: docs } = useQuery({
+    queryKey: ['customerDocs', id],
+    queryFn: () => api<{ items: any[] }>(`/files?customerId=${id}&fileType=document&pageSize=50`),
+    enabled: tab === 'Documents',
+  });
+
+  const openDocument = async (fileId: string) => {
+    try {
+      const { downloadUrl } = await api<{ downloadUrl: string }>(`/files/${fileId}/download`);
+      await Linking.openURL(downloadUrl);
+    } catch (e) {
+      Alert.alert('Error', (e as Error).message);
+    }
+  };
 
   const addNote = async () => {
     if (!noteText.trim()) return;
@@ -331,6 +345,29 @@ export default function CustomerScreen() {
                   </Text>
                 ) : null}
               </Card>
+            ))
+          ))}
+        {tab === 'Documents' &&
+          ((docs?.items?.length ?? 0) === 0 ? (
+            <EmptyState title="No documents" subtitle="Signed agreements and uploads appear here." />
+          ) : (
+            docs!.items.map((d) => (
+              <TouchableOpacity key={d.id} onPress={() => openDocument(d.id)}>
+                <Card>
+                  <Row>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', flex: 1 }}>
+                      <Text style={{ fontSize: 20, marginRight: 10 }}>📄</Text>
+                      <View style={{ flex: 1 }}>
+                        <Text style={{ fontWeight: '700', color: colors.text, fontSize: 15 }} numberOfLines={1}>
+                          {d.fileName?.startsWith('service-agreement') ? 'Service Agreement' : d.fileName}
+                        </Text>
+                        <Text style={styles.metaText}>{fmtDate(d.createdAt)}</Text>
+                      </View>
+                    </View>
+                    <Text style={{ color: colors.primaryDark, fontWeight: '800' }}>View</Text>
+                  </Row>
+                </Card>
+              </TouchableOpacity>
             ))
           ))}
       </ScrollView>

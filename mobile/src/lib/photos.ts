@@ -4,7 +4,7 @@ import { api } from './api';
 
 export interface PendingPhoto {
   localUri: string;
-  fileType: 'service_photo' | 'customer_photo' | 'signature';
+  fileType: 'service_photo' | 'customer_photo' | 'signature' | 'document';
   fileName: string;
   mimeType: string;
   customerId?: string | null;
@@ -29,9 +29,8 @@ export async function persistLocally(uri: string, fileName: string): Promise<str
 }
 
 interface UploadAuthorization {
-  fileId: string;
+  file: { id: string; storageObjectKey: string };
   uploadUrl: string;
-  objectKey: string;
 }
 
 /**
@@ -58,8 +57,8 @@ export async function uploadPendingPhoto(photo: PendingPhoto): Promise<string> {
     throw new Error(`Storage upload failed (${result.status})`);
   }
 
-  await api(`/files/${auth.fileId}/confirm`, { method: 'POST', body: {} });
+  await api(`/files/${auth.file.id}/confirm`, { method: 'POST', body: {} });
 
   await FileSystem.deleteAsync(photo.localUri, { idempotent: true }).catch(() => {});
-  return auth.fileId;
+  return auth.file.id;
 }

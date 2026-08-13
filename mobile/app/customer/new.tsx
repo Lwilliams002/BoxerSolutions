@@ -66,39 +66,28 @@ export default function NewCustomerScreen() {
       setError('Service address, city and postal code are required.');
       return;
     }
-    setBusy(true);
-    try {
-      const created = await api<{ id: string }>('/customers', {
-        method: 'POST',
-        body: {
-          firstName: firstName.trim(),
-          lastName: lastName.trim(),
-          company: company.trim() || null,
-          email: email.trim() || null,
-          phone: phone.trim() || null,
-          customerType: commercial ? 'commercial' : 'residential',
-          status: 'active',
-          autopayEnabled: false,
-          billingAddressLine1: (sameBilling ? address1 : billing1).trim() || null,
-          billingCity: (sameBilling ? city : billingCity).trim() || null,
-          billingState: (sameBilling ? state : billingState).trim() || null,
-          billingPostalCode: (sameBilling ? postal : billingPostal).trim() || null,
-          serviceLocation: {
-            label: 'Primary',
-            addressLine1: address1.trim(),
-            city: city.trim(),
-            state: state.trim(),
-            postalCode: postal.trim(),
-          },
-        },
-      });
-      void qc.invalidateQueries({ queryKey: ['customers'] });
-      router.replace(`/customer/${created.id}`);
-    } catch (e) {
-      setError((e as Error).message);
-    } finally {
-      setBusy(false);
-    }
+    const payload = {
+      firstName: firstName.trim(),
+      lastName: lastName.trim(),
+      company: company.trim() || null,
+      email: email.trim() || null,
+      phone: phone.trim() || null,
+      customerType: commercial ? 'commercial' : 'residential',
+      status: 'active',
+      autopayEnabled: false,
+      billingAddressLine1: (sameBilling ? address1 : billing1).trim() || null,
+      billingCity: (sameBilling ? city : billingCity).trim() || null,
+      billingState: (sameBilling ? state : billingState).trim() || null,
+      billingPostalCode: (sameBilling ? postal : billingPostal).trim() || null,
+      serviceLocation: {
+        label: 'Primary',
+        addressLine1: address1.trim(),
+        city: city.trim(),
+        state: state.trim(),
+        postalCode: postal.trim(),
+      },
+    };
+    router.push({ pathname: '/customer/agreement', params: { payload: JSON.stringify(payload) } });
   };
 
   return (
@@ -147,7 +136,7 @@ export default function NewCustomerScreen() {
       )}
 
       {error ? <ErrorText message={error} /> : null}
-      <Button title="Create Customer" onPress={save} loading={busy} style={{ marginTop: 12 }} />
+      <Button title="Continue to Agreement →" onPress={save} loading={busy} style={{ marginTop: 12 }} />
     </ScrollView>
   );
 }
