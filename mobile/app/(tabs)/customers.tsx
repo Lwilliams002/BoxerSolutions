@@ -6,7 +6,6 @@ import {
   StyleSheet,
   TouchableOpacity,
   TextInput,
-  ScrollView,
 } from 'react-native';
 import { useQuery } from '@tanstack/react-query';
 import { useRouter } from 'expo-router';
@@ -71,17 +70,22 @@ export default function CustomersScreen() {
           autoCapitalize="none"
         />
       </View>
-      <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.filters} contentContainerStyle={{ paddingHorizontal: 16, paddingRight: 24, alignItems: 'center' }}>
-        {FILTERS.map((f) => (
+      <FlatList
+        horizontal
+        showsHorizontalScrollIndicator={false}
+        data={FILTERS}
+        keyExtractor={(f) => f.label}
+        style={styles.filters}
+        contentContainerStyle={{ paddingLeft: 16, paddingRight: 16 }}
+        renderItem={({ item: f }) => (
           <TouchableOpacity
-            key={f.label}
             style={[styles.chip, filter === f.key && styles.chipActive]}
             onPress={() => setFilter(f.key)}
           >
-            <Text numberOfLines={1} style={[styles.chipText, filter === f.key && styles.chipTextActive]}>{f.label}</Text>
+            <Text style={[styles.chipText, filter === f.key && styles.chipTextActive]}>{f.label}</Text>
           </TouchableOpacity>
-        ))}
-      </ScrollView>
+        )}
+      />
 
       {isLoading ? (
         <Loading />
@@ -134,19 +138,16 @@ const styles = StyleSheet.create({
   },
   filters: { flexGrow: 0, marginVertical: 10 },
   chip: {
-    paddingHorizontal: 14,
-    paddingVertical: 7,
-    borderRadius: 18,
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    borderRadius: 20,
     backgroundColor: '#fff',
     borderWidth: 1,
     borderColor: colors.border,
     marginRight: 8,
-    flexShrink: 0,
-    flexDirection: 'row',
-    alignItems: 'center',
   },
   chipActive: { backgroundColor: colors.primary, borderColor: colors.primary },
-  chipText: { fontSize: 13, color: colors.text, fontWeight: '600', flexShrink: 0 },
+  chipText: { fontSize: 13, color: colors.text, fontWeight: '600' },
   chipTextActive: { color: '#0D0D0D', fontWeight: '800' },
   card: {
     backgroundColor: colors.card,
