@@ -59,13 +59,13 @@ export default function AgreementScreen() {
   const { payload } = useLocalSearchParams<{ payload: string }>();
   const router = useRouter();
   const qc = useQueryClient();
-  const padRef = useRef<SignaturePadHandle>(null);
   const docRef = useRef<View>(null);
 
   const [initials, setInitials] = useState('');
   const [agreed, setAgreed] = useState(false);
   const [busy, setBusy] = useState(false);
-  const [scrollEnabled, setScrollEnabled] = useState(true);
+  const [signing, setSigning] = useState(false);
+  const [signatureUri, setSignatureUri] = useState<string | null>(null);
 
   const [homeSizeIdx, setHomeSizeIdx] = useState<number | null>(null);
   const [yardOn, setYardOn] = useState(false);
@@ -164,7 +164,7 @@ export default function AgreementScreen() {
       Alert.alert('Initials required', 'Please enter your initials.');
       return;
     }
-    if (padRef.current?.isEmpty()) {
+    if (!signatureUri) {
       Alert.alert('Signature required', 'Please sign the agreement before continuing.');
       return;
     }
@@ -208,7 +208,7 @@ export default function AgreementScreen() {
 
   return (
     <View style={{ flex: 1, backgroundColor: colors.bg }}>
-      <ScrollView contentContainerStyle={styles.scroll} keyboardShouldPersistTaps="handled" scrollEnabled={scrollEnabled}>
+      <ScrollView contentContainerStyle={styles.scroll} keyboardShouldPersistTaps="handled">
         {/* ---------- Standard Four Point Service ---------- */}
         <Text style={styles.pickHeader}>Standard Four Point Service</Text>
         <Text style={styles.pickSub}>Select home size — sets the initial &amp; recurring rate.</Text>
@@ -424,12 +424,16 @@ export default function AgreementScreen() {
               <Text style={styles.initialsValue}>{initials.toUpperCase()}</Text>
             </View>
             <Text style={[styles.signLabel, { marginTop: 10 }]}>Customer Signature:</Text>
-            <SignaturePad
-              ref={padRef}
-              height={160}
-              onStrokeStart={() => setScrollEnabled(false)}
-              onStrokeEnd={() => setScrollEnabled(true)}
-            />
+            <TouchableOpacity activeOpacity={0.8} onPress={() => setSigning(true)} style={styles.signArea}>
+              {signatureUri ? (
+                <Image source={{ uri: signatureUri }} style={styles.signImage} resizeMode="contain" />
+              ) : (
+                <View style={styles.signPlaceholder}>
+                  <Ionicons name="create-outline" size={22} color={colors.primaryDark} />
+                  <Text style={styles.signPlaceholderText}>Tap to Sign</Text>
+                </View>
+              )}
+            </TouchableOpacity>
             <Text style={styles.signedOn}>Signed on: {signedDate}</Text>
           </View>
         </View>
@@ -446,9 +450,9 @@ export default function AgreementScreen() {
             placeholderTextColor={colors.textMuted}
             maxLength={4}
           />
-          <TouchableOpacity style={styles.clearBtn} onPress={() => padRef.current?.clear()}>
-            <Ionicons name="refresh" size={16} color={colors.primaryDark} />
-            <Text style={styles.clearBtnText}>Clear Signature</Text>
+          <TouchableOpacity style={styles.clearBtn} onPress={() => setSigning(true)}>
+            <Ionicons name="create-outline" size={16} color={colors.primaryDark} />
+            <Text style={styles.clearBtnText}>{signatureUri ? 'Re-Sign' : 'Sign Agreement'}</Text>
           </TouchableOpacity>
           <TouchableOpacity style={styles.agreeRow} onPress={() => setAgreed((v) => !v)} activeOpacity={0.7}>
             <View style={[styles.checkbox, agreed && styles.checkboxOn]}>
@@ -463,6 +467,64 @@ export default function AgreementScreen() {
         <TouchableOpacity style={[styles.submitBtn, busy && { opacity: 0.6 }]} onPress={submit} disabled={busy} activeOpacity={0.85}>
           <Ionicons name="checkmark-circle" size={20} color="#0D0D0D" />
           <Text style={styles.submitText}>{busy ? 'Saving…' : 'Agree & Create Customer'}</Text>
+        </TouchableOpacity>
+      </View>
+
+      {signing && (
+        <SigningOverlay
+          onCancel={() => setSigning(false)}
+          onDone={(uri) => {
+            setSignatureUri(uri);
+            setSigning(false);
+          }}
+        />
+      )}
+    </View>
+  );
+}
+
+function SigningOverlay({ onCancel, onDone }: { onCancel: () => void; onDone: (uri: string) => void }) {
+  const padRef = useRef<SignaturePadHandle>(null);
+  const [saving, setSaving] = useState(false);
+
+  const save = async () => {
+    if (padRef.current?.isEmpty()) {
+      Alert.alert('Signature required', 'Please sign before saving.');
+      return;
+    }
+    setSaving(true);
+    try {
+      const uri = await padRef.current!.capture();
+      onDone(uri);
+    } catch (e) {
+      Alert.alert('Error', (e as Error).message);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <View style={styles.overlay}>
+      <View style={styles.overlayHeader}>
+        <TouchableOpacity onPress={onCancel} style={styles.overlayClose}>
+          <Ionicons name="close" size={26} color={colors.text} />
+        </TouchableOpacity>
+        <Text style={styles.overlayTitle}>Sign Agreement</Text>
+        <View style={{ width: 26 }} />
+      </View>
+      <Text style={styles.overlayHint}>Sign inside the box below. The page won't move.</Text>
+      <View style={styles.overlayPadWrap}>
+        <SignaturePad ref={padRef} height={320} />
+        <View style={styles.overlaySignLine} />
+      </View>
+      <View style={styles.overlayActions}>
+        <TouchableOpacity style={styles.overlayClearBtn} onPress={() => padRef.current?.clear()}>
+          <Ionicons name="refresh" size={18} color={colors.primaryDark} />
+          <Text style={styles.overlayClearText}>Clear</Text>
+        </TouchableOpacity>
+        <TouchableOpacity style={[styles.overlaySaveBtn, saving && { opacity: 0.6 }]} onPress={save} disabled={saving}>
+          <Ionicons name="checkmark" size={20} color="#0D0D0D" />
+          <Text style={styles.overlaySaveText}>{saving ? 'Saving…' : 'Done'}</Text>
         </TouchableOpacity>
       </View>
     </View>
@@ -589,4 +651,66 @@ const styles = StyleSheet.create({
   bottomBar: { padding: 14, backgroundColor: '#fff', borderTopWidth: 1, borderColor: colors.border },
   submitBtn: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', backgroundColor: colors.primary, borderRadius: 14, paddingVertical: 15 },
   submitText: { color: '#0D0D0D', fontWeight: '900', fontSize: 16, marginLeft: 8 },
+  signArea: {
+    height: 150,
+    backgroundColor: '#fff',
+    borderWidth: 1.5,
+    borderColor: colors.primary,
+    borderStyle: 'dashed',
+    borderRadius: 10,
+    marginTop: 4,
+    alignItems: 'center',
+    justifyContent: 'center',
+    overflow: 'hidden',
+  },
+  signImage: { width: '100%', height: '100%' },
+  signPlaceholder: { alignItems: 'center' },
+  signPlaceholderText: { color: colors.primaryDark, fontWeight: '800', fontSize: 14, marginTop: 4 },
+  overlay: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: '#fff',
+    paddingTop: 54,
+    paddingHorizontal: 16,
+    zIndex: 100,
+  },
+  overlayHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
+  overlayClose: { padding: 4 },
+  overlayTitle: { fontSize: 18, fontWeight: '900', color: colors.text },
+  overlayHint: { fontSize: 13, color: colors.textMuted, textAlign: 'center', marginTop: 8, marginBottom: 16 },
+  overlayPadWrap: { position: 'relative' },
+  overlaySignLine: {
+    position: 'absolute',
+    left: 20,
+    right: 20,
+    bottom: 42,
+    height: 1,
+    backgroundColor: colors.border,
+  },
+  overlayActions: { flexDirection: 'row', marginTop: 20 },
+  overlayClearBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1.5,
+    borderColor: colors.primary,
+    borderRadius: 14,
+    paddingVertical: 14,
+    paddingHorizontal: 22,
+    marginRight: 12,
+  },
+  overlayClearText: { color: colors.primaryDark, fontWeight: '800', fontSize: 15, marginLeft: 6 },
+  overlaySaveBtn: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: colors.primary,
+    borderRadius: 14,
+    paddingVertical: 14,
+  },
+  overlaySaveText: { color: '#0D0D0D', fontWeight: '900', fontSize: 16, marginLeft: 6 },
 });
