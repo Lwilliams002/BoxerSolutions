@@ -1,5 +1,5 @@
 import React from 'react';
-import { View, Text, ScrollView, StyleSheet, RefreshControl } from 'react-native';
+import { View, Text, ScrollView, StyleSheet, RefreshControl, Image } from 'react-native';
 import { useQuery } from '@tanstack/react-query';
 import { useRouter } from 'expo-router';
 import { api } from '../../src/lib/api';
@@ -47,6 +47,14 @@ export default function DashboardScreen() {
   return (
     <View style={{ flex: 1 }}>
       <SyncBanner />
+      {/* Brand header strip */}
+      <View style={styles.brandHeader}>
+        <Image source={require('../../assets/logo.png')} style={styles.headerLogo} resizeMode="contain" />
+        <View>
+          <Text style={styles.headerTitle}>BOXER SOLUTIONS</Text>
+          <Text style={styles.headerSub}>PEST CONTROL</Text>
+        </View>
+      </View>
       <ScrollView
         contentContainerStyle={styles.container}
         refreshControl={<RefreshControl refreshing={isRefetching} onRefresh={refetch} />}
@@ -103,6 +111,16 @@ export default function DashboardScreen() {
 }
 
 const styles = StyleSheet.create({
+  brandHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#0D0D0D',
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+  },
+  headerLogo: { width: 48, height: 48, marginRight: 10 },
+  headerTitle: { color: '#FFFFFF', fontSize: 15, fontWeight: '900', letterSpacing: 0.5 },
+  headerSub: { color: '#2DC4A2', fontSize: 11, fontWeight: '700', letterSpacing: 1.2, textTransform: 'uppercase' },
   container: { padding: 16, paddingBottom: 40 },
   greeting: { fontSize: 22, fontWeight: '800', color: colors.text, marginBottom: 4 },
   statGrid: { flexDirection: 'row', flexWrap: 'wrap' },

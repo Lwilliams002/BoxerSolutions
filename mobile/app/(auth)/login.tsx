@@ -6,6 +6,7 @@ import {
   StyleSheet,
   KeyboardAvoidingView,
   Platform,
+  Image,
 } from 'react-native';
 import { useAuth } from '../../src/lib/authStore';
 import { Button, ErrorText } from '../../src/components/ui';
@@ -35,62 +36,95 @@ export default function LoginScreen() {
       style={styles.container}
       behavior={Platform.OS === 'ios' ? 'padding' : undefined}
     >
-      <View style={styles.logoWrap}>
-        <View style={styles.logoBadge}>
-          <Text style={styles.logoText}>A</Text>
-        </View>
-        <Text style={styles.brand}>AntServe</Text>
-        <Text style={styles.tagline}>Field Service Management</Text>
+      {/* Brand header — dark background matching the logo */}
+      <View style={styles.header}>
+        <Image
+          source={require('../../assets/logo.png')}
+          style={styles.logo}
+          resizeMode="contain"
+        />
       </View>
 
-      <TextInput
-        style={styles.input}
-        placeholder="Email"
-        placeholderTextColor={colors.textMuted}
-        autoCapitalize="none"
-        keyboardType="email-address"
-        autoComplete="email"
-        value={email}
-        onChangeText={setEmail}
-      />
-      <TextInput
-        style={styles.input}
-        placeholder="Password"
-        placeholderTextColor={colors.textMuted}
-        secureTextEntry
-        value={password}
-        onChangeText={setPassword}
-        onSubmitEditing={submit}
-      />
-      {error ? <ErrorText message={error} /> : null}
-      <Button title="Sign In" onPress={submit} loading={busy} disabled={!email || !password} />
+      {/* Login card */}
+      <View style={styles.card}>
+        <Text style={styles.welcome}>Sign in to your account</Text>
+
+        <TextInput
+          style={styles.input}
+          placeholder="Email"
+          placeholderTextColor={colors.textMuted}
+          autoCapitalize="none"
+          keyboardType="email-address"
+          autoComplete="email"
+          value={email}
+          onChangeText={setEmail}
+        />
+        <TextInput
+          style={styles.input}
+          placeholder="Password"
+          placeholderTextColor={colors.textMuted}
+          secureTextEntry
+          value={password}
+          onChangeText={setPassword}
+          onSubmitEditing={submit}
+        />
+        {error ? <ErrorText message={error} /> : null}
+        <Button
+          title="Sign In"
+          onPress={submit}
+          loading={busy}
+          disabled={!email || !password}
+        />
+
+        <Text style={styles.tagline}>Boxer Solutions Pest Control</Text>
+      </View>
     </KeyboardAvoidingView>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, justifyContent: 'center', padding: 24, backgroundColor: colors.bg },
-  logoWrap: { alignItems: 'center', marginBottom: 36 },
-  logoBadge: {
-    width: 72,
-    height: 72,
-    borderRadius: 20,
-    backgroundColor: colors.primary,
+  container: { flex: 1, backgroundColor: '#0D0D0D' },
+  header: {
+    flex: 1,
     alignItems: 'center',
     justifyContent: 'center',
-    marginBottom: 12,
+    backgroundColor: '#0D0D0D',
+    paddingTop: 40,
   },
-  logoText: { color: '#fff', fontSize: 40, fontWeight: '800' },
-  brand: { fontSize: 28, fontWeight: '800', color: colors.text },
-  tagline: { fontSize: 14, color: colors.textMuted, marginTop: 4 },
+  logo: {
+    width: 260,
+    height: 260,
+  },
+  card: {
+    backgroundColor: '#FFFFFF',
+    borderTopLeftRadius: 28,
+    borderTopRightRadius: 28,
+    padding: 28,
+    paddingBottom: 48,
+  },
+  welcome: {
+    fontSize: 18,
+    fontWeight: '700',
+    color: colors.text,
+    marginBottom: 20,
+    textAlign: 'center',
+  },
   input: {
-    backgroundColor: '#fff',
-    borderRadius: 10,
-    borderWidth: 1,
+    backgroundColor: colors.bg,
+    borderRadius: 12,
+    borderWidth: 1.5,
     borderColor: colors.border,
     padding: 14,
     fontSize: 16,
-    marginBottom: 12,
+    marginBottom: 14,
     color: colors.text,
   },
+  tagline: {
+    fontSize: 12,
+    color: colors.textMuted,
+    textAlign: 'center',
+    marginTop: 20,
+    letterSpacing: 0.5,
+  },
 });
+

@@ -1,16 +1,18 @@
+// Boxer Solutions Pest Control brand palette
+// Teal: #2DC4A2  |  Black: #0D0D0D  |  White: #FFFFFF
 export const colors = {
-  primary: '#1B5E4A',
-  primaryDark: '#123F31',
-  accent: '#F2A33C',
-  bg: '#F4F6F5',
+  primary: '#2DC4A2',
+  primaryDark: '#1E9C81',
+  accent: '#0D0D0D',
+  bg: '#F0FAF8',
   card: '#FFFFFF',
-  text: '#17251F',
-  textMuted: '#5F6E67',
-  border: '#E1E7E4',
-  danger: '#C0392B',
-  success: '#1E8E5A',
-  warning: '#D98E04',
-  info: '#2471A3',
+  text: '#0D0D0D',
+  textMuted: '#607D78',
+  border: '#D5EDE9',
+  danger: '#D93025',
+  success: '#2DC4A2',
+  warning: '#D4860A',
+  info: '#1A7A9E',
 };
 
 export const statusColors: Record<string, string> = {

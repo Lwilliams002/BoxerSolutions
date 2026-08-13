@@ -40,11 +40,12 @@ export default function RootLayout() {
     <GestureHandlerRootView style={{ flex: 1 }}>
       <QueryClientProvider client={queryClient}>
         <AuthGate>
-          <StatusBar style="dark" />
+          <StatusBar style="light" />
           <Stack
             screenOptions={{
-              headerTintColor: colors.primary,
-              headerTitleStyle: { color: colors.text },
+              headerStyle: { backgroundColor: '#0D0D0D' },
+              headerTintColor: '#2DC4A2',
+              headerTitleStyle: { color: '#FFFFFF', fontWeight: '700' },
               contentStyle: { backgroundColor: colors.bg },
             }}
           >

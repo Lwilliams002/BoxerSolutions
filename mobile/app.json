@@ -1,14 +1,14 @@
 {
   "expo": {
-    "name": "AntServe",
-    "slug": "antserve",
+    "name": "Boxer Solutions",
+    "slug": "boxer-solutions",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "light",
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "dev.antserve.app",
+      "bundleIdentifier": "com.boxersolutionspestcontrol.app",
       "infoPlist": {
         "NSLocationWhenInUseUsageDescription": "Used to show your position on the route map.",
         "NSCameraUsageDescription": "Used to take service photos.",
@@ -23,7 +23,7 @@
         "monochromeImage": "./assets/android-icon-monochrome.png"
       },
       "predictiveBackGestureEnabled": false,
-      "package": "dev.antserve.app"
+      "package": "com.boxersolutionspestcontrol.app"
     },
     "web": {
       "favicon": "./assets/favicon.png"
@@ -34,7 +34,7 @@
       [
         "expo-image-picker",
         {
-          "cameraPermission": "Allow AntServe to take service photos."
+          "cameraPermission": "Allow Boxer Solutions to take service photos."
         }
       ],
       [
@@ -44,6 +44,6 @@
         }
       ]
     ],
-    "scheme": "antserve"
+    "scheme": "boxersolutions"
   }
 }

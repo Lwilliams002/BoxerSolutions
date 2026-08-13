@@ -24,6 +24,10 @@ export default function MoreScreen() {
       <ScrollView contentContainerStyle={styles.container}>
         <SectionTitle>Account</SectionTitle>
         <Card>
+          <View style={styles.brandRow}>
+            <Text style={styles.brandName}>Boxer Solutions</Text>
+            <Text style={styles.brandSub}>Pest Control</Text>
+          </View>
           <Label>Signed in as</Label>
           <Value style={{ fontWeight: '700' }}>
             {user?.firstName} {user?.lastName}
@@ -64,4 +68,7 @@ export default function MoreScreen() {
 const styles = StyleSheet.create({
   container: { padding: 16, paddingBottom: 40 },
   meta: { fontSize: 13, color: colors.textMuted, marginTop: 4 },
+  brandRow: { marginBottom: 12, paddingBottom: 12, borderBottomWidth: StyleSheet.hairlineWidth, borderColor: colors.border },
+  brandName: { fontSize: 18, fontWeight: '900', color: colors.text, letterSpacing: 0.5 },
+  brandSub: { fontSize: 13, fontWeight: '700', color: colors.primary, letterSpacing: 1, textTransform: 'uppercase', marginTop: 2 },
 });
