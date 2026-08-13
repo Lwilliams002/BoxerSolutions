@@ -10,13 +10,14 @@ import {
   Image,
 } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
-import { useQueryClient } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { captureRef } from 'react-native-view-shot';
 import { Ionicons } from '@expo/vector-icons';
 import { api } from '../../src/lib/api';
 import { persistLocally, uploadPendingPhoto } from '../../src/lib/photos';
 import { SignaturePad, SignaturePadHandle } from '../../src/components/SignaturePad';
 import { colors, company, money } from '../../src/lib/theme';
+import { Loading } from '../../src/components/ui';
 
 interface ServiceLocation {
   addressLine1: string;
@@ -37,10 +38,25 @@ interface CustomerPayload {
   billingPostalCode: string | null;
   serviceLocation: ServiceLocation;
 }
+interface ServiceItem {
+  id: string;
+  name: string;
+  price: string;
+  isRecurring: boolean;
+  serviceType: string;
+  categoryName: string | null;
+  durationMinutes: number;
+}
 
-const INITIAL_PRICE = 149;
-const RECURRING_PRICE = 89;
 const TERM_MONTHS = 12;
+
+const PEST_GROUPS: { group: string; pests: string[] }[] = [
+  { group: 'General Pest Control', pests: ['Roaches', 'Ants', 'Spiders', 'Earwigs', 'Silverfish', 'Centipedes', 'Millipedes'] },
+  { group: 'Flying / Insect Control', pests: ['Mosquitoes', 'Wasps', 'Hornets', 'No-see-ums', 'Fleas'] },
+  { group: 'Wood-Destroying Pests', pests: ['Termites'] },
+  { group: 'Wildlife / Other', pests: ['Rodents'] },
+  { group: 'Commercial', pests: ['Commercial Pest Control / IPM'] },
+];
 
 export default function AgreementScreen() {
   const { payload } = useLocalSearchParams<{ payload: string }>();
@@ -51,6 +67,9 @@ export default function AgreementScreen() {
   const [initials, setInitials] = useState('');
   const [agreed, setAgreed] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [recurringId, setRecurringId] = useState<string | null>(null);
+  const [initialId, setInitialId] = useState<string | null>(null);
+  const [pests, setPests] = useState<string[]>([]);
 
   const data = useMemo<CustomerPayload | null>(() => {
     try {
@@ -59,6 +78,20 @@ export default function AgreementScreen() {
       return null;
     }
   }, [payload]);
+
+  const { data: servicesData, isLoading: loadingServices } = useQuery({
+    queryKey: ['services-catalog'],
+    queryFn: () => api<{ items: ServiceItem[] }>('/services?pageSize=100'),
+  });
+
+  const services = (servicesData?.items ?? []).filter((s: any) => s.isActive !== false);
+  const recurringPlans = services.filter((s) => s.isRecurring);
+  const initialOptions = services.filter((s) => !s.isRecurring);
+
+  const recurringPlan = recurringPlans.find((s) => s.id === recurringId) ?? null;
+  const initialPlan = initialOptions.find((s) => s.id === initialId) ?? null;
+  const recurringPrice = recurringPlan ? parseFloat(recurringPlan.price) : 0;
+  const initialPrice = initialPlan ? parseFloat(initialPlan.price) : 0;
 
   if (!data) {
     return (
@@ -77,7 +110,18 @@ export default function AgreementScreen() {
     day: 'numeric',
   });
 
+  const togglePest = (p: string) =>
+    setPests((prev) => (prev.includes(p) ? prev.filter((x) => x !== p) : [...prev, p]));
+
   const submit = async () => {
+    if (!recurringPlan && !initialPlan) {
+      Alert.alert('Select a plan', 'Please choose at least an initial or recurring service.');
+      return;
+    }
+    if (pests.length === 0) {
+      Alert.alert('Select pests', 'Please select at least one pest to be serviced.');
+      return;
+    }
     if (!agreed) {
       Alert.alert('Agreement required', 'Please check the box to accept the terms.');
       return;
@@ -92,13 +136,25 @@ export default function AgreementScreen() {
     }
     setBusy(true);
     try {
-      // 1. Capture the full branded agreement (with signature) as an image.
       const docUri = await captureRef(docRef, { format: 'png', quality: 0.95, result: 'tmpfile' });
-
-      // 2. Create the customer.
       const created = await api<{ id: string }>('/customers', { method: 'POST', body: data });
 
-      // 3. Upload the signed agreement to Wasabi as a customer document.
+      // Persist a structured summary of the plan & covered pests as a customer note.
+      const summary = [
+        'SERVICE AGREEMENT',
+        initialPlan ? `Initial: ${initialPlan.name} (${money(initialPrice)})` : null,
+        recurringPlan ? `Recurring: ${recurringPlan.name} (${money(recurringPrice)}/service)` : null,
+        `Term: ${TERM_MONTHS} months`,
+        `Covered pests: ${pests.join(', ')}`,
+        `Signed: ${signedDate}`,
+      ]
+        .filter(Boolean)
+        .join('\n');
+      await api('/notes', {
+        method: 'POST',
+        body: { customerId: created.id, body: summary, isInternal: false },
+      }).catch(() => {});
+
       const fileName = `service-agreement-${Date.now()}.png`;
       const localUri = await persistLocally(docUri, fileName);
       try {
@@ -110,7 +166,7 @@ export default function AgreementScreen() {
           customerId: created.id,
         });
       } catch {
-        // Non-fatal: customer is created; the document upload can be retried later.
+        // Non-fatal; customer exists and document can be retried later.
       }
 
       void qc.invalidateQueries({ queryKey: ['customers'] });
@@ -124,12 +180,100 @@ export default function AgreementScreen() {
     }
   };
 
+  if (loadingServices) return <Loading />;
+
   return (
     <View style={{ flex: 1, backgroundColor: colors.bg }}>
       <ScrollView contentContainerStyle={styles.scroll} keyboardShouldPersistTaps="handled">
-        {/* Captured document */}
+        {/* ---- Interactive: plan selection ---- */}
+        <Text style={styles.pickHeader}>Choose a Recurring Plan</Text>
+        <View style={styles.planWrap}>
+          {recurringPlans.length === 0 ? (
+            <Text style={styles.muted}>No recurring plans available.</Text>
+          ) : (
+            recurringPlans.map((s) => {
+              const active = recurringId === s.id;
+              return (
+                <TouchableOpacity
+                  key={s.id}
+                  style={[styles.planCard, active && styles.planCardActive]}
+                  onPress={() => setRecurringId(active ? null : s.id)}
+                  activeOpacity={0.85}
+                >
+                  <View style={{ flex: 1 }}>
+                    <Text style={[styles.planName, active && styles.planNameActive]}>{s.name}</Text>
+                    <Text style={[styles.planMeta, active && styles.planMetaActive]}>
+                      {s.categoryName ?? 'Service'} · {s.durationMinutes} min
+                    </Text>
+                  </View>
+                  <Text style={[styles.planPrice, active && styles.planNameActive]}>{money(s.price)}</Text>
+                  <Ionicons
+                    name={active ? 'checkmark-circle' : 'ellipse-outline'}
+                    size={22}
+                    color={active ? '#0D0D0D' : colors.border}
+                    style={{ marginLeft: 8 }}
+                  />
+                </TouchableOpacity>
+              );
+            })
+          )}
+        </View>
+
+        <Text style={styles.pickHeader}>Initial Service (optional)</Text>
+        <View style={styles.planWrap}>
+          {initialOptions.map((s) => {
+            const active = initialId === s.id;
+            return (
+              <TouchableOpacity
+                key={s.id}
+                style={[styles.planCard, active && styles.planCardActive]}
+                onPress={() => setInitialId(active ? null : s.id)}
+                activeOpacity={0.85}
+              >
+                <View style={{ flex: 1 }}>
+                  <Text style={[styles.planName, active && styles.planNameActive]}>{s.name}</Text>
+                  <Text style={[styles.planMeta, active && styles.planMetaActive]}>
+                    {s.categoryName ?? 'Service'}
+                  </Text>
+                </View>
+                <Text style={[styles.planPrice, active && styles.planNameActive]}>{money(s.price)}</Text>
+                <Ionicons
+                  name={active ? 'checkmark-circle' : 'ellipse-outline'}
+                  size={22}
+                  color={active ? '#0D0D0D' : colors.border}
+                  style={{ marginLeft: 8 }}
+                />
+              </TouchableOpacity>
+            );
+          })}
+        </View>
+
+        {/* ---- Interactive: pest selection ---- */}
+        <Text style={styles.pickHeader}>Pests To Be Serviced</Text>
+        {PEST_GROUPS.map((g) => (
+          <View key={g.group} style={{ marginBottom: 8 }}>
+            <Text style={styles.pestGroup}>{g.group}</Text>
+            <View style={styles.chipWrap}>
+              {g.pests.map((p) => {
+                const active = pests.includes(p);
+                return (
+                  <TouchableOpacity
+                    key={p}
+                    style={[styles.pestChip, active && styles.pestChipActive]}
+                    onPress={() => togglePest(p)}
+                    activeOpacity={0.8}
+                  >
+                    {active && <Ionicons name="checkmark" size={14} color="#0D0D0D" style={{ marginRight: 4 }} />}
+                    <Text style={[styles.pestChipText, active && styles.pestChipTextActive]}>{p}</Text>
+                  </TouchableOpacity>
+                );
+              })}
+            </View>
+          </View>
+        ))}
+
+        {/* ---- Captured document ---- */}
         <View ref={docRef} collapsable={false} style={styles.doc}>
-          {/* Brand header */}
           <View style={styles.brandHeader}>
             <Image source={require('../../assets/logo-mark.png')} style={styles.logo} resizeMode="contain" />
             <View style={{ flex: 1, marginLeft: 12 }}>
@@ -146,7 +290,6 @@ export default function AgreementScreen() {
 
           <Text style={styles.docTitle}>SERVICE AGREEMENT</Text>
 
-          {/* Two column: service address + customer info */}
           <View style={styles.twoCol}>
             <View style={styles.col}>
               <Text style={styles.sectionBar}>Service Address</Text>
@@ -164,16 +307,37 @@ export default function AgreementScreen() {
             </View>
           </View>
 
+          {/* Covered pests */}
+          <Text style={styles.sectionBarFull}>Covered Pests</Text>
+          {pests.length === 0 ? (
+            <Text style={styles.termsMuted}>No pests selected yet.</Text>
+          ) : (
+            <View style={styles.pestListWrap}>
+              {pests.map((p) => (
+                <View key={p} style={styles.pestTag}>
+                  <Text style={styles.pestTagText}>{p}</Text>
+                </View>
+              ))}
+            </View>
+          )}
+
           {/* Plan / pricing */}
           <Text style={styles.sectionBarFull}>Service Plan &amp; Pricing</Text>
-          <View style={styles.priceRow}>
-            <Text style={styles.priceLabel}>Initial Service</Text>
-            <Text style={styles.priceValue}>{money(INITIAL_PRICE)}</Text>
-          </View>
-          <View style={styles.priceRow}>
-            <Text style={styles.priceLabel}>Recurring Service (monthly)</Text>
-            <Text style={styles.priceValue}>{money(RECURRING_PRICE)}</Text>
-          </View>
+          {initialPlan ? (
+            <View style={styles.priceRow}>
+              <Text style={styles.priceLabel}>Initial · {initialPlan.name}</Text>
+              <Text style={styles.priceValue}>{money(initialPrice)}</Text>
+            </View>
+          ) : null}
+          {recurringPlan ? (
+            <View style={styles.priceRow}>
+              <Text style={styles.priceLabel}>Recurring · {recurringPlan.name}</Text>
+              <Text style={styles.priceValue}>{money(recurringPrice)}/service</Text>
+            </View>
+          ) : null}
+          {!initialPlan && !recurringPlan ? (
+            <Text style={styles.termsMuted}>No plan selected yet.</Text>
+          ) : null}
           <View style={styles.priceRow}>
             <Text style={styles.priceLabel}>Agreement Term</Text>
             <Text style={styles.priceValue}>{TERM_MONTHS} months</Text>
@@ -187,7 +351,7 @@ export default function AgreementScreen() {
             giving written notice of cancellation to {company.name}. Upon completion of the initial service, the
             customer agrees to pay the full service charge. Recurring treatments will continue at the agreed
             frequency until canceled by the customer. {company.name} will re-treat at no additional charge between
-            scheduled visits if pest activity persists.
+            scheduled visits if covered pest activity persists.
           </Text>
           <Text style={styles.terms}>
             I have read and agree to the terms and conditions of this agreement, including any additional
@@ -207,7 +371,7 @@ export default function AgreementScreen() {
           </View>
         </View>
 
-        {/* Interactive controls (not captured) */}
+        {/* ---- Interactive controls ---- */}
         <View style={styles.controls}>
           <Text style={styles.controlLabel}>Your Initials</Text>
           <TextInput
@@ -236,7 +400,6 @@ export default function AgreementScreen() {
         </View>
       </ScrollView>
 
-      {/* Bottom bar */}
       <View style={styles.bottomBar}>
         <TouchableOpacity
           style={[styles.submitBtn, busy && { opacity: 0.6 }]}
@@ -255,10 +418,47 @@ export default function AgreementScreen() {
 const styles = StyleSheet.create({
   centered: { flex: 1, alignItems: 'center', justifyContent: 'center' },
   scroll: { padding: 12, paddingBottom: 24 },
+  muted: { color: colors.textMuted, fontSize: 13, padding: 8 },
+  pickHeader: { fontSize: 15, fontWeight: '900', color: colors.text, marginTop: 12, marginBottom: 8 },
+  planWrap: { marginBottom: 4 },
+  planCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#fff',
+    borderRadius: 12,
+    borderWidth: 1.5,
+    borderColor: colors.border,
+    padding: 12,
+    marginBottom: 8,
+  },
+  planCardActive: { borderColor: colors.primary, backgroundColor: '#E9FBF6' },
+  planName: { fontSize: 15, fontWeight: '800', color: colors.text },
+  planNameActive: { color: '#0D0D0D' },
+  planMeta: { fontSize: 12, color: colors.textMuted, marginTop: 2 },
+  planMetaActive: { color: colors.primaryDark },
+  planPrice: { fontSize: 15, fontWeight: '900', color: colors.text },
+  pestGroup: { fontSize: 12, fontWeight: '800', color: colors.primaryDark, marginBottom: 6, marginTop: 4 },
+  chipWrap: { flexDirection: 'row', flexWrap: 'wrap' },
+  pestChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#fff',
+    borderRadius: 18,
+    borderWidth: 1.5,
+    borderColor: colors.border,
+    paddingVertical: 8,
+    paddingHorizontal: 14,
+    marginRight: 8,
+    marginBottom: 8,
+  },
+  pestChipActive: { backgroundColor: colors.primary, borderColor: colors.primary },
+  pestChipText: { fontSize: 13, fontWeight: '600', color: colors.text },
+  pestChipTextActive: { color: '#0D0D0D', fontWeight: '800' },
   doc: {
     backgroundColor: '#fff',
     borderRadius: 14,
     padding: 16,
+    marginTop: 8,
     shadowColor: '#0D0D0D',
     shadowOffset: { width: 0, height: 3 },
     shadowOpacity: 0.08,
@@ -311,6 +511,18 @@ const styles = StyleSheet.create({
   },
   body: { fontSize: 12, color: colors.text, lineHeight: 17 },
   bodyStrong: { fontSize: 12, color: colors.text, fontWeight: '800', lineHeight: 17 },
+  pestListWrap: { flexDirection: 'row', flexWrap: 'wrap' },
+  pestTag: {
+    backgroundColor: '#E9FBF6',
+    borderRadius: 6,
+    paddingVertical: 3,
+    paddingHorizontal: 8,
+    marginRight: 6,
+    marginBottom: 6,
+    borderWidth: 1,
+    borderColor: colors.border,
+  },
+  pestTagText: { fontSize: 11, color: colors.primaryDark, fontWeight: '700' },
   priceRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
@@ -318,15 +530,11 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1,
     borderColor: colors.border,
   },
-  priceLabel: { fontSize: 12, color: colors.text },
+  priceLabel: { fontSize: 12, color: colors.text, flex: 1, marginRight: 8 },
   priceValue: { fontSize: 12, color: colors.text, fontWeight: '800' },
   terms: { fontSize: 10.5, color: colors.textMuted, lineHeight: 15, marginBottom: 8 },
-  signBlock: {
-    marginTop: 12,
-    borderTopWidth: 1,
-    borderColor: colors.border,
-    paddingTop: 12,
-  },
+  termsMuted: { fontSize: 11, color: colors.textMuted, fontStyle: 'italic', marginBottom: 4 },
+  signBlock: { marginTop: 12, borderTopWidth: 1, borderColor: colors.border, paddingTop: 12 },
   initialsRow: { flexDirection: 'row', alignItems: 'center' },
   signLabel: { fontSize: 12, fontWeight: '800', color: colors.text },
   initialsValue: { fontSize: 14, fontWeight: '900', color: colors.primaryDark, marginLeft: 10, letterSpacing: 2 },
@@ -358,12 +566,7 @@ const styles = StyleSheet.create({
   },
   checkboxOn: { backgroundColor: colors.primary },
   agreeText: { flex: 1, fontSize: 13, color: colors.text, lineHeight: 18 },
-  bottomBar: {
-    padding: 14,
-    backgroundColor: '#fff',
-    borderTopWidth: 1,
-    borderColor: colors.border,
-  },
+  bottomBar: { padding: 14, backgroundColor: '#fff', borderTopWidth: 1, borderColor: colors.border },
   submitBtn: {
     flexDirection: 'row',
     alignItems: 'center',
