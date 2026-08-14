@@ -5,6 +5,7 @@ import { recordAudit } from './auditService';
 import { rowsToCamel, toCamel } from './customerService';
 import { invoiceService } from './invoiceService';
 import { notifications } from '../integrations/notifications';
+import { communicationService, safelyQueueCommunication } from './communicationService';
 
 const VALID_TRANSITIONS: Record<string, string[]> = {
   scheduled: ['en_route', 'arrived', 'in_progress', 'cancelled', 'no_access', 'rescheduled'],
@@ -99,7 +100,7 @@ export const appointmentService = {
     serviceIds: { serviceId: string; quantity?: number }[]; notes?: string | null;
     subscriptionId?: string | null; allowConflict?: boolean;
   }, userId: string) {
-    return withTransaction(async (tx) => {
+    const created = await withTransaction(async (tx) => {
       if (data.technicianId && !data.allowConflict) {
         const conflicts = await detectConflict(tx, data.technicianId, data.scheduledDate, data.windowStart, data.windowEnd);
         if (conflicts.length > 0) {
@@ -136,6 +137,8 @@ export const appointmentService = {
       await recordAudit({ userId, action: 'appointment.created', entityType: 'appointment', entityId: appt.id, newValue: data }, tx);
       return toCamel(appt);
     });
+    safelyQueueCommunication(() => communicationService.sendAppointmentTemplate((created as any).id, 'appointment_confirmation', null));
+    return created;
   },
 
   async reschedule(id: string, data: { scheduledDate: string; windowStart: string; windowEnd: string; technicianId?: string | null; allowConflict?: boolean }, userId: string) {
@@ -160,10 +163,7 @@ export const appointmentService = {
       previousValue: { date: existing.scheduledDate, windowStart: existing.windowStart, windowEnd: existing.windowEnd },
       newValue: { date: data.scheduledDate, windowStart: data.windowStart, windowEnd: data.windowEnd },
     });
-    await notifications.send({
-      customerId: existing.customerId, channel: 'push', type: 'appointment_rescheduled',
-      title: 'Appointment rescheduled', body: `Now scheduled for ${data.scheduledDate} ${data.windowStart}`,
-    });
+    safelyQueueCommunication(() => communicationService.sendAppointmentTemplate(id, 'appointment_rescheduled', null));
     return toCamel(rows[0]);
   },
 
@@ -188,13 +188,14 @@ export const appointmentService = {
       userId, action: `appointment.status_changed`, entityType: 'appointment', entityId: id,
       previousValue: { status: existing.status }, newValue: { status: newStatus },
     });
-    if (newStatus === 'en_route') {
-      await notifications.send({
-        customerId: existing.customerId, channel: 'sms', type: 'technician_on_the_way',
-        title: 'Your technician is on the way', body: `${existing.technicianName ?? 'Your technician'} is heading to your location.`,
-      });
-    }
     return toCamel(rows[0]);
+  },
+
+  async notifyOnMyWay(id: string, userId: string) {
+    const existing = await this.getById(id) as any;
+    return communicationService.sendAppointmentTemplate(id, 'technician_on_my_way', userId, {
+      technicianName: existing.technicianName,
+    });
   },
 
   /**
@@ -243,10 +244,15 @@ export const appointmentService = {
       return { appointment: toCamel(rows[0]), invoice };
     });
 
-    await notifications.send({
-      customerId: existing.customerId, channel: 'email', type: 'service_completed',
-      title: 'Service completed', body: 'Your service visit has been completed. Thank you!',
+    safelyQueueCommunication(async () => {
+      await notifications.send({
+        customerId: existing.customerId, channel: 'email', type: 'service_completed',
+        title: 'Service completed', body: 'Your service visit has been completed. Thank you!',
+      });
     });
+    if ((result as any).invoice?.id) {
+      safelyQueueCommunication(() => communicationService.sendInvoiceTemplate((result as any).invoice.id, 'invoice_created', null));
+    }
 
     return result;
   },

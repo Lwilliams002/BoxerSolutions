@@ -3,7 +3,7 @@ import { ApiError } from '../utils/errors';
 import { recordAudit } from './auditService';
 import { rowsToCamel, toCamel } from './customerService';
 import { paymentProvider } from '../integrations/payments';
-import { notifications } from '../integrations/notifications';
+import { communicationService, safelyQueueCommunication } from './communicationService';
 
 export const paymentService = {
   // ---- Payment methods (tokenized only; no PAN/CVV ever touches this system) ----
@@ -113,14 +113,14 @@ export const paymentService = {
         [invoice.customer_id, invoiceId, methodRow.id, chargeAmount, paymentProvider.name, result.failureReason, employeeId],
       );
       await recordAudit({ userId, action: 'payment.failed', entityType: 'invoice', entityId: invoiceId, newValue: { amount: chargeAmount, reason: result.failureReason } });
-      await notifications.send({
-        customerId: invoice.customer_id, channel: 'email', type: 'payment_failed',
-        title: 'Payment failed', body: `Payment of $${chargeAmount.toFixed(2)} failed: ${result.failureReason}`,
-      });
+      safelyQueueCommunication(() => communicationService.sendInvoiceTemplate(invoiceId, 'payment_failed', null, {
+        amount: chargeAmount,
+        reason: result.failureReason,
+      }));
       throw new ApiError(402, `Payment failed: ${result.failureReason}`, { retryable: true });
     }
 
-    return withTransaction(async (tx) => {
+    const resultData = await withTransaction(async (tx) => {
       const receiptRes = await tx.query("SELECT 'RCPT-' || nextval('receipt_number_seq') AS num");
       const receiptNumber = receiptRes.rows[0].num;
 
@@ -147,11 +147,6 @@ export const paymentService = {
         newValue: { invoiceId, amount: chargeAmount, transactionId: result.transactionId, receiptNumber },
       }, tx);
 
-      await notifications.send({
-        customerId: invoice.customer_id, channel: 'email', type: 'payment_received',
-        title: 'Payment received', body: `We received your payment of $${chargeAmount.toFixed(2)}. Receipt ${receiptNumber}.`,
-      });
-
       return {
         payment: toCamel(payRes.rows[0]),
         receipt: {
@@ -165,6 +160,8 @@ export const paymentService = {
         },
       };
     });
+    safelyQueueCommunication(() => communicationService.sendInvoiceTemplate(invoiceId, 'payment_received', null, { amount: chargeAmount }));
+    return resultData;
   },
 
   async list(filters: { customerId?: string; invoiceId?: string; status?: string; from?: string; to?: string }, limit: number, offset: number) {

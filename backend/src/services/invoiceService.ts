@@ -7,6 +7,7 @@ import { recordAudit } from './auditService';
 import { rowsToCamel, toCamel } from './customerService';
 import { storage } from '../integrations/storage';
 import { notifications } from '../integrations/notifications';
+import { communicationService, safelyQueueCommunication } from './communicationService';
 
 const COMPANY = {
   name: 'AntServe Field Services',
@@ -124,11 +125,13 @@ export const invoiceService = {
     technicianId?: string | null; dueDate: string; taxRate: number; notes?: string | null;
     items: InvoiceItemInput[];
   }, userId: string) {
-    return withTransaction(async (tx) => {
+    const invoice = await withTransaction(async (tx) => {
       const invoice = await insertInvoice(tx, data, userId);
       await recordAudit({ userId, action: 'invoice.created', entityType: 'invoice', entityId: (invoice as any).id, newValue: { total: (invoice as any).total } }, tx);
       return invoice;
     });
+    safelyQueueCommunication(() => communicationService.sendInvoiceTemplate((invoice as any).id, 'invoice_created', null));
+    return invoice;
   },
 
   /** Automatic invoice generation from a completed appointment (spec §24). */
@@ -264,9 +267,11 @@ export const invoiceService = {
       `UPDATE invoices SET status = $1, sent_at = now(), updated_at = now() WHERE id = $2 RETURNING *`,
       [newStatus, invoiceId],
     );
-    await notifications.send({
-      customerId: invoice.customerId, channel: 'email', type: 'invoice_created',
-      title: `Invoice ${invoice.invoiceNumber}`, body: `Your invoice for $${Number(invoice.total).toFixed(2)} is ready.`,
+    safelyQueueCommunication(async () => {
+      await notifications.send({
+        customerId: invoice.customerId, channel: 'email', type: 'invoice_created',
+        title: `Invoice ${invoice.invoiceNumber}`, body: `Your invoice for $${Number(invoice.total).toFixed(2)} is ready.`,
+      });
     });
     await recordAudit({ userId, action: 'invoice.sent', entityType: 'invoice', entityId: invoiceId });
     return toCamel(rows[0]);

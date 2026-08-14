@@ -121,6 +121,16 @@ router.post(
 );
 
 router.post(
+  '/:id/notify-on-my-way',
+  authorize('appointments:write', 'appointments:write_assigned'),
+  asyncHandler(async (req, res) => {
+    const scope = technicianScope(req, 'appointments:write');
+    await assertAppointmentAccess(scope, req.params.id);
+    ok(res, await appointmentService.notifyOnMyWay(req.params.id, req.user!.id), 'On my way notification sent');
+  }),
+);
+
+router.post(
   '/:id/complete',
   authorize('appointments:write', 'appointments:write_assigned'),
   asyncHandler(async (req, res) => {

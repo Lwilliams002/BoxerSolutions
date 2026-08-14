@@ -1,5 +1,6 @@
 import React from 'react';
-import { View, Text, ScrollView, StyleSheet, Alert } from 'react-native';
+import { View, Text, ScrollView, StyleSheet, Alert, TouchableOpacity } from 'react-native';
+import { useRouter } from 'expo-router';
 import { useAuth } from '../../src/lib/authStore';
 import { useSync } from '../../src/lib/offline';
 import { colors } from '../../src/lib/theme';
@@ -10,6 +11,7 @@ import { API_BASE_URL } from '../../src/lib/config';
 export default function MoreScreen() {
   const { user, logout } = useAuth();
   const { status, pendingCount, flush } = useSync();
+  const router = useRouter();
 
   const confirmLogout = () => {
     Alert.alert('Sign Out', 'Are you sure you want to sign out?', [
@@ -59,6 +61,19 @@ export default function MoreScreen() {
           <Value>{API_BASE_URL}</Value>
         </Card>
 
+        <SectionTitle>Activity</SectionTitle>
+        <TouchableOpacity onPress={() => router.push('/notifications')} activeOpacity={0.75}>
+          <Card>
+            <Row>
+              <View>
+                <Value style={{ fontWeight: '800' }}>Notifications</Value>
+                <Text style={styles.meta}>View alerts and mark them read</Text>
+              </View>
+              <Text style={styles.chevron}>›</Text>
+            </Row>
+          </Card>
+        </TouchableOpacity>
+
         <Button title="Sign Out" variant="danger" onPress={confirmLogout} style={{ marginTop: 20 }} />
       </ScrollView>
     </View>
@@ -71,4 +86,5 @@ const styles = StyleSheet.create({
   brandRow: { marginBottom: 12, paddingBottom: 12, borderBottomWidth: StyleSheet.hairlineWidth, borderColor: colors.border },
   brandName: { fontSize: 18, fontWeight: '900', color: colors.text, letterSpacing: 0.5 },
   brandSub: { fontSize: 13, fontWeight: '700', color: colors.primaryDark, letterSpacing: 1, textTransform: 'uppercase', marginTop: 2 },
+  chevron: { fontSize: 28, color: colors.primaryDark, fontWeight: '300' },
 });

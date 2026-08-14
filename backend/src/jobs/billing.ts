@@ -2,6 +2,7 @@ import { pool } from '../config/db';
 import { paymentService } from '../services/paymentService';
 import { notifications } from '../integrations/notifications';
 import { logger } from '../utils/logger';
+import { communicationService } from '../services/communicationService';
 
 const MAX_AUTOPAY_RETRIES = 3;
 
@@ -52,23 +53,24 @@ export async function processAutopay(systemUserId: string) {
 /** Appointment reminder job: notify customers of tomorrow's appointments. */
 export async function sendAppointmentReminders() {
   const { rows } = await pool.query(
-    `SELECT a.id, a.customer_id, a.window_start, a.scheduled_date
+    `SELECT a.id
      FROM appointments a
      WHERE a.scheduled_date = CURRENT_DATE + 1 AND a.status = 'scheduled' AND a.deleted_at IS NULL
        AND NOT EXISTS (
-         SELECT 1 FROM notifications n WHERE n.customer_id = a.customer_id
-           AND n.notification_type = 'appointment_reminder' AND (n.data->>'appointmentId')::uuid = a.id
+         SELECT 1 FROM communications cm WHERE cm.appointment_id = a.id
+           AND cm.template_key = 'appointment_reminder' AND cm.status IN ('queued','sent')
        )`,
   );
+  let sent = 0;
   for (const row of rows) {
-    await notifications.send({
-      customerId: row.customer_id, channel: 'sms', type: 'appointment_reminder',
-      title: 'Appointment reminder',
-      body: `Reminder: your service appointment is tomorrow starting around ${String(row.window_start).slice(0, 5)}.`,
-      data: { appointmentId: row.id },
-    });
+    try {
+      await communicationService.sendAppointmentTemplate(row.id, 'appointment_reminder', null);
+      sent++;
+    } catch (err) {
+      logger.error({ err, appointmentId: row.id }, 'appointment reminder communication failed');
+    }
   }
-  return rows.length;
+  return sent;
 }
 
 /** Mark overdue invoices past_due. */

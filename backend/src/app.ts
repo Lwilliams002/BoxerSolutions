@@ -22,6 +22,7 @@ import subscriptionRoutes from './routes/subscriptions';
 import fileRoutes from './routes/files';
 import noteRoutes from './routes/notes';
 import notificationRoutes from './routes/notifications';
+import communicationRoutes from './routes/communications';
 import dashboardRoutes from './routes/dashboard';
 import reportRoutes from './routes/reports';
 
@@ -59,6 +60,7 @@ export function createApp() {
   v1.use('/files', fileRoutes);
   v1.use('/notes', noteRoutes);
   v1.use('/notifications', notificationRoutes);
+  v1.use('/communications', communicationRoutes);
   v1.use('/dashboard', dashboardRoutes);
   v1.use('/reports', reportRoutes);
   app.use('/api/v1', v1);

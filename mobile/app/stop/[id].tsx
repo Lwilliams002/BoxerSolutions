@@ -79,7 +79,19 @@ export default function StopScreen() {
         qc.setQueryData(['appointment', id], (prev: ApptDetail | undefined) =>
           prev ? { ...prev, status } : prev,
         );
+        if (status === 'en_route') {
+          await useSync.getState().enqueueApi(`/appointments/${id}/notify-on-my-way`, { method: 'POST', body: {} });
+          Alert.alert('Saved offline', 'On My Way notification will sync when you are back online.');
+        }
       } else {
+        if (status === 'en_route') {
+          try {
+            await api(`/appointments/${id}/notify-on-my-way`, { method: 'POST', body: {} });
+            Alert.alert('Notification sent', 'Customer was notified that you are on the way.');
+          } catch (e) {
+            Alert.alert('Status updated', `On My Way status was saved, but notification failed: ${(e as Error).message}`);
+          }
+        }
         refresh();
       }
     } catch (e) {

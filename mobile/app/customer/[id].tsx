@@ -8,7 +8,7 @@ import { colors, money, fmtDate, fmtTime } from '../../src/lib/theme';
 import { Card, Button, StatusBadge, Loading, Row, Value, Label, EmptyState } from '../../src/components/ui';
 import { AddPaymentMethodModal } from '../../src/components/AddPaymentMethodModal';
 
-const TABS = ['Overview', 'Appointments', 'Invoices', 'Payments', 'Notes', 'Documents', 'Payment Methods', 'History'] as const;
+const TABS = ['Overview', 'Appointments', 'Invoices', 'Payments', 'Comms', 'Notes', 'Documents', 'Payment Methods', 'History'] as const;
 type Tab = (typeof TABS)[number];
 
 export default function CustomerScreen() {
@@ -44,6 +44,11 @@ export default function CustomerScreen() {
     queryKey: ['customerNotes', id],
     queryFn: () => api<{ items: any[] }>(`/notes?customerId=${id}&pageSize=50`),
     enabled: tab === 'Notes',
+  });
+  const { data: comms } = useQuery({
+    queryKey: ['customerComms', id],
+    queryFn: () => api<{ items: any[] }>(`/communications?customerId=${id}&pageSize=50`),
+    enabled: tab === 'Comms',
   });
   const { data: methods } = useQuery({
     queryKey: ['paymentMethods', id],
@@ -281,6 +286,28 @@ export default function CustomerScreen() {
           </>
         )}
 
+        {tab === 'Comms' &&
+          ((comms?.items?.length ?? 0) === 0 ? (
+            <EmptyState title="No communications" />
+          ) : (
+            comms!.items.map((cm) => (
+              <Card key={cm.id}>
+                <Row>
+                  <View style={{ flex: 1, marginRight: 10 }}>
+                    <Text style={styles.commTitle} numberOfLines={1}>
+                      {cm.channel === 'sms' ? '💬' : cm.channel === 'email' ? '✉️' : '🔔'} {cm.subject ?? cm.templateKey}
+                    </Text>
+                    <Text style={styles.metaText} numberOfLines={2}>{cm.body}</Text>
+                    <Text style={styles.metaText}>
+                      {cm.templateKey.replace(/_/g, ' ')} · {fmtDate(cm.sentAt ?? cm.createdAt)}
+                    </Text>
+                  </View>
+                  <StatusBadge status={cm.status} />
+                </Row>
+              </Card>
+            ))
+          ))}
+
         {tab === 'Payment Methods' && (
           <>
             {promptPayment === '1' && (methods ?? []).length === 0 && (
@@ -397,7 +424,7 @@ const styles = StyleSheet.create({
   headerCard: { backgroundColor: '#0D0D0D', padding: 18, paddingBottom: 16 },
   name: { fontSize: 21, fontWeight: '900', color: '#FFFFFF' },
   balance: { fontSize: 15, fontWeight: '800', color: '#2DC4A2' },
-  tabs: { flexGrow: 0, backgroundColor: colors.card, borderBottomWidth: 1, borderColor: colors.border },
+  tabs: { flexGrow: 0, height: 47, backgroundColor: colors.card, borderBottomWidth: 1, borderColor: colors.border },
   tab: { paddingHorizontal: 14, paddingVertical: 12 },
   tabActive: { borderBottomWidth: 3, borderColor: colors.primary },
   tabText: { fontSize: 14, color: colors.textMuted, fontWeight: '600' },
@@ -407,4 +434,5 @@ const styles = StyleSheet.create({
   accessNotes: { fontSize: 13, color: colors.warning, marginTop: 4, fontStyle: 'italic' },
   noteInput: { minHeight: 60, fontSize: 15, color: colors.text, textAlignVertical: 'top', marginBottom: 8 },
   link: { color: colors.primaryDark, fontWeight: '700', fontSize: 14 },
+  commTitle: { fontSize: 15, fontWeight: '800', color: colors.text },
 });
