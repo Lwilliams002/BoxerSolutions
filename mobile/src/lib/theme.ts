@@ -67,7 +67,9 @@ export function fmtTime(t?: string | null): string {
 
 export function fmtDate(d?: string | null): string {
   if (!d) return '';
-  const dt = new Date(d);
+  // Date-only strings parse as UTC midnight and shift a day in negative-offset
+  // timezones; anchor them to local noon instead.
+  const dt = new Date(/^\d{4}-\d{2}-\d{2}$/.test(d) ? `${d}T12:00:00` : d);
   return dt.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
 }
 

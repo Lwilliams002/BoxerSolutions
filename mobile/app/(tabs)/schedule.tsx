@@ -58,7 +58,7 @@ const START_HOUR = 7;
 const END_HOUR = 19;
 const HOUR_HEIGHT = 92;
 const LANE_WIDTH = 178;
-const AXIS_WIDTH = 56;
+const AXIS_WIDTH = 74;
 const BOARD_HEIGHT = (END_HOUR - START_HOUR) * HOUR_HEIGHT;
 const QUICK_TIMES = ['07:00', '08:00', '09:00', '10:00', '11:00', '12:00', '13:00', '14:00', '15:00', '16:00', '17:00'];
 const QUICK_DURATIONS = [30, 60, 90, 120];
@@ -167,6 +167,11 @@ export default function ScheduleScreen() {
     setEditTechId(appt.technicianId ?? null);
   };
 
+  const closeAndGo = (path: string) => {
+    setSelected(null);
+    setTimeout(() => router.push(path as never), 300);
+  };
+
   const submitReschedule = (techOverride?: string | null) => {
     if (!selected) return;
     const start = minutesOf(editStart);
@@ -191,8 +196,8 @@ export default function ScheduleScreen() {
   return (
     <View style={styles.screen}>
       <View style={[styles.header, { paddingTop: insets.top + 8 }]}>
-        <View>
-          <Text style={styles.headerTitle}>Dispatch Calendar</Text>
+        <View style={{ flex: 1, marginRight: 10 }}>
+          <Text style={styles.headerTitle} numberOfLines={1}>Dispatch Calendar</Text>
           <Text style={styles.headerSub}>{fmtDate(date)}</Text>
         </View>
         {canWrite ? (
@@ -262,11 +267,11 @@ export default function ScheduleScreen() {
 
                 {editorMode === 'actions' ? (
                   <View>
-                    <TouchableOpacity style={styles.actionRow} onPress={() => router.push(`/stop/${selected.id}`)}>
+                    <TouchableOpacity style={styles.actionRow} onPress={() => closeAndGo(`/stop/${selected.id}`)}>
                       <Ionicons name="clipboard-outline" size={20} color={colors.primaryDark} />
                       <Text style={styles.actionText}>View appointment details</Text>
                     </TouchableOpacity>
-                    <TouchableOpacity style={styles.actionRow} onPress={() => router.push(`/customer/${selected.customerId}`)}>
+                    <TouchableOpacity style={styles.actionRow} onPress={() => closeAndGo(`/customer/${selected.customerId}`)}>
                       <Ionicons name="person-outline" size={20} color={colors.primaryDark} />
                       <Text style={styles.actionText}>Open customer</Text>
                     </TouchableOpacity>
@@ -391,13 +396,13 @@ function LaneColumn({ lane, appointments, onAppointmentPress }: { lane: Lane; ap
       </View>
       <View style={styles.laneBody}>
         {Array.from({ length: END_HOUR - START_HOUR }, (_, i) => <View key={i} style={[styles.hourLine, { top: i * HOUR_HEIGHT }]} />)}
-        {appointments.map((appt, index) => {
+        {appointments.map((appt) => {
           const top = Math.max(0, (minutesOf(appt.windowStart) - START_HOUR * 60) / 60 * HOUR_HEIGHT);
           const minutes = Math.max(30, minutesOf(appt.windowEnd) - minutesOf(appt.windowStart) || appt.durationMinutes || 60);
           const height = Math.max(54, minutes / 60 * HOUR_HEIGHT - 4);
           const color = statusColors[appt.status] ?? colors.textMuted;
           return (
-            <TouchableOpacity key={appt.id} activeOpacity={0.82} style={[styles.apptBlock, { top: top + index % 2 * 3, height, borderLeftColor: color }]} onPress={() => onAppointmentPress(appt)}>
+            <TouchableOpacity key={appt.id} activeOpacity={0.82} style={[styles.apptBlock, { top, height, borderLeftColor: color }]} onPress={() => onAppointmentPress(appt)}>
               <Text style={styles.apptTime}>{fmtTime(appt.windowStart)} – {fmtTime(appt.windowEnd)}</Text>
               <Text style={styles.apptName} numberOfLines={2}>{customerName(appt)}</Text>
               <Text style={styles.apptMeta} numberOfLines={1}>{appt.services?.map((s) => s.name).join(', ') || appt.addressLine1}</Text>
@@ -459,7 +464,7 @@ function WeekView({ days, appointments, loading, refreshing, onRefresh, onDayPre
 const styles = StyleSheet.create({
   screen: { flex: 1, backgroundColor: colors.bg },
   header: { backgroundColor: colors.text, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 18, paddingBottom: 14 },
-  headerTitle: { color: '#fff', fontSize: 22, fontWeight: '900' },
+  headerTitle: { color: '#fff', fontSize: 20, fontWeight: '900' },
   headerSub: { color: colors.primary, fontSize: 12, fontWeight: '700', marginTop: 2 },
   createBtn: { flexDirection: 'row', alignItems: 'center', backgroundColor: colors.primary, borderRadius: 22, paddingVertical: 8, paddingHorizontal: 12, maxWidth: 178 },
   createBtnText: { color: colors.text, fontWeight: '900', fontSize: 12, marginLeft: 4 },
@@ -480,7 +485,7 @@ const styles = StyleSheet.create({
   axisColumn: { width: AXIS_WIDTH },
   laneHeaderSpacer: { height: 48 },
   axisBody: { height: BOARD_HEIGHT, position: 'relative' },
-  axisTime: { position: 'absolute', left: 0, right: 4, fontSize: 11, lineHeight: 14, color: colors.textMuted, fontWeight: '800', textAlign: 'right' },
+  axisTime: { position: 'absolute', left: 0, right: 8, fontSize: 11, lineHeight: 14, color: colors.textMuted, fontWeight: '800', textAlign: 'right' },
   lane: { width: LANE_WIDTH, marginRight: 10 },
   laneHeader: { height: 48, backgroundColor: colors.text, borderTopLeftRadius: 14, borderTopRightRadius: 14, flexDirection: 'row', alignItems: 'center', paddingHorizontal: 10 },
   laneTitle: { color: '#fff', flex: 1, fontSize: 13, lineHeight: 17, fontWeight: '900' },
