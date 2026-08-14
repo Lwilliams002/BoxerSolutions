@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   View,
   Text,
@@ -9,14 +9,17 @@ import {
   Linking,
   Alert,
 } from 'react-native';
+import * as Location from 'expo-location';
 import MapView, { Marker, Polyline, PROVIDER_DEFAULT } from 'react-native-maps';
 import { useQuery, useQueryClient, useMutation } from '@tanstack/react-query';
-import { useLocalSearchParams, useRouter } from 'expo-router';
+import { useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { api } from '../../src/lib/api';
 import { useAuth } from '../../src/lib/authStore';
-import { colors, fmtTime, money, statusColors } from '../../src/lib/theme';
+import { mutateOrQueue } from '../../src/lib/offline';
+import { Coordinate, formatDistanceEta, haversineMeters } from '../../src/lib/geo';
+import { colors, fmtTime, money } from '../../src/lib/theme';
 import { Loading, StatusBadge } from '../../src/components/ui';
 import { SyncBanner } from '../../src/components/SyncBanner';
 
@@ -65,6 +68,17 @@ export function openNavigation(lat: number, lng: number, label: string) {
 
 type ViewMode = 'list' | 'map';
 
+const ARRIVAL_RADIUS_METERS = 150;
+const COMPLETED_STATUSES = ['completed', 'cancelled', 'no_access'];
+const ARRIVAL_PROMPT_STATUSES = ['scheduled', 'en_route'];
+const MAP_EDGE_PADDING = { top: 50, right: 50, bottom: 50, left: 50 };
+
+function stopCoordinate(stop: Stop): Coordinate | null {
+  return stop.latitude != null && stop.longitude != null
+    ? { latitude: stop.latitude, longitude: stop.longitude }
+    : null;
+}
+
 export default function RouteDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const router = useRouter();
@@ -74,6 +88,12 @@ export default function RouteDetailScreen() {
   const [viewMode, setViewMode] = useState<ViewMode>('list');
   const [routeStarted, setRouteStarted] = useState(false);
   const [activeStopIdx, setActiveStopIdx] = useState(0);
+  const [selectedStopId, setSelectedStopId] = useState<string | null>(null);
+  const [userLocation, setUserLocation] = useState<Coordinate | null>(null);
+  const [locationGranted, setLocationGranted] = useState(false);
+  const mapRef = useRef<MapView | null>(null);
+  const listRef = useRef<FlatList<Stop> | null>(null);
+  const promptedStopsRef = useRef<Set<string>>(new Set());
 
   const { data, isLoading, refetch } = useQuery({
     queryKey: ['route', id],
@@ -86,8 +106,33 @@ export default function RouteDetailScreen() {
     onSuccess: () => void qc.invalidateQueries({ queryKey: ['route', id] }),
   });
 
+  const updateStopStatus = useMutation({
+    mutationFn: async ({ appointmentId, status }: { appointmentId: string; status: string }) => {
+      const { queued } = await mutateOrQueue(`/appointments/${appointmentId}/status`, {
+        method: 'POST',
+        body: { status },
+      });
+      return { queued, appointmentId, status };
+    },
+    onSuccess: ({ appointmentId, status, queued }) => {
+      qc.setQueryData(['route', id], (prev: RouteDetail | undefined) =>
+        prev
+          ? {
+              ...prev,
+              stops: prev.stops.map((s) => (s.appointmentId === appointmentId ? { ...s, status } : s)),
+            }
+          : prev,
+      );
+      if (queued) Alert.alert('Saved offline', 'Arrival status will sync when you are back online.');
+      void qc.invalidateQueries({ queryKey: ['route', id] });
+      void qc.invalidateQueries({ queryKey: ['appointment', appointmentId] });
+      void qc.invalidateQueries({ queryKey: ['dashboard'] });
+    },
+    onError: (e) => Alert.alert('Error', (e as Error).message),
+  });
+
   const stops = data?.stops ?? [];
-  const pendingStops = stops.filter((s) => !['completed', 'cancelled', 'no_access'].includes(s.status));
+  const pendingStops = stops.filter((s) => !COMPLETED_STATUSES.includes(s.status));
   const done = data?.completedCount ?? 0;
   const total = data?.stopCount ?? 0;
   const pct = total ? Math.round((done / total) * 100) : 0;
@@ -102,6 +147,11 @@ export default function RouteDetailScreen() {
     [stops],
   );
 
+  const fitCoords = useMemo(
+    () => (userLocation ? [...coords, userLocation] : coords),
+    [coords, userLocation],
+  );
+
   const region = coords.length
     ? {
         latitude: coords.reduce((a, c) => a + c.latitude, 0) / coords.length,
@@ -110,6 +160,139 @@ export default function RouteDetailScreen() {
         longitudeDelta: 0.14,
       }
     : { latitude: 30.2672, longitude: -97.7431, latitudeDelta: 0.2, longitudeDelta: 0.2 };
+
+  const stopMetrics = useMemo(() => {
+    const metrics: Record<string, string> = {};
+    stops.forEach((stop, index) => {
+      const current = stopCoordinate(stop);
+      if (!current) return;
+      let previous: Coordinate | null = null;
+      if (routeStarted && activeStop?.stopId === stop.stopId && userLocation) {
+        previous = userLocation;
+      } else {
+        for (let i = index - 1; i >= 0; i--) {
+          previous = stopCoordinate(stops[i]);
+          if (previous) break;
+        }
+        if (!previous && data?.startLat != null && data.startLng != null) {
+          previous = { latitude: data.startLat, longitude: data.startLng };
+        }
+      }
+      if (previous) metrics[stop.stopId] = formatDistanceEta(haversineMeters(previous, current));
+    });
+    return metrics;
+  }, [activeStop?.stopId, data?.startLat, data?.startLng, routeStarted, stops, userLocation]);
+
+  const fitMap = useCallback(() => {
+    if (fitCoords.length < 1) return;
+    requestAnimationFrame(() => {
+      if (fitCoords.length === 1) {
+        mapRef.current?.animateToRegion({ ...fitCoords[0], latitudeDelta: 0.02, longitudeDelta: 0.02 }, 400);
+      } else {
+        mapRef.current?.fitToCoordinates(fitCoords, { edgePadding: MAP_EDGE_PADDING, animated: true });
+      }
+    });
+  }, [fitCoords]);
+
+  useEffect(() => {
+    let mounted = true;
+    void (async () => {
+      try {
+        const permission = await Location.requestForegroundPermissionsAsync();
+        if (!mounted || permission.status !== Location.PermissionStatus.GRANTED) return;
+        setLocationGranted(true);
+        const current = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
+        if (mounted) {
+          setUserLocation({
+            latitude: current.coords.latitude,
+            longitude: current.coords.longitude,
+          });
+        }
+      } catch {
+        if (mounted) setLocationGranted(false);
+      }
+    })();
+    return () => {
+      mounted = false;
+    };
+  }, []);
+
+  useEffect(() => {
+    if (viewMode === 'map') fitMap();
+  }, [fitMap, viewMode]);
+
+  const selectStop = useCallback(
+    (stop: Stop, options: { scroll?: boolean; focusMap?: boolean } = {}) => {
+      setSelectedStopId(stop.stopId);
+      const index = stops.findIndex((s) => s.stopId === stop.stopId);
+      if (options.scroll && index >= 0) {
+        listRef.current?.scrollToIndex({ index, animated: true, viewPosition: 0.35 });
+      }
+      const coordinate = stopCoordinate(stop);
+      if (options.focusMap && coordinate) {
+        mapRef.current?.animateToRegion({ ...coordinate, latitudeDelta: 0.025, longitudeDelta: 0.025 }, 350);
+      }
+    },
+    [stops],
+  );
+
+  useFocusEffect(
+    useCallback(() => {
+      if (!routeStarted || !activeStop || !ARRIVAL_PROMPT_STATUSES.includes(activeStop.status)) return undefined;
+      const activeCoord = stopCoordinate(activeStop);
+      if (!activeCoord || promptedStopsRef.current.has(activeStop.stopId)) return undefined;
+      let subscription: Location.LocationSubscription | null = null;
+      let cancelled = false;
+      void (async () => {
+        try {
+          const permission = await Location.getForegroundPermissionsAsync();
+          if (permission.status !== Location.PermissionStatus.GRANTED) return;
+          subscription = await Location.watchPositionAsync(
+            {
+              accuracy: Location.Accuracy.Balanced,
+              timeInterval: 10000,
+              distanceInterval: 50,
+            },
+            (position) => {
+              const current = {
+                latitude: position.coords.latitude,
+                longitude: position.coords.longitude,
+              };
+              setUserLocation(current);
+              if (
+                !cancelled &&
+                !promptedStopsRef.current.has(activeStop.stopId) &&
+                haversineMeters(current, activeCoord) <= ARRIVAL_RADIUS_METERS
+              ) {
+                promptedStopsRef.current.add(activeStop.stopId);
+                Alert.alert(
+                  "You've arrived",
+                  `You've arrived at ${activeStop.company ?? activeStop.customerName} — mark as Arrived?`,
+                  [
+                    { text: 'Not yet', style: 'cancel' },
+                    {
+                      text: 'Yes',
+                      onPress: () =>
+                        updateStopStatus.mutate({
+                          appointmentId: activeStop.appointmentId,
+                          status: 'arrived',
+                        }),
+                    },
+                  ],
+                );
+              }
+            },
+          );
+        } catch {
+          // Route map remains usable without live location.
+        }
+      })();
+      return () => {
+        cancelled = true;
+        subscription?.remove();
+      };
+    }, [activeStop, locationGranted, routeStarted, updateStopStatus]),
+  );
 
   const startRoute = () => {
     if (pendingStops.length === 0) {
@@ -158,7 +341,10 @@ export default function RouteDetailScreen() {
           </TouchableOpacity>
           <TouchableOpacity
             style={[styles.toggleBtn, viewMode === 'map' && styles.toggleBtnActive]}
-            onPress={() => setViewMode('map')}
+            onPress={() => {
+              setViewMode('map');
+              setTimeout(fitMap, 150);
+            }}
           >
             <Ionicons name="map" size={16} color={viewMode === 'map' ? '#0D0D0D' : '#6B7C78'} />
           </TouchableOpacity>
@@ -177,23 +363,51 @@ export default function RouteDetailScreen() {
 
       {/* Map view */}
       {viewMode === 'map' && (
-        <MapView style={styles.map} provider={PROVIDER_DEFAULT} initialRegion={region} showsUserLocation>
+        <MapView
+          ref={mapRef}
+          style={styles.map}
+          provider={PROVIDER_DEFAULT}
+          initialRegion={region}
+          showsUserLocation={locationGranted}
+          onMapReady={fitMap}
+        >
+          {coords.length > 1 && (
+            <Polyline coordinates={coords} strokeColor="#2DC4A2" strokeWidth={4} />
+          )}
           {stops.map(
-            (s) =>
-              s.latitude != null &&
-              s.longitude != null && (
+            (s) => {
+              const coordinate = stopCoordinate(s);
+              const isDone = COMPLETED_STATUSES.includes(s.status);
+              const isActive = activeStop?.stopId === s.stopId;
+              const isSelected = selectedStopId === s.stopId;
+              return (
+                coordinate && (
                 <Marker
                   key={s.stopId}
-                  coordinate={{ latitude: s.latitude, longitude: s.longitude }}
+                  coordinate={coordinate}
                   title={`${s.stopOrder}. ${s.company ?? s.customerName}`}
                   description={`${fmtTime(s.windowStart)}–${fmtTime(s.windowEnd)}`}
-                  pinColor={s.status === 'completed' ? 'green' : activeStop?.stopId === s.stopId ? 'blue' : undefined}
+                  onPress={() => selectStop(s, { scroll: true })}
                   onCalloutPress={() => goToStop(s)}
-                />
-              ),
-          )}
-          {coords.length > 1 && (
-            <Polyline coordinates={coords} strokeColor="#2DC4A2" strokeWidth={3} />
+                >
+                  <View
+                    style={[
+                      styles.marker,
+                      isDone && styles.markerDone,
+                      isActive && styles.markerActive,
+                      isSelected && styles.markerSelected,
+                    ]}
+                  >
+                    {isDone ? (
+                      <Ionicons name="checkmark" size={isActive ? 18 : 14} color="#fff" />
+                    ) : (
+                      <Text style={[styles.markerText, isActive && styles.markerTextActive]}>{s.stopOrder}</Text>
+                    )}
+                  </View>
+                </Marker>
+                )
+              );
+            },
           )}
         </MapView>
       )}
@@ -209,6 +423,9 @@ export default function RouteDetailScreen() {
               <Text style={styles.activeCardLabel}>NEXT STOP</Text>
               <Text style={styles.activeCardName}>{activeStop.company ?? activeStop.customerName}</Text>
               <Text style={styles.activeCardAddr}>{activeStop.addressLine1}, {activeStop.city}</Text>
+              {stopMetrics[activeStop.stopId] ? (
+                <Text style={styles.activeCardDistance}>{stopMetrics[activeStop.stopId]}</Text>
+              ) : null}
             </View>
             <Text style={styles.activeCardTime}>{fmtTime(activeStop.windowStart)}</Text>
           </View>
@@ -247,16 +464,28 @@ export default function RouteDetailScreen() {
 
       {/* Stop list */}
       <FlatList
+        ref={listRef}
         data={stops}
         keyExtractor={(s) => s.stopId}
         contentContainerStyle={{ padding: 14, paddingBottom: routeStarted ? 0 : 100 }}
+        onScrollToIndexFailed={(info) => {
+          listRef.current?.scrollToOffset({ offset: Math.max(0, info.averageItemLength * info.index), animated: true });
+        }}
         renderItem={({ item }) => {
           const isActive = routeStarted && activeStop?.stopId === item.stopId;
-          const isDone = ['completed', 'cancelled', 'no_access'].includes(item.status);
+          const isSelected = selectedStopId === item.stopId;
+          const isDone = COMPLETED_STATUSES.includes(item.status);
           return (
             <TouchableOpacity
-              style={[styles.stopCard, isActive && styles.stopCardActive, isDone && styles.stopCardDone]}
-              onPress={() => goToStop(item)}
+              style={[
+                styles.stopCard,
+                (isActive || isSelected) && styles.stopCardActive,
+                isDone && styles.stopCardDone,
+              ]}
+              onPress={() => {
+                selectStop(item, { focusMap: viewMode === 'map' });
+                if (viewMode !== 'map') goToStop(item);
+              }}
               activeOpacity={0.85}
             >
               <View style={[styles.seqBadge, isDone && styles.seqBadgeDone, isActive && styles.seqBadgeActive]}>
@@ -277,6 +506,9 @@ export default function RouteDetailScreen() {
                   {item.company ?? item.customerName}
                 </Text>
                 <Text style={styles.stopAddr}>{item.addressLine1}, {item.city}</Text>
+                {stopMetrics[item.stopId] ? (
+                  <Text style={styles.distanceEta}>{stopMetrics[item.stopId]}</Text>
+                ) : null}
                 <View style={styles.stopFooter}>
                   <Text style={styles.stopSvc}>
                     {item.services.map((s) => s.name).join(', ')}
@@ -364,6 +596,32 @@ const styles = StyleSheet.create({
   progressFill: { height: 5, borderRadius: 3, backgroundColor: '#2DC4A2' },
   progressPct: { color: '#2DC4A2', fontSize: 11, fontWeight: '800', marginLeft: 10 },
   map: { height: 220 },
+  marker: {
+    width: 30,
+    height: 30,
+    borderRadius: 15,
+    backgroundColor: '#0D0D0D',
+    borderWidth: 2,
+    borderColor: '#fff',
+    alignItems: 'center',
+    justifyContent: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.25,
+    shadowRadius: 4,
+    elevation: 4,
+  },
+  markerActive: {
+    width: 38,
+    height: 38,
+    borderRadius: 19,
+    backgroundColor: '#2DC4A2',
+    borderColor: '#0D0D0D',
+  },
+  markerDone: { backgroundColor: '#1E8E5A' },
+  markerSelected: { borderColor: '#D4860A', borderWidth: 3 },
+  markerText: { color: '#fff', fontSize: 12, fontWeight: '900' },
+  markerTextActive: { color: '#0D0D0D', fontSize: 15 },
   activeCard: {
     backgroundColor: '#0D0D0D',
     marginHorizontal: 14,
@@ -381,6 +639,7 @@ const styles = StyleSheet.create({
   activeCardLabel: { color: '#2DC4A2', fontSize: 10, fontWeight: '800', letterSpacing: 1.5 },
   activeCardName: { color: '#fff', fontSize: 17, fontWeight: '800', marginTop: 2 },
   activeCardAddr: { color: '#8FA6A1', fontSize: 13, marginTop: 1 },
+  activeCardDistance: { color: '#2DC4A2', fontSize: 12, fontWeight: '800', marginTop: 4 },
   activeCardTime: { color: '#2DC4A2', fontSize: 15, fontWeight: '800' },
   activeCardActions: { flexDirection: 'row', marginBottom: 10 },
   navBtn: {
@@ -409,13 +668,14 @@ const styles = StyleSheet.create({
     marginRight: 10, marginTop: 2,
   },
   seqBadgeActive: { backgroundColor: '#0D0D0D' },
-  seqBadgeDone: { backgroundColor: '#4A5A56' },
+  seqBadgeDone: { backgroundColor: '#1E8E5A' },
   seqText: { color: '#0D0D0D', fontWeight: '900', fontSize: 13 },
   stopHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
   stopTime: { fontSize: 13, fontWeight: '800', color: colors.text },
   stopName: { fontSize: 15, fontWeight: '800', color: colors.text, marginTop: 2 },
   doneName: { textDecorationLine: 'line-through', color: colors.textMuted },
   stopAddr: { fontSize: 12, color: colors.textMuted, marginTop: 1 },
+  distanceEta: { fontSize: 11, color: colors.primaryDark, marginTop: 3, fontWeight: '800' },
   stopFooter: { flexDirection: 'row', justifyContent: 'space-between', marginTop: 4 },
   stopSvc: { fontSize: 12, color: colors.textMuted, flex: 1, marginRight: 6 },
   stopTotal: { fontSize: 13, fontWeight: '800', color: colors.text },
