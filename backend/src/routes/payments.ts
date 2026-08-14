@@ -4,6 +4,8 @@ import { authenticate, authorize } from '../middleware/auth';
 import { asyncHandler } from '../utils/asyncHandler';
 import { ok, parsePagination } from '../utils/http';
 import { paymentService } from '../services/paymentService';
+import { processAutopay } from '../jobs/billing';
+import { pool } from '../config/db';
 
 const router = Router();
 router.use(authenticate);
@@ -45,6 +47,35 @@ router.post(
       req.user!.employeeId,
     );
     ok(res, result, 'Payment collected', 201);
+  }),
+);
+
+router.post(
+  '/jobs/autopay',
+  authorize('payments:write'),
+  asyncHandler(async (req, res) => {
+    const sys = await pool.query(
+      `SELECT u.id FROM users u JOIN user_roles ur ON ur.user_id = u.id
+       JOIN roles r ON r.id = ur.role_id WHERE r.code = 'OWNER' LIMIT 1`,
+    );
+    ok(res, await processAutopay(sys.rows[0]?.id ?? req.user!.id), 'AutoPay processing complete');
+  }),
+);
+
+router.get(
+  '/:id/receipt',
+  authorize('payments:read', 'payments:collect'),
+  asyncHandler(async (req, res) => {
+    ok(res, await paymentService.getReceipt(req.params.id));
+  }),
+);
+
+router.post(
+  '/:id/refund',
+  authorize('payments:write'),
+  asyncHandler(async (req, res) => {
+    const body = z.object({ amount: z.number().positive().nullish() }).parse(req.body ?? {});
+    ok(res, await paymentService.refundPayment(req.params.id, body.amount ?? null, req.user!.id, req.user!.employeeId), 'Payment refunded', 201);
   }),
 );
 

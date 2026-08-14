@@ -12,7 +12,8 @@ export type CommunicationTemplateKey =
   | 'appointment_rescheduled'
   | 'invoice_created'
   | 'payment_received'
-  | 'payment_failed';
+  | 'payment_failed'
+  | 'payment_refunded';
 
 const COMPANY = {
   name: 'Boxer Solutions Pest Control',
@@ -28,6 +29,7 @@ const DEFAULT_CHANNEL: Record<CommunicationTemplateKey, CommunicationChannel> = 
   invoice_created: 'email',
   payment_received: 'email',
   payment_failed: 'email',
+  payment_refunded: 'email',
 };
 
 function fmtDate(value: string | Date) {
@@ -135,6 +137,11 @@ function renderTemplate(templateKey: CommunicationTemplateKey, ctx: QueryResultR
         subject: `Payment failed for invoice ${ctx.invoice_number}`,
         body: `Hi ${firstName(ctx)}, your payment of ${money(extra?.amount as number | string | undefined)} for invoice ${ctx.invoice_number} failed${extra?.reason ? `: ${String(extra.reason)}` : ''}. Please call ${COMPANY.phone}.`,
       };
+    case 'payment_refunded':
+      return {
+        subject: `Refund processed for invoice ${ctx.invoice_number}`,
+        body: `Hi ${firstName(ctx)}, we processed a refund of ${money(extra?.amount as number | string | undefined)} for invoice ${ctx.invoice_number}.`,
+      };
   }
 }
 
@@ -235,7 +242,7 @@ export const communicationService = {
 
   async sendInvoiceTemplate(
     invoiceId: string,
-    templateKey: Extract<CommunicationTemplateKey, 'invoice_created' | 'payment_received' | 'payment_failed'>,
+    templateKey: Extract<CommunicationTemplateKey, 'invoice_created' | 'payment_received' | 'payment_failed' | 'payment_refunded'>,
     sentBy?: string | null,
     extra?: Record<string, unknown>,
   ) {

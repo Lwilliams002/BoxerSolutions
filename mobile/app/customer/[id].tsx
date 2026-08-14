@@ -80,6 +80,48 @@ export default function CustomerScreen() {
     }
   };
 
+  const openReceipt = async (paymentId: string) => {
+    try {
+      const { downloadUrl } = await api<{ downloadUrl: string }>(`/payments/${paymentId}/receipt`);
+      await Linking.openURL(downloadUrl);
+    } catch (e) {
+      Alert.alert('Receipt unavailable', (e as Error).message);
+    }
+  };
+
+  const toggleAutopay = async () => {
+    const defaultMethod = (methods ?? []).find((m) => m.isDefault) ?? (methods ?? [])[0];
+    if (!cust.autopayEnabled && !defaultMethod) {
+      Alert.alert('Payment method required', 'Add a default payment method before enabling AutoPay.', [
+        { text: 'Cancel', style: 'cancel' },
+        { text: 'Add Method', onPress: () => { setTab('Payment Methods'); setShowAddCard(true); } },
+      ]);
+      return;
+    }
+    const enable = !cust.autopayEnabled;
+    Alert.alert(enable ? 'Enable AutoPay' : 'Disable AutoPay', enable ? 'Use the default saved payment method for due invoices?' : 'Stop automatic payment collection for this customer?', [
+      { text: 'Cancel', style: 'cancel' },
+      {
+        text: enable ? 'Enable' : 'Disable',
+        onPress: async () => {
+          setBusy(true);
+          try {
+            await api(`/payments/autopay/${id}`, {
+              method: 'POST',
+              body: { enabled: enable, paymentMethodId: enable ? defaultMethod.id : null },
+            });
+            void qc.invalidateQueries({ queryKey: ['customer', id] });
+            void qc.invalidateQueries({ queryKey: ['paymentMethods', id] });
+          } catch (e) {
+            Alert.alert('Error', (e as Error).message);
+          } finally {
+            setBusy(false);
+          }
+        },
+      },
+    ]);
+  };
+
   const addNote = async () => {
     if (!noteText.trim()) return;
     setBusy(true);
@@ -205,6 +247,14 @@ export default function CustomerScreen() {
                 <Label>AutoPay</Label>
                 <Value>{cust.autopayEnabled ? 'Enabled ⟳' : 'Disabled'}</Value>
               </View>
+              {hasPermission('payments:write') ? (
+                <Button
+                  title={cust.autopayEnabled ? 'Disable AutoPay' : 'Enable AutoPay'}
+                  variant={cust.autopayEnabled ? 'outline' : 'success'}
+                  onPress={toggleAutopay}
+                  loading={busy}
+                />
+              ) : null}
               {cust.billingAddressLine1 ? (
                 <View style={{ marginTop: 8 }}>
                   <Label>Billing Address</Label>
@@ -324,6 +374,11 @@ export default function CustomerScreen() {
                   {p.receiptNumber ? ` · ${p.receiptNumber}` : ''}
                   {p.failureReason ? ` · ${p.failureReason}` : ''}
                 </Text>
+                {p.receiptFileId ? (
+                  <TouchableOpacity onPress={() => openReceipt(p.id)} style={{ marginTop: 8 }}>
+                    <Text style={styles.link}>View Receipt</Text>
+                  </TouchableOpacity>
+                ) : null}
               </Card>
             ))
           ))}
@@ -376,6 +431,25 @@ export default function CustomerScreen() {
 
         {tab === 'Payment Methods' && (
           <>
+            {hasPermission('payments:write') ? (
+              <Card>
+                <Row>
+                  <View style={{ flex: 1, marginRight: 10 }}>
+                    <Value style={{ fontWeight: '800' }}>AutoPay</Value>
+                    <Text style={styles.metaText}>
+                      {cust.autopayEnabled ? 'Enabled for due invoices' : 'Disabled'}
+                    </Text>
+                  </View>
+                  <Button
+                    title={cust.autopayEnabled ? 'Disable' : 'Enable'}
+                    variant={cust.autopayEnabled ? 'outline' : 'success'}
+                    onPress={toggleAutopay}
+                    loading={busy}
+                    style={{ paddingVertical: 10 }}
+                  />
+                </Row>
+              </Card>
+            ) : null}
             {promptPayment === '1' && (methods ?? []).length === 0 && (
               <View style={styles.setupBanner}>
                 <Text style={styles.setupBannerTitle}>Set up billing</Text>

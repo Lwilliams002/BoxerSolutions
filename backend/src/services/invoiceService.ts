@@ -84,6 +84,7 @@ async function insertInvoice(
 const INVOICE_SELECT = `
   SELECT i.*, c.first_name || ' ' || c.last_name AS customer_name, c.company AS customer_company,
          c.email AS customer_email,
+         (i.total - i.amount_paid) AS balance_due,
          sl.address_line1 || ', ' || sl.city || ', ' || sl.state || ' ' || sl.postal_code AS service_address,
          (SELECT json_agg(json_build_object('id', ii.id, 'description', ii.description, 'quantity', ii.quantity,
             'unitPrice', ii.unit_price, 'discount', ii.discount, 'taxable', ii.taxable, 'lineTotal', ii.line_total))
