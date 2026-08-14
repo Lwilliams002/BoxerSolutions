@@ -39,7 +39,9 @@ class MockPaymentProvider implements PaymentProvider {
   name = 'mock';
 
   async attachPaymentMethod(token: string): Promise<TokenizedPaymentMethod> {
-    const match = /^tok_([a-z]+)_(\d{4})$/.exec(token);
+    // Accepts the legacy `tok_<brand>_<last4>` shape and the richer
+    // `tok_<brand>_<last4>_<mm>_<yyyy>` shape produced by the mobile card form.
+    const match = /^tok_([a-z]+)_(\d{4})(?:_(\d{1,2})_(\d{2,4}))?$/.exec(token);
     if (!match) throw new Error('Invalid payment token');
     const brandMap: Record<string, string> = {
       visa: 'Visa',
@@ -50,12 +52,19 @@ class MockPaymentProvider implements PaymentProvider {
     };
     const brand = brandMap[match[1]] ?? 'Card';
     const now = new Date();
+    let expirationMonth = 8;
+    let expirationYear = now.getFullYear() + 3;
+    if (match[3] && match[4]) {
+      expirationMonth = parseInt(match[3], 10);
+      const y = parseInt(match[4], 10);
+      expirationYear = y < 100 ? 2000 + y : y;
+    }
     return {
       providerPaymentMethodId: `pm_mock_${match[1]}_${match[2]}_${crypto.randomBytes(6).toString('hex')}`,
       brand,
       last4: match[2],
-      expirationMonth: 8,
-      expirationYear: now.getFullYear() + 3,
+      expirationMonth,
+      expirationYear,
     };
   }
 

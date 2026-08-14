@@ -6,6 +6,7 @@ import { api } from '../../src/lib/api';
 import { useAuth } from '../../src/lib/authStore';
 import { colors, money, fmtDate, fmtTime } from '../../src/lib/theme';
 import { Card, Button, StatusBadge, Loading, Row, Value, Label, EmptyState } from '../../src/components/ui';
+import { AddPaymentMethodModal } from '../../src/components/AddPaymentMethodModal';
 
 const TABS = ['Overview', 'Appointments', 'Invoices', 'Payments', 'Notes', 'Documents', 'Payment Methods', 'History'] as const;
 type Tab = (typeof TABS)[number];
@@ -17,7 +18,7 @@ export default function CustomerScreen() {
   const hasPermission = useAuth((s) => s.hasPermission);
   const [tab, setTab] = useState<Tab>(TABS.includes(tabParam as Tab) ? (tabParam as Tab) : 'Overview');
   const [noteText, setNoteText] = useState('');
-  const [cardToken, setCardToken] = useState('');
+  const [showAddCard, setShowAddCard] = useState(false);
   const [busy, setBusy] = useState(false);
 
   const { data: cust, isLoading } = useQuery({
@@ -83,12 +84,11 @@ export default function CustomerScreen() {
     }
   };
 
-  const addCard = async () => {
-    if (!cardToken.trim()) return;
+  const addCard = async (token: string) => {
     setBusy(true);
     try {
-      await api('/payment-methods', { method: 'POST', body: { customerId: id, token: cardToken.trim(), setDefault: true } });
-      setCardToken('');
+      await api('/payment-methods', { method: 'POST', body: { customerId: id, token, setDefault: true } });
+      setShowAddCard(false);
       void qc.invalidateQueries({ queryKey: ['paymentMethods', id] });
     } catch (e) {
       Alert.alert('Error', (e as Error).message);
@@ -317,18 +317,10 @@ export default function CustomerScreen() {
               </Card>
             ))}
             {hasPermission('payments:write', 'payments:collect') && (
-              <Card>
-                <Label>Add Card (provider token)</Label>
-                <TextInput
-                  style={styles.tokenInput}
-                  placeholder="e.g. tok_visa_4242"
-                  placeholderTextColor={colors.textMuted}
-                  autoCapitalize="none"
-                  value={cardToken}
-                  onChangeText={setCardToken}
-                />
-                <Button title="Add Card" variant="outline" onPress={addCard} loading={busy} disabled={!cardToken.trim()} />
-              </Card>
+              <Button title="+ Add Payment Method" onPress={() => setShowAddCard(true)} />
+            )}
+            {(methods ?? []).length === 0 && !(promptPayment === '1') && (
+              <EmptyState title="No payment methods" subtitle="Add a card to enable payment collection and AutoPay." />
             )}
           </>
         )}
@@ -379,6 +371,12 @@ export default function CustomerScreen() {
             ))
           ))}
       </ScrollView>
+      <AddPaymentMethodModal
+        visible={showAddCard}
+        saving={busy}
+        onClose={() => setShowAddCard(false)}
+        onSubmit={addCard}
+      />
     </View>
   );
 }
@@ -406,15 +404,5 @@ const styles = StyleSheet.create({
   metaText: { fontSize: 13, color: colors.textMuted, marginTop: 4 },
   accessNotes: { fontSize: 13, color: colors.warning, marginTop: 4, fontStyle: 'italic' },
   noteInput: { minHeight: 60, fontSize: 15, color: colors.text, textAlignVertical: 'top', marginBottom: 8 },
-  tokenInput: {
-    backgroundColor: colors.bg,
-    borderRadius: 8,
-    borderWidth: 1,
-    borderColor: colors.border,
-    padding: 10,
-    fontSize: 15,
-    marginVertical: 8,
-    color: colors.text,
-  },
   link: { color: colors.primaryDark, fontWeight: '700', fontSize: 14 },
 });
