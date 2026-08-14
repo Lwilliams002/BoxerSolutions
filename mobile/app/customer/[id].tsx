@@ -287,7 +287,7 @@ export default function CustomerScreen() {
               <View style={styles.setupBanner}>
                 <Text style={styles.setupBannerTitle}>Set up billing</Text>
                 <Text style={styles.setupBannerText}>
-                  This customer has no payment method on file. Add a card below to enable payment collection and AutoPay.
+                  This customer has no payment method on file. Add a card or bank account below to enable payment collection and AutoPay.
                 </Text>
               </View>
             )}
@@ -296,10 +296,12 @@ export default function CustomerScreen() {
                 <Row>
                   <View>
                     <Value style={{ fontWeight: '700' }}>
-                      {m.brand} **** {m.last4}
+                      {m.brand === 'Bank Account' ? 'Bank Account' : m.brand} •••• {m.last4}
                     </Value>
                     <Text style={styles.metaText}>
-                      Expires {String(m.expirationMonth).padStart(2, '0')}/{String(m.expirationYear).slice(-2)}
+                      {m.brand === 'Bank Account'
+                        ? 'ACH'
+                        : `Expires ${String(m.expirationMonth).padStart(2, '0')}/${String(m.expirationYear).slice(-2)}`}
                       {m.isDefault ? '  ·  DEFAULT' : ''}
                     </Text>
                   </View>

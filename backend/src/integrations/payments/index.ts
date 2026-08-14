@@ -49,6 +49,7 @@ class MockPaymentProvider implements PaymentProvider {
       amex: 'American Express',
       discover: 'Discover',
       declined: 'Visa',
+      ach: 'Bank Account',
     };
     const brand = brandMap[match[1]] ?? 'Card';
     const now = new Date();

@@ -1,7 +1,9 @@
 import React, { useMemo, useState } from 'react';
-import { Modal, View, Text, TextInput, StyleSheet, TouchableOpacity, KeyboardAvoidingView, Platform, ScrollView } from 'react-native';
+import { Modal, View, Text, TextInput, StyleSheet, TouchableOpacity, KeyboardAvoidingView, Platform, ScrollView, Dimensions } from 'react-native';
 import { colors } from '../lib/theme';
 import { Button } from './ui';
+
+type Method = 'card' | 'ach';
 
 /**
  * Detects the card brand from the leading digits. Mirrors what a real
@@ -49,22 +51,34 @@ export function AddPaymentMethodModal({
   onSubmit: (token: string) => Promise<void> | void;
   saving?: boolean;
 }) {
+  const [method, setMethod] = useState<Method>('card');
+  // Card fields
   const [number, setNumber] = useState('');
   const [name, setName] = useState('');
   const [exp, setExp] = useState('');
   const [cvv, setCvv] = useState('');
   const [zip, setZip] = useState('');
+  // ACH fields
+  const [holder, setHolder] = useState('');
+  const [routing, setRouting] = useState('');
+  const [account, setAccount] = useState('');
+  const [acctType, setAcctType] = useState<'checking' | 'savings'>('checking');
   const [error, setError] = useState<string | null>(null);
 
   const digits = number.replace(/\D/g, '');
   const brand = useMemo(() => detectBrand(digits), [digits]);
 
   const reset = () => {
+    setMethod('card');
     setNumber('');
     setName('');
     setExp('');
     setCvv('');
     setZip('');
+    setHolder('');
+    setRouting('');
+    setAccount('');
+    setAcctType('checking');
     setError(null);
   };
 
@@ -78,8 +92,7 @@ export function AddPaymentMethodModal({
     setExp(d.length >= 3 ? `${d.slice(0, 2)}/${d.slice(2)}` : d);
   };
 
-  const submit = async () => {
-    setError(null);
+  const submitCard = async () => {
     if (!luhnValid(digits)) return setError('Enter a valid card number.');
     const m = /^(\d{2})\/(\d{2})$/.exec(exp);
     if (!m) return setError('Enter expiry as MM/YY.');
@@ -97,92 +110,194 @@ export function AddPaymentMethodModal({
     // Client-side "tokenization": only a token derived from brand + last4 +
     // expiry is sent to the backend — never the full PAN or CVV.
     const last4 = digits.slice(-4);
-    const token = `tok_${brand.key}_${last4}_${mm}_${yy}`;
-    await onSubmit(token);
+    await onSubmit(`tok_${brand.key}_${last4}_${mm}_${yy}`);
     reset();
   };
+
+  const submitAch = async () => {
+    const r = routing.replace(/\D/g, '');
+    const a = account.replace(/\D/g, '');
+    if (!holder.trim()) return setError('Enter the account holder name.');
+    if (r.length !== 9) return setError('Routing number must be 9 digits.');
+    if (a.length < 4) return setError('Enter a valid account number.');
+    // Only the account type and last 4 of the account reach the backend.
+    await onSubmit(`tok_ach_${a.slice(-4)}`);
+    reset();
+  };
+
+  const submit = async () => {
+    setError(null);
+    if (method === 'card') await submitCard();
+    else await submitAch();
+  };
+
+  const maxSheet = Dimensions.get('window').height * 0.55;
 
   return (
     <Modal visible={visible} animationType="slide" transparent onRequestClose={close}>
       <View style={styles.backdrop}>
+        <TouchableOpacity style={styles.backdropTouch} activeOpacity={1} onPress={close} />
         <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={styles.sheetWrap}>
           <View style={styles.sheet}>
             <View style={styles.handle} />
             <Text style={styles.title}>Add Payment Method</Text>
-            <ScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={{ paddingBottom: 8 }}>
-              <Text style={styles.label}>Card Number</Text>
-              <View style={styles.numberRow}>
-                <TextInput
-                  style={[styles.input, { flex: 1 }]}
-                  placeholder="1234 5678 9012 3456"
-                  placeholderTextColor={colors.textMuted}
-                  keyboardType="number-pad"
-                  value={formatCardNumber(digits, brand.key)}
-                  onChangeText={setNumber}
-                  maxLength={brand.key === 'amex' ? 17 : 19}
-                />
-                {digits.length >= 2 && <Text style={styles.brandTag}>{brand.label}</Text>}
-              </View>
 
-              <Text style={styles.label}>Name on Card</Text>
-              <TextInput
-                style={styles.input}
-                placeholder="John Smith"
-                placeholderTextColor={colors.textMuted}
-                autoCapitalize="words"
-                value={name}
-                onChangeText={setName}
-              />
+            <View style={styles.segment}>
+              <TouchableOpacity
+                style={[styles.segmentBtn, method === 'card' && styles.segmentBtnActive]}
+                onPress={() => { setMethod('card'); setError(null); }}
+              >
+                <Text style={[styles.segmentText, method === 'card' && styles.segmentTextActive]}>Credit / Debit</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.segmentBtn, method === 'ach' && styles.segmentBtnActive]}
+                onPress={() => { setMethod('ach'); setError(null); }}
+              >
+                <Text style={[styles.segmentText, method === 'ach' && styles.segmentTextActive]}>Bank (ACH)</Text>
+              </TouchableOpacity>
+            </View>
 
-              <View style={styles.row}>
-                <View style={{ flex: 1, marginRight: 10 }}>
-                  <Text style={styles.label}>Expiry</Text>
+            <ScrollView
+              style={{ maxHeight: maxSheet }}
+              keyboardShouldPersistTaps="handled"
+              showsVerticalScrollIndicator={false}
+            >
+              {method === 'card' ? (
+                <>
+                  <Text style={styles.label}>Card Number</Text>
+                  <View style={styles.numberRow}>
+                    <TextInput
+                      style={[styles.input, { flex: 1 }]}
+                      placeholder="1234 5678 9012 3456"
+                      placeholderTextColor={colors.textMuted}
+                      keyboardType="number-pad"
+                      value={formatCardNumber(digits, brand.key)}
+                      onChangeText={setNumber}
+                      maxLength={brand.key === 'amex' ? 17 : 19}
+                    />
+                    {digits.length >= 2 && <Text style={styles.brandTag}>{brand.label}</Text>}
+                  </View>
+
+                  <Text style={styles.label}>Name on Card</Text>
                   <TextInput
                     style={styles.input}
-                    placeholder="MM/YY"
+                    placeholder="John Smith"
                     placeholderTextColor={colors.textMuted}
-                    keyboardType="number-pad"
-                    value={exp}
-                    onChangeText={onExpChange}
-                    maxLength={5}
+                    autoCapitalize="words"
+                    value={name}
+                    onChangeText={setName}
                   />
-                </View>
-                <View style={{ flex: 1, marginRight: 10 }}>
-                  <Text style={styles.label}>CVV</Text>
+
+                  <View style={styles.row}>
+                    <View style={{ flex: 1, marginRight: 10 }}>
+                      <Text style={styles.label}>Expiry</Text>
+                      <TextInput
+                        style={styles.input}
+                        placeholder="MM/YY"
+                        placeholderTextColor={colors.textMuted}
+                        keyboardType="number-pad"
+                        value={exp}
+                        onChangeText={onExpChange}
+                        maxLength={5}
+                      />
+                    </View>
+                    <View style={{ flex: 1, marginRight: 10 }}>
+                      <Text style={styles.label}>CVV</Text>
+                      <TextInput
+                        style={styles.input}
+                        placeholder={brand.cvvLen === 4 ? '1234' : '123'}
+                        placeholderTextColor={colors.textMuted}
+                        keyboardType="number-pad"
+                        secureTextEntry
+                        value={cvv}
+                        onChangeText={(v) => setCvv(v.replace(/\D/g, '').slice(0, brand.cvvLen))}
+                        maxLength={brand.cvvLen}
+                      />
+                    </View>
+                    <View style={{ flex: 1 }}>
+                      <Text style={styles.label}>ZIP</Text>
+                      <TextInput
+                        style={styles.input}
+                        placeholder="90210"
+                        placeholderTextColor={colors.textMuted}
+                        keyboardType="number-pad"
+                        value={zip}
+                        onChangeText={(v) => setZip(v.replace(/\D/g, '').slice(0, 5))}
+                        maxLength={5}
+                      />
+                    </View>
+                  </View>
+                </>
+              ) : (
+                <>
+                  <Text style={styles.label}>Account Holder Name</Text>
                   <TextInput
                     style={styles.input}
-                    placeholder={brand.cvvLen === 4 ? '1234' : '123'}
+                    placeholder="John Smith"
                     placeholderTextColor={colors.textMuted}
-                    keyboardType="number-pad"
-                    secureTextEntry
-                    value={cvv}
-                    onChangeText={(v) => setCvv(v.replace(/\D/g, '').slice(0, brand.cvvLen))}
-                    maxLength={brand.cvvLen}
+                    autoCapitalize="words"
+                    value={holder}
+                    onChangeText={setHolder}
                   />
-                </View>
-                <View style={{ flex: 1 }}>
-                  <Text style={styles.label}>ZIP</Text>
+
+                  <Text style={styles.label}>Routing Number</Text>
                   <TextInput
                     style={styles.input}
-                    placeholder="90210"
+                    placeholder="9 digits"
                     placeholderTextColor={colors.textMuted}
                     keyboardType="number-pad"
-                    value={zip}
-                    onChangeText={(v) => setZip(v.replace(/\D/g, '').slice(0, 5))}
-                    maxLength={5}
+                    value={routing}
+                    onChangeText={(v) => setRouting(v.replace(/\D/g, '').slice(0, 9))}
+                    maxLength={9}
                   />
-                </View>
-              </View>
+
+                  <Text style={styles.label}>Account Number</Text>
+                  <TextInput
+                    style={styles.input}
+                    placeholder="Account number"
+                    placeholderTextColor={colors.textMuted}
+                    keyboardType="number-pad"
+                    value={account}
+                    onChangeText={(v) => setAccount(v.replace(/\D/g, '').slice(0, 17))}
+                    maxLength={17}
+                  />
+
+                  <Text style={styles.label}>Account Type</Text>
+                  <View style={styles.segment}>
+                    <TouchableOpacity
+                      style={[styles.segmentBtn, acctType === 'checking' && styles.segmentBtnActive]}
+                      onPress={() => setAcctType('checking')}
+                    >
+                      <Text style={[styles.segmentText, acctType === 'checking' && styles.segmentTextActive]}>Checking</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                      style={[styles.segmentBtn, acctType === 'savings' && styles.segmentBtnActive]}
+                      onPress={() => setAcctType('savings')}
+                    >
+                      <Text style={[styles.segmentText, acctType === 'savings' && styles.segmentTextActive]}>Savings</Text>
+                    </TouchableOpacity>
+                  </View>
+                </>
+              )}
 
               {error && <Text style={styles.error}>{error}</Text>}
 
-              <Text style={styles.secure}>🔒 Card details are tokenized on-device. Only the card brand, last 4 digits and expiry are stored.</Text>
-
-              <Button title="Save Card" onPress={submit} loading={saving} style={{ marginTop: 12 }} />
-              <TouchableOpacity onPress={close} style={styles.cancel} disabled={saving}>
-                <Text style={styles.cancelText}>Cancel</Text>
-              </TouchableOpacity>
+              <Text style={styles.secure}>
+                {method === 'card'
+                  ? '🔒 Card details are tokenized on-device. Only the card brand, last 4 digits and expiry are stored.'
+                  : '🔒 Bank details are tokenized on-device. Only the account type and last 4 digits are stored.'}
+              </Text>
             </ScrollView>
+
+            <Button
+              title={method === 'card' ? 'Save Card' : 'Save Bank Account'}
+              onPress={submit}
+              loading={saving}
+              style={{ marginTop: 14 }}
+            />
+            <TouchableOpacity onPress={close} style={styles.cancel} disabled={saving}>
+              <Text style={styles.cancelText}>Cancel</Text>
+            </TouchableOpacity>
           </View>
         </KeyboardAvoidingView>
       </View>
@@ -192,6 +307,7 @@ export function AddPaymentMethodModal({
 
 const styles = StyleSheet.create({
   backdrop: { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'flex-end' },
+  backdropTouch: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0 },
   sheetWrap: { width: '100%' },
   sheet: {
     backgroundColor: colors.card,
@@ -199,12 +315,22 @@ const styles = StyleSheet.create({
     borderTopRightRadius: 22,
     paddingHorizontal: 20,
     paddingTop: 10,
-    paddingBottom: 28,
-    maxHeight: '90%',
+    paddingBottom: Platform.OS === 'ios' ? 34 : 20,
   },
   handle: { alignSelf: 'center', width: 40, height: 4, borderRadius: 2, backgroundColor: colors.border, marginBottom: 12 },
-  title: { fontSize: 20, fontWeight: '800', color: colors.text, marginBottom: 12 },
-  label: { fontSize: 12, fontWeight: '700', color: colors.textMuted, marginBottom: 6, marginTop: 10, textTransform: 'uppercase', letterSpacing: 0.5 },
+  title: { fontSize: 20, fontWeight: '800', color: colors.text, marginBottom: 14 },
+  segment: {
+    flexDirection: 'row',
+    backgroundColor: colors.bg,
+    borderRadius: 12,
+    padding: 4,
+    marginBottom: 4,
+  },
+  segmentBtn: { flex: 1, paddingVertical: 9, borderRadius: 9, alignItems: 'center' },
+  segmentBtnActive: { backgroundColor: colors.primary },
+  segmentText: { fontSize: 14, fontWeight: '700', color: colors.textMuted },
+  segmentTextActive: { color: '#0D0D0D' },
+  label: { fontSize: 12, fontWeight: '700', color: colors.textMuted, marginBottom: 6, marginTop: 12, textTransform: 'uppercase', letterSpacing: 0.5 },
   input: {
     borderWidth: 1,
     borderColor: colors.border,
@@ -220,6 +346,6 @@ const styles = StyleSheet.create({
   row: { flexDirection: 'row' },
   error: { color: colors.danger, fontSize: 13, marginTop: 12, fontWeight: '600' },
   secure: { color: colors.textMuted, fontSize: 12, marginTop: 14, lineHeight: 17 },
-  cancel: { alignItems: 'center', paddingVertical: 12, marginTop: 4 },
+  cancel: { alignItems: 'center', paddingVertical: 12, marginTop: 2 },
   cancelText: { color: colors.textMuted, fontSize: 15, fontWeight: '600' },
 });
