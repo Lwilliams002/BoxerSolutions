@@ -197,9 +197,21 @@ export default function AgreementScreen() {
       }
 
       void qc.invalidateQueries({ queryKey: ['customers'] });
-      Alert.alert('Agreement Signed', `${name} has been added and the signed agreement was saved.`, [
-        { text: 'Done', onPress: () => router.replace(`/customer/${created.id}`) },
-      ]);
+      Alert.alert(
+        'Agreement Signed',
+        `${name} has been added and the signed agreement was saved.\n\nAdd a payment method now so billing and AutoPay are ready.`,
+        [
+          { text: 'Later', style: 'cancel', onPress: () => router.replace(`/customer/${created.id}`) },
+          {
+            text: 'Add Payment Method',
+            onPress: () =>
+              router.replace({
+                pathname: '/customer/[id]',
+                params: { id: created.id, tab: 'Payment Methods', promptPayment: '1' },
+              }),
+          },
+        ],
+      );
     } catch (e) {
       Alert.alert('Error', (e as Error).message);
     } finally {

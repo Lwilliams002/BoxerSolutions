@@ -11,11 +11,11 @@ const TABS = ['Overview', 'Appointments', 'Invoices', 'Payments', 'Notes', 'Docu
 type Tab = (typeof TABS)[number];
 
 export default function CustomerScreen() {
-  const { id } = useLocalSearchParams<{ id: string }>();
+  const { id, tab: tabParam, promptPayment } = useLocalSearchParams<{ id: string; tab?: string; promptPayment?: string }>();
   const router = useRouter();
   const qc = useQueryClient();
   const hasPermission = useAuth((s) => s.hasPermission);
-  const [tab, setTab] = useState<Tab>('Overview');
+  const [tab, setTab] = useState<Tab>(TABS.includes(tabParam as Tab) ? (tabParam as Tab) : 'Overview');
   const [noteText, setNoteText] = useState('');
   const [cardToken, setCardToken] = useState('');
   const [busy, setBusy] = useState(false);
@@ -283,6 +283,14 @@ export default function CustomerScreen() {
 
         {tab === 'Payment Methods' && (
           <>
+            {promptPayment === '1' && (methods ?? []).length === 0 && (
+              <View style={styles.setupBanner}>
+                <Text style={styles.setupBannerTitle}>Set up billing</Text>
+                <Text style={styles.setupBannerText}>
+                  This customer has no payment method on file. Add a card below to enable payment collection and AutoPay.
+                </Text>
+              </View>
+            )}
             {(methods ?? []).map((m) => (
               <Card key={m.id}>
                 <Row>
@@ -376,6 +384,16 @@ export default function CustomerScreen() {
 }
 
 const styles = StyleSheet.create({
+  setupBanner: {
+    backgroundColor: colors.primary + '18',
+    borderColor: colors.primary,
+    borderWidth: 1,
+    borderRadius: 12,
+    padding: 14,
+    marginBottom: 12,
+  },
+  setupBannerTitle: { fontSize: 15, fontWeight: '800', color: colors.primary, marginBottom: 4 },
+  setupBannerText: { fontSize: 13, color: colors.text, lineHeight: 18 },
   headerCard: { backgroundColor: '#0D0D0D', padding: 18, paddingBottom: 16 },
   name: { fontSize: 21, fontWeight: '900', color: '#FFFFFF' },
   balance: { fontSize: 15, fontWeight: '800', color: '#2DC4A2' },
