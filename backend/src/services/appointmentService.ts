@@ -233,7 +233,7 @@ export const appointmentService = {
 
       let invoice = null;
       if (opts.generateInvoice !== false) {
-        invoice = await invoiceService.createFromAppointment(tx, existing, userId, opts.taxRate ?? 0.0825);
+        invoice = await invoiceService.createFromAppointment(tx, existing, userId, opts.taxRate);
       }
 
       await recordAudit({

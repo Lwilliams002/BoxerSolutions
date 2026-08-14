@@ -114,23 +114,67 @@ router.patch(
       lastName: z.string().min(1).optional(),
       phone: z.string().nullish().optional(),
       isActive: z.boolean().optional(),
+      roleCodes: z.array(z.enum(['OWNER', 'ADMIN', 'OFFICE_MANAGER', 'TECHNICIAN', 'SALES'])).min(1).optional(),
     }).parse(req.body);
-    const map: Record<string, string> = { firstName: 'first_name', lastName: 'last_name', phone: 'phone', isActive: 'is_active' };
-    const sets: string[] = [];
-    const params: unknown[] = [];
-    for (const [k, col] of Object.entries(map)) {
-      if (k in body) { params.push((body as any)[k]); sets.push(`${col} = $${params.length}`); }
-    }
-    if (!sets.length) throw ApiError.badRequest('No fields to update');
-    params.push(req.params.id);
-    const { rows } = await pool.query(
-      `UPDATE users SET ${sets.join(', ')}, updated_at = now() WHERE id = $${params.length} AND deleted_at IS NULL
-       RETURNING id, email, first_name, last_name, is_active`,
-      params,
-    );
-    if (!rows[0]) throw ApiError.notFound('User not found');
-    await recordAudit({ userId: req.user!.id, action: 'user.updated', entityType: 'user', entityId: req.params.id, newValue: body });
-    ok(res, toCamel(rows[0]), 'User updated');
+    if (!Object.keys(body).length) throw ApiError.badRequest('No fields to update');
+    const result = await withTransaction(async (tx) => {
+      const previous = await tx.query(
+        `SELECT u.id, u.email, u.first_name, u.last_name, u.phone, u.is_active,
+                COALESCE(array_agg(r.code) FILTER (WHERE r.code IS NOT NULL), '{}') AS roles
+         FROM users u
+         LEFT JOIN user_roles ur ON ur.user_id = u.id
+         LEFT JOIN roles r ON r.id = ur.role_id
+         WHERE u.id = $1 AND u.deleted_at IS NULL
+         GROUP BY u.id`,
+        [req.params.id],
+      );
+      if (!previous.rows[0]) throw ApiError.notFound('User not found');
+
+      const map: Record<string, string> = { firstName: 'first_name', lastName: 'last_name', phone: 'phone', isActive: 'is_active' };
+      const sets: string[] = [];
+      const params: unknown[] = [];
+      for (const [k, col] of Object.entries(map)) {
+        if (k in body) { params.push((body as any)[k]); sets.push(`${col} = $${params.length}`); }
+      }
+      let user = previous.rows[0];
+      if (sets.length) {
+        params.push(req.params.id);
+        const updated = await tx.query(
+          `UPDATE users SET ${sets.join(', ')}, updated_at = now() WHERE id = $${params.length} AND deleted_at IS NULL
+           RETURNING id, email, first_name, last_name, phone, is_active`,
+          params,
+        );
+        user = updated.rows[0];
+        if ('isActive' in body) {
+          await tx.query('UPDATE employees SET is_active = $1, updated_at = now() WHERE user_id = $2 AND deleted_at IS NULL', [body.isActive, req.params.id]);
+        }
+      }
+      if (body.roleCodes) {
+        await tx.query('DELETE FROM user_roles WHERE user_id = $1', [req.params.id]);
+        for (const code of body.roleCodes) {
+          await tx.query(`INSERT INTO user_roles (user_id, role_id) SELECT $1, id FROM roles WHERE code = $2`, [req.params.id, code]);
+        }
+        if (body.roleCodes.includes('TECHNICIAN')) {
+          await tx.query(
+            `INSERT INTO employees (user_id, job_title) VALUES ($1, 'Service Technician')
+             ON CONFLICT (user_id) DO UPDATE SET is_active = true, deleted_at = NULL, updated_at = now()`,
+            [req.params.id],
+          );
+        }
+        await recordAudit({
+          userId: req.user!.id,
+          action: 'user.roles_updated',
+          entityType: 'user',
+          entityId: req.params.id,
+          previousValue: { roles: previous.rows[0].roles },
+          newValue: { roles: body.roleCodes },
+        }, tx);
+      }
+      await recordAudit({ userId: req.user!.id, action: 'user.updated', entityType: 'user', entityId: req.params.id, previousValue: previous.rows[0], newValue: body }, tx);
+      const roles = body.roleCodes ?? previous.rows[0].roles;
+      return toCamel({ ...user, roles });
+    });
+    ok(res, result, 'User updated');
   }),
 );
 

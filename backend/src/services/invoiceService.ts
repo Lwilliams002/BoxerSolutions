@@ -8,11 +8,12 @@ import { rowsToCamel, toCamel } from './customerService';
 import { storage } from '../integrations/storage';
 import { notifications } from '../integrations/notifications';
 import { communicationService, safelyQueueCommunication } from './communicationService';
+import { DEFAULT_SETTINGS, getCompanySettings } from './settingsService';
 
 const COMPANY = {
-  name: 'AntServe Field Services',
-  address: '900 Commerce Way, Suite 210, Austin, TX 78701',
-  phone: '(512) 555-0144',
+  name: DEFAULT_SETTINGS.companyName,
+  address: DEFAULT_SETTINGS.address,
+  phone: DEFAULT_SETTINGS.phone,
   email: 'billing@antserve.example.com',
 };
 
@@ -123,11 +124,17 @@ export const invoiceService = {
 
   async create(data: {
     customerId: string; serviceLocationId?: string | null; appointmentId?: string | null;
-    technicianId?: string | null; dueDate: string; taxRate: number; notes?: string | null;
+    technicianId?: string | null; dueDate?: string; taxRate?: number; notes?: string | null;
     items: InvoiceItemInput[];
   }, userId: string) {
     const invoice = await withTransaction(async (tx) => {
-      const invoice = await insertInvoice(tx, data, userId);
+      const settings = await getCompanySettings(tx);
+      const dueDate = data.dueDate ?? (() => {
+        const d = new Date();
+        d.setDate(d.getDate() + settings.invoiceDueDays);
+        return d.toISOString().slice(0, 10);
+      })();
+      const invoice = await insertInvoice(tx, { ...data, dueDate, taxRate: data.taxRate ?? settings.defaultTaxRate }, userId);
       await recordAudit({ userId, action: 'invoice.created', entityType: 'invoice', entityId: (invoice as any).id, newValue: { total: (invoice as any).total } }, tx);
       return invoice;
     });
@@ -136,9 +143,10 @@ export const invoiceService = {
   },
 
   /** Automatic invoice generation from a completed appointment (spec §24). */
-  async createFromAppointment(tx: PoolClient, appointment: any, userId: string, taxRate: number) {
+  async createFromAppointment(tx: PoolClient, appointment: any, userId: string, taxRate?: number) {
+    const settings = await getCompanySettings(tx);
     const dueDate = new Date();
-    dueDate.setDate(dueDate.getDate() + 15);
+    dueDate.setDate(dueDate.getDate() + settings.invoiceDueDays);
     const items: InvoiceItemInput[] = (appointment.services ?? []).map((s: any) => ({
       serviceId: s.serviceId,
       description: s.name,
@@ -152,7 +160,7 @@ export const invoiceService = {
       appointmentId: appointment.id,
       technicianId: appointment.technicianId,
       dueDate: dueDate.toISOString().slice(0, 10),
-      taxRate,
+      taxRate: taxRate ?? settings.defaultTaxRate,
       items,
     }, userId);
     await recordAudit({ userId, action: 'invoice.auto_generated', entityType: 'invoice', entityId: (invoice as any).id, newValue: { appointmentId: appointment.id } }, tx);
@@ -165,6 +173,8 @@ export const invoiceService = {
    */
   async generatePdf(invoiceId: string, userId: string) {
     const invoice = (await this.getById(invoiceId)) as any;
+    const settings = await getCompanySettings();
+    const company = { ...COMPANY, name: settings.companyName, address: settings.address, phone: settings.phone };
 
     const buffer: Buffer = await new Promise((resolve, reject) => {
       const doc = new PDFDocument({ size: 'LETTER', margin: 50 });
@@ -174,8 +184,8 @@ export const invoiceService = {
       doc.on('error', reject);
 
       // Header
-      doc.fontSize(22).fillColor('#1a3c6e').text(COMPANY.name, { continued: false });
-      doc.fontSize(9).fillColor('#444').text(COMPANY.address).text(`${COMPANY.phone}  ·  ${COMPANY.email}`);
+      doc.fontSize(22).fillColor('#1a3c6e').text(company.name, { continued: false });
+      doc.fontSize(9).fillColor('#444').text(company.address).text(`${company.phone}  ·  ${company.email}`);
       doc.moveDown(1.5);
       doc.fontSize(18).fillColor('#000').text(`INVOICE ${invoice.invoiceNumber}`);
       doc.moveDown(0.5);

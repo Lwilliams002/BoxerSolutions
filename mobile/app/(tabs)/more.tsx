@@ -11,6 +11,9 @@ import { API_BASE_URL } from '../../src/lib/config';
 export default function MoreScreen() {
   const { user, logout } = useAuth();
   const canReports = useAuth((state) => state.hasPermission('reports:read'));
+  const canServicesAdmin = useAuth((state) => state.hasPermission('services:write'));
+  const canUsersAdmin = useAuth((state) => state.hasPermission('users:write'));
+  const canSettingsAdmin = useAuth((state) => state.hasPermission('settings:write'));
   const { status, pendingCount, flush } = useSync();
   const router = useRouter();
 
@@ -76,6 +79,32 @@ export default function MoreScreen() {
                 </Row>
               </Card>
             </TouchableOpacity>
+          </>
+        )}
+
+        {(canServicesAdmin || canUsersAdmin || canSettingsAdmin) && (
+          <>
+            <SectionTitle>Admin</SectionTitle>
+            {canServicesAdmin && (
+              <TouchableOpacity onPress={() => router.push('/admin/services')} activeOpacity={0.75}>
+                <Card><Row><View><Value style={{ fontWeight: '800' }}>Services</Value><Text style={styles.meta}>Manage service catalog, pricing, and active state</Text></View><Text style={styles.chevron}>›</Text></Row></Card>
+              </TouchableOpacity>
+            )}
+            {canUsersAdmin && (
+              <TouchableOpacity onPress={() => router.push('/admin/employees')} activeOpacity={0.75}>
+                <Card><Row><View><Value style={{ fontWeight: '800' }}>Employees</Value><Text style={styles.meta}>Manage users, roles, and permissions</Text></View><Text style={styles.chevron}>›</Text></Row></Card>
+              </TouchableOpacity>
+            )}
+            {canSettingsAdmin && (
+              <TouchableOpacity onPress={() => router.push('/admin/settings')} activeOpacity={0.75}>
+                <Card><Row><View><Value style={{ fontWeight: '800' }}>Company Settings</Value><Text style={styles.meta}>Tax, invoice due days, reminders, and company info</Text></View><Text style={styles.chevron}>›</Text></Row></Card>
+              </TouchableOpacity>
+            )}
+            {canUsersAdmin && (
+              <TouchableOpacity onPress={() => router.push('/admin/audit')} activeOpacity={0.75}>
+                <Card><Row><View><Value style={{ fontWeight: '800' }}>Audit Logs</Value><Text style={styles.meta}>Review recent administrative activity</Text></View><Text style={styles.chevron}>›</Text></Row></Card>
+              </TouchableOpacity>
+            )}
           </>
         )}
 

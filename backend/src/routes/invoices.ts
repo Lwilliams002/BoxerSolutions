@@ -15,8 +15,8 @@ const createSchema = z.object({
   serviceLocationId: z.string().uuid().nullish(),
   appointmentId: z.string().uuid().nullish(),
   technicianId: z.string().uuid().nullish(),
-  dueDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
-  taxRate: z.number().min(0).max(0.3).default(0),
+  dueDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+  taxRate: z.number().min(0).max(0.3).optional(),
   notes: z.string().nullish(),
   items: z.array(z.object({
     serviceId: z.string().uuid().nullish(),

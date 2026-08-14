@@ -25,6 +25,9 @@ import notificationRoutes from './routes/notifications';
 import communicationRoutes from './routes/communications';
 import dashboardRoutes from './routes/dashboard';
 import reportRoutes from './routes/reports';
+import settingsRoutes from './routes/settings';
+import roleRoutes from './routes/roles';
+import auditLogRoutes from './routes/auditLogs';
 
 export function createApp() {
   const app = express();
@@ -63,6 +66,9 @@ export function createApp() {
   v1.use('/communications', communicationRoutes);
   v1.use('/dashboard', dashboardRoutes);
   v1.use('/reports', reportRoutes);
+  v1.use('/settings', settingsRoutes);
+  v1.use('/roles', roleRoutes);
+  v1.use('/audit-logs', auditLogRoutes);
   app.use('/api/v1', v1);
 
   app.use(notFoundHandler);

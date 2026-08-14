@@ -11,7 +11,7 @@ const PERMS = [
   'invoices:read', 'invoices:read_assigned', 'invoices:write', 'invoices:write_assigned',
   'payments:read', 'payments:write', 'payments:collect',
   'files:read', 'files:write', 'notes:read', 'notes:write',
-  'users:read', 'users:write', 'dashboard:read', 'reports:read',
+  'users:read', 'users:write', 'settings:read', 'settings:write', 'dashboard:read', 'reports:read',
 ];
 
 const ROLE_PERMS: Record<string, string[]> = {
@@ -22,7 +22,7 @@ const ROLE_PERMS: Record<string, string[]> = {
     'appointments:read', 'appointments:write', 'routes:read', 'routes:write',
     'invoices:read', 'invoices:write', 'payments:read', 'payments:write', 'payments:collect',
     'files:read', 'files:write', 'notes:read', 'notes:write', 'users:read',
-    'dashboard:read', 'reports:read',
+    'settings:read', 'settings:write', 'dashboard:read', 'reports:read',
   ],
   TECHNICIAN: [
     'customers:read_assigned', 'appointments:read_assigned', 'appointments:write_assigned',
@@ -346,8 +346,9 @@ async function main() {
     }
 
     await tx.query(`INSERT INTO settings (key, value) VALUES
-      ('company', '{"name":"AntServe Field Services","phone":"(512) 555-0144","taxRate":0.0825}'),
-      ('invoicing', '{"defaultDueDays":15,"autoGenerateOnComplete":true}')`);
+      ('company', '{"companyName":"Boxer Solutions Pest Control","phone":"(512) 555-0142","address":"2500 Bee Cave Rd, Austin, TX 78746","licenseNumber":"TPCL-0099421","defaultTaxRate":0.0825}'),
+      ('invoicing', '{"invoiceDueDays":15,"autoGenerateOnComplete":true}'),
+      ('appointments', '{"appointmentReminderHours":24}')`);
   });
 
   logger.info('seed complete');

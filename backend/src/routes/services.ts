@@ -6,6 +6,7 @@ import { ok, parsePagination } from '../utils/http';
 import { pool } from '../config/db';
 import { ApiError } from '../utils/errors';
 import { rowsToCamel, toCamel } from '../services/customerService';
+import { recordAudit } from '../services/auditService';
 
 const router = Router();
 router.use(authenticate);
@@ -80,6 +81,7 @@ router.post(
        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) RETURNING *`,
       [b.name, b.description ?? null, b.categoryId ?? null, b.serviceType, b.price, b.cost, b.durationMinutes, b.taxable, b.isRecurring, b.isActive],
     );
+    await recordAudit({ userId: req.user!.id, action: 'service.created', entityType: 'service', entityId: rows[0].id, newValue: b });
     ok(res, toCamel(rows[0]), 'Service created', 201);
   }),
 );
@@ -103,12 +105,15 @@ router.patch(
       }
     }
     if (!sets.length) throw ApiError.badRequest('No fields to update');
+    const previous = await pool.query('SELECT * FROM services WHERE id = $1 AND deleted_at IS NULL', [req.params.id]);
+    if (!previous.rows[0]) throw ApiError.notFound('Service not found');
     params.push(req.params.id);
     const { rows } = await pool.query(
       `UPDATE services SET ${sets.join(', ')}, updated_at = now() WHERE id = $${params.length} AND deleted_at IS NULL RETURNING *`,
       params,
     );
     if (!rows[0]) throw ApiError.notFound('Service not found');
+    await recordAudit({ userId: req.user!.id, action: 'service.updated', entityType: 'service', entityId: req.params.id, previousValue: previous.rows[0], newValue: b });
     ok(res, toCamel(rows[0]), 'Service updated');
   }),
 );
