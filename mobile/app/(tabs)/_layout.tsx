@@ -49,6 +49,7 @@ export default function TabsLayout() {
         name="schedule"
         options={{
           title: 'Schedule',
+          headerShown: false,
           href: canSchedule ? undefined : null,
           tabBarIcon: icon('calendar', 'calendar-outline'),
         }}

@@ -5,10 +5,12 @@ import { ApiEnvelope } from './types';
 export class ApiRequestError extends Error {
   status: number;
   retryable: boolean;
-  constructor(message: string, status: number, retryable = false) {
+  data?: unknown;
+  constructor(message: string, status: number, retryable = false, data?: unknown) {
     super(message);
     this.status = status;
     this.retryable = retryable;
+    this.data = data;
   }
 }
 
@@ -79,7 +81,7 @@ export async function api<T = unknown>(path: string, opts: RequestOptions = {}):
     throw new ApiRequestError(`Unexpected response (${res.status})`, res.status);
   }
   if (!res.ok || !json.success) {
-    throw new ApiRequestError(json.message ?? `Request failed (${res.status})`, res.status, json.retryable ?? res.status >= 500);
+    throw new ApiRequestError(json.message ?? `Request failed (${res.status})`, res.status, json.retryable ?? res.status >= 500, json.data);
   }
   return json.data;
 }
