@@ -62,6 +62,7 @@ export default function RootLayout() {
             <Stack.Screen name="invoice/[id]" options={{ title: 'Invoice' }} />
             <Stack.Screen name="notifications" options={{ title: 'Notifications' }} />
             <Stack.Screen name="reports" options={{ title: 'Reports' }} />
+            <Stack.Screen name="map" options={{ title: 'Territory Map' }} />
             <Stack.Screen name="admin/services" options={{ title: 'Service Catalog Admin' }} />
             <Stack.Screen name="admin/employees" options={{ title: 'Employees Admin' }} />
             <Stack.Screen name="admin/settings" options={{ title: 'Company Settings' }} />

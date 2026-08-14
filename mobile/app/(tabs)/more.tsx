@@ -11,6 +11,7 @@ import { API_BASE_URL } from '../../src/lib/config';
 export default function MoreScreen() {
   const { user, logout } = useAuth();
   const canReports = useAuth((state) => state.hasPermission('reports:read'));
+  const canMap = useAuth((state) => state.hasPermission('customers:read', 'customers:read_assigned', 'users:write'));
   const canServicesAdmin = useAuth((state) => state.hasPermission('services:write'));
   const canUsersAdmin = useAuth((state) => state.hasPermission('users:write'));
   const canSettingsAdmin = useAuth((state) => state.hasPermission('settings:write'));
@@ -109,6 +110,19 @@ export default function MoreScreen() {
         )}
 
         <SectionTitle>Activity</SectionTitle>
+        {canMap && (
+          <TouchableOpacity onPress={() => router.push('/map')} activeOpacity={0.75}>
+            <Card>
+              <Row>
+                <View>
+                  <Value style={{ fontWeight: '800' }}>Territory Map</Value>
+                  <Text style={styles.meta}>Assign tech areas and long-press to create customers from map</Text>
+                </View>
+                <Text style={styles.chevron}>›</Text>
+              </Row>
+            </Card>
+          </TouchableOpacity>
+        )}
         <TouchableOpacity onPress={() => router.push('/notifications')} activeOpacity={0.75}>
           <Card>
             <Row>

@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
-import { View, Text, ScrollView, StyleSheet, TextInput, Alert, Switch } from 'react-native';
-import { useRouter } from 'expo-router';
+import { View, Text, ScrollView, StyleSheet, TextInput, Switch } from 'react-native';
+import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useQueryClient } from '@tanstack/react-query';
 import { api } from '../../src/lib/api';
 import { colors } from '../../src/lib/theme';
@@ -36,6 +36,14 @@ function Field({
 
 export default function NewCustomerScreen() {
   const router = useRouter();
+  const params = useLocalSearchParams<{
+    latitude?: string;
+    longitude?: string;
+    address1?: string;
+    city?: string;
+    state?: string;
+    postal?: string;
+  }>();
   const qc = useQueryClient();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
@@ -46,10 +54,10 @@ export default function NewCustomerScreen() {
   const [email, setEmail] = useState('');
   const [phone, setPhone] = useState('');
   const [commercial, setCommercial] = useState(false);
-  const [address1, setAddress1] = useState('');
-  const [city, setCity] = useState('');
-  const [state, setState] = useState('TX');
-  const [postal, setPostal] = useState('');
+  const [address1, setAddress1] = useState(typeof params.address1 === 'string' ? params.address1 : '');
+  const [city, setCity] = useState(typeof params.city === 'string' ? params.city : '');
+  const [state, setState] = useState(typeof params.state === 'string' && params.state ? params.state : 'TX');
+  const [postal, setPostal] = useState(typeof params.postal === 'string' ? params.postal : '');
   const [sameBilling, setSameBilling] = useState(true);
   const [billing1, setBilling1] = useState('');
   const [billingCity, setBillingCity] = useState('');
@@ -85,6 +93,8 @@ export default function NewCustomerScreen() {
         city: city.trim(),
         state: state.trim(),
         postalCode: postal.trim(),
+        latitude: typeof params.latitude === 'string' ? Number.parseFloat(params.latitude) : undefined,
+        longitude: typeof params.longitude === 'string' ? Number.parseFloat(params.longitude) : undefined,
       },
     };
     router.push({ pathname: '/customer/agreement', params: { payload: JSON.stringify(payload) } });

@@ -7,9 +7,36 @@ import { pool } from '../config/db';
 import { ApiError } from '../utils/errors';
 import { rowsToCamel, toCamel } from '../services/customerService';
 import { createLocationSchema, updateLocationSchema } from '../validators/customers';
+import { technicianScope } from '../middleware/scope';
 
 const router = Router();
 router.use(authenticate);
+
+router.get(
+  '/map',
+  authorize('customers:read', 'customers:read_assigned'),
+  asyncHandler(async (req, res) => {
+    const scope = technicianScope(req, 'customers:read');
+    const params: unknown[] = [];
+    const where = ['sl.deleted_at IS NULL', 'c.deleted_at IS NULL', 'sl.latitude IS NOT NULL', 'sl.longitude IS NOT NULL'];
+    if (scope) {
+      params.push(scope);
+      where.push(`(c.assigned_technician_id = $${params.length}
+        OR EXISTS (SELECT 1 FROM appointments a WHERE a.customer_id = c.id AND a.technician_id = $${params.length} AND a.deleted_at IS NULL))`);
+    }
+    const { rows } = await pool.query(
+      `SELECT sl.id, sl.customer_id, sl.label, sl.address_line1, sl.city, sl.state, sl.postal_code,
+              sl.latitude, sl.longitude,
+              c.first_name, c.last_name, c.company, c.assigned_technician_id
+       FROM service_locations sl
+       JOIN customers c ON c.id = sl.customer_id
+       WHERE ${where.join(' AND ')}
+       ORDER BY c.last_name, c.first_name`,
+      params,
+    );
+    ok(res, rowsToCamel(rows));
+  }),
+);
 
 router.get(
   '/',
