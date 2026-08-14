@@ -42,6 +42,7 @@ export const statusColors: Record<string, string> = {
   past_due: colors.danger,
   void: colors.textMuted,
   active: colors.success,
+  paused: colors.warning,
   inactive: colors.textMuted,
   succeeded: colors.success,
   failed: colors.danger,

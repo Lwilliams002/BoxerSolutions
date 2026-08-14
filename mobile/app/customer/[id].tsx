@@ -8,7 +8,7 @@ import { colors, money, fmtDate, fmtTime } from '../../src/lib/theme';
 import { Card, Button, StatusBadge, Loading, Row, Value, Label, EmptyState } from '../../src/components/ui';
 import { AddPaymentMethodModal } from '../../src/components/AddPaymentMethodModal';
 
-const TABS = ['Overview', 'Appointments', 'Invoices', 'Payments', 'Comms', 'Notes', 'Documents', 'Payment Methods', 'History'] as const;
+const TABS = ['Overview', 'Plan', 'Appointments', 'Invoices', 'Payments', 'Comms', 'Notes', 'Documents', 'Payment Methods', 'History'] as const;
 type Tab = (typeof TABS)[number];
 
 export default function CustomerScreen() {
@@ -64,6 +64,11 @@ export default function CustomerScreen() {
     queryKey: ['customerDocs', id],
     queryFn: () => api<{ items: any[] }>(`/files?customerId=${id}&fileType=document&pageSize=50`),
     enabled: tab === 'Documents',
+  });
+  const { data: plans } = useQuery({
+    queryKey: ['customerPlans', id],
+    queryFn: () => api<{ items: any[] }>(`/subscriptions?customerId=${id}&pageSize=20`),
+    enabled: tab === 'Plan',
   });
 
   const openDocument = async (fileId: string) => {
@@ -121,6 +126,29 @@ export default function CustomerScreen() {
           try {
             await api(`/payment-methods/${methodId}`, { method: 'DELETE' });
             void qc.invalidateQueries({ queryKey: ['paymentMethods', id] });
+          } catch (e) {
+            Alert.alert('Error', (e as Error).message);
+          }
+        },
+      },
+    ]);
+  };
+
+  const planAction = (plan: any, action: 'pause' | 'resume' | 'cancel' | 'skip') => {
+    const title = action === 'skip' ? 'Skip next visit' : `${action[0].toUpperCase()}${action.slice(1)} plan`;
+    const message = action === 'skip' ? 'Cancel the next generated appointment and move the plan forward?' : `${title}?`;
+    Alert.alert(title, message, [
+      { text: 'Cancel', style: 'cancel' },
+      {
+        text: title,
+        style: action === 'cancel' ? 'destructive' : 'default',
+        onPress: async () => {
+          try {
+            if (action === 'skip') await api(`/subscriptions/${plan.id}/skip-next`, { method: 'POST', body: {} });
+            else await api(`/subscriptions/${plan.id}/status`, { method: 'POST', body: { status: action === 'resume' ? 'active' : action === 'pause' ? 'paused' : 'cancelled' } });
+            void qc.invalidateQueries({ queryKey: ['customerPlans', id] });
+            void qc.invalidateQueries({ queryKey: ['customer', id] });
+            void qc.invalidateQueries({ queryKey: ['customerAppts', id] });
           } catch (e) {
             Alert.alert('Error', (e as Error).message);
           }
@@ -197,6 +225,44 @@ export default function CustomerScreen() {
             ))}
             {hasPermission('appointments:write') && (
               <Button title="+ New Appointment" onPress={() => router.push({ pathname: '/appointment/new', params: { customerId: id } })} />
+            )}
+          </>
+        )}
+
+
+        {tab === 'Plan' && (
+          <>
+            {hasPermission('appointments:write') && (
+              <Button title="+ New Plan" onPress={() => router.push({ pathname: '/subscription/new', params: { customerId: id } })} />
+            )}
+            {((plans?.items?.length ?? 0) === 0) ? (
+              <EmptyState title="No recurring plan" subtitle="Create a plan to automate future service visits." />
+            ) : (
+              plans!.items.map((plan) => (
+                <Card key={plan.id}>
+                  <Row>
+                    <Value style={{ fontWeight: '800' }}>{String(plan.frequency).replace('_', ' ')}</Value>
+                    <StatusBadge status={plan.status} />
+                  </Row>
+                  <View style={{ marginTop: 8 }}>
+                    <Label>Next Service</Label>
+                    <Value>{fmtDate(plan.nextServiceDate ?? plan.nextGenerationDate)}</Value>
+                  </View>
+                  <Text style={styles.metaText}>{(plan.services ?? []).map((s: any) => s.name).join(', ')}</Text>
+                  {plan.preferredTechnicianName ? <Text style={styles.metaText}>{plan.preferredTechnicianName} · {fmtTime(plan.preferredTime)}</Text> : null}
+                  {hasPermission('appointments:write') && (
+                    <View style={styles.planActions}>
+                      {plan.status === 'active' ? (
+                        <TouchableOpacity onPress={() => planAction(plan, 'pause')}><Text style={styles.link}>Pause</Text></TouchableOpacity>
+                      ) : plan.status === 'paused' ? (
+                        <TouchableOpacity onPress={() => planAction(plan, 'resume')}><Text style={styles.link}>Resume</Text></TouchableOpacity>
+                      ) : null}
+                      {plan.status !== 'cancelled' && <TouchableOpacity onPress={() => planAction(plan, 'skip')}><Text style={styles.link}>Skip Next</Text></TouchableOpacity>}
+                      {plan.status !== 'cancelled' && <TouchableOpacity onPress={() => planAction(plan, 'cancel')}><Text style={[styles.link, { color: colors.danger }]}>Cancel</Text></TouchableOpacity>}
+                    </View>
+                  )}
+                </Card>
+              ))
             )}
           </>
         )}
@@ -435,4 +501,5 @@ const styles = StyleSheet.create({
   noteInput: { minHeight: 60, fontSize: 15, color: colors.text, textAlignVertical: 'top', marginBottom: 8 },
   link: { color: colors.primaryDark, fontWeight: '700', fontSize: 14 },
   commTitle: { fontSize: 15, fontWeight: '800', color: colors.text },
+  planActions: { flexDirection: 'row', justifyContent: 'space-between', marginTop: 14 },
 });

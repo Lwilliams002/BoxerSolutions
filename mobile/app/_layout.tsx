@@ -55,6 +55,7 @@ export default function RootLayout() {
             <Stack.Screen name="customer/new" options={{ title: 'New Customer', presentation: 'modal' }} />
             <Stack.Screen name="customer/agreement" options={{ title: 'Service Agreement' }} />
             <Stack.Screen name="appointment/new" options={{ title: 'New Appointment', presentation: 'modal' }} />
+            <Stack.Screen name="subscription/new" options={{ title: 'New Recurring Plan', presentation: 'modal' }} />
             <Stack.Screen name="route/[id]" options={{ title: 'Route' }} />
             <Stack.Screen name="route/new" options={{ title: 'New Route', presentation: 'modal' }} />
             <Stack.Screen name="stop/[id]" options={{ title: 'Service Stop' }} />

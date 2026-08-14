@@ -319,8 +319,9 @@ async function main() {
     // ---- Recurring subscriptions for 3 customers ----
     for (let i = 0; i < 3; i++) {
       const sr = await tx.query(
-        `INSERT INTO subscriptions (customer_id, service_location_id, frequency, preferred_technician_id, start_date, next_generation_date, status)
-         VALUES ($1,$2,'monthly',$3,CURRENT_DATE + 14, CURRENT_DATE + 14,'active') RETURNING id`,
+        `INSERT INTO subscriptions (customer_id, service_location_id, frequency, preferred_technician_id, preferred_time,
+           start_date, next_generation_date, next_service_date, generate_ahead_days, status)
+         VALUES ($1,$2,'monthly',$3,'09:00',CURRENT_DATE + 14, CURRENT_DATE + 14, CURRENT_DATE + 14, 30, 'active') RETURNING id`,
         [custIds[i], locIds[i], techIds[i % techIds.length]],
       );
       await tx.query(

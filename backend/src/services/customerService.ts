@@ -106,6 +106,14 @@ export const customerService = {
                  'latitude', sl.latitude, 'longitude', sl.longitude, 'accessNotes', sl.access_notes,
                  'isPrimary', sl.is_primary) ORDER BY sl.is_primary DESC, sl.created_at)
                FROM service_locations sl WHERE sl.customer_id = c.id AND sl.deleted_at IS NULL) AS service_locations,
+              (SELECT json_agg(json_build_object(
+                 'id', sub.id, 'frequency', sub.frequency, 'status', sub.status,
+                 'nextServiceDate', COALESCE(sub.next_service_date, sub.next_generation_date),
+                 'preferredTime', sub.preferred_time,
+                 'services', (SELECT json_agg(json_build_object('serviceId', ss.service_id, 'name', s.name, 'quantity', ss.quantity) ORDER BY s.name)
+                              FROM subscription_services ss JOIN services s ON s.id = ss.service_id WHERE ss.subscription_id = sub.id))
+                 ORDER BY sub.status = 'active' DESC, COALESCE(sub.next_service_date, sub.next_generation_date))
+               FROM subscriptions sub WHERE sub.customer_id = c.id AND sub.deleted_at IS NULL AND sub.status <> 'cancelled') AS recurring_plans,
               (SELECT e.user_id FROM employees e WHERE e.id = c.assigned_technician_id) AS technician_user_id
        FROM customers c WHERE c.id = $1 AND c.deleted_at IS NULL`,
       [id],
