@@ -61,6 +61,7 @@ export default function RootLayout() {
             <Stack.Screen name="stop/[id]" options={{ title: 'Service Stop' }} />
             <Stack.Screen name="invoice/[id]" options={{ title: 'Invoice' }} />
             <Stack.Screen name="notifications" options={{ title: 'Notifications' }} />
+            <Stack.Screen name="reports" options={{ title: 'Reports' }} />
             <Stack.Screen name="signature" options={{ title: 'Customer Signature', presentation: 'modal' }} />
           </Stack>
         </AuthGate>

@@ -10,6 +10,7 @@ import { API_BASE_URL } from '../../src/lib/config';
 
 export default function MoreScreen() {
   const { user, logout } = useAuth();
+  const canReports = useAuth((state) => state.hasPermission('reports:read'));
   const { status, pendingCount, flush } = useSync();
   const router = useRouter();
 
@@ -60,6 +61,23 @@ export default function MoreScreen() {
           <Label>API</Label>
           <Value>{API_BASE_URL}</Value>
         </Card>
+
+        {canReports && (
+          <>
+            <SectionTitle>Analytics</SectionTitle>
+            <TouchableOpacity onPress={() => router.push('/reports')} activeOpacity={0.75}>
+              <Card>
+                <Row>
+                  <View>
+                    <Value style={{ fontWeight: '800' }}>Reports</Value>
+                    <Text style={styles.meta}>View revenue, appointments, AR, and growth</Text>
+                  </View>
+                  <Text style={styles.chevron}>›</Text>
+                </Row>
+              </Card>
+            </TouchableOpacity>
+          </>
+        )}
 
         <SectionTitle>Activity</SectionTitle>
         <TouchableOpacity onPress={() => router.push('/notifications')} activeOpacity={0.75}>
