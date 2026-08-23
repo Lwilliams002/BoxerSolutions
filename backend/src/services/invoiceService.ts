@@ -1,6 +1,8 @@
 import PDFDocument from 'pdfkit';
 import { PoolClient } from 'pg';
 import crypto from 'crypto';
+import fs from 'fs';
+import path from 'path';
 import { pool, withTransaction, Queryable } from '../config/db';
 import { ApiError } from '../utils/errors';
 import { recordAudit } from './auditService';
@@ -84,7 +86,10 @@ async function insertInvoice(
 
 const INVOICE_SELECT = `
   SELECT i.*, c.first_name || ' ' || c.last_name AS customer_name, c.company AS customer_company,
+         c.first_name AS customer_first_name,
+         c.last_name AS customer_last_name,
          c.email AS customer_email,
+         c.phone AS customer_phone,
          (i.total - i.amount_paid) AS balance_due,
          sl.address_line1 || ', ' || sl.city || ', ' || sl.state || ' ' || sl.postal_code AS service_address,
          (SELECT json_agg(json_build_object('id', ii.id, 'description', ii.description, 'quantity', ii.quantity,
@@ -105,6 +110,22 @@ export const invoiceService = {
     if (filters.from) { params.push(filters.from); where.push(`i.invoice_date >= $${params.length}`); }
     if (filters.to) { params.push(filters.to); where.push(`i.invoice_date <= $${params.length}`); }
     if (filters.pastDue) where.push(`i.status IN ('open','sent','partially_paid','past_due') AND i.due_date < CURRENT_DATE`);
+    if (filters.technicianId) {
+      params.push(filters.technicianId);
+      where.push(`(
+        EXISTS (
+          SELECT 1 FROM customers c
+          WHERE c.id = i.customer_id
+            AND c.assigned_technician_id = $${params.length}
+        )
+        OR EXISTS (
+          SELECT 1 FROM appointments a
+          WHERE a.customer_id = i.customer_id
+            AND a.technician_id = $${params.length}
+            AND a.deleted_at IS NULL
+        )
+      )`);
+    }
     const whereSql = where.join(' AND ');
     const count = await pool.query(`SELECT count(*)::int AS total FROM invoices i WHERE ${whereSql}`, params);
     params.push(limit, offset);
@@ -116,8 +137,26 @@ export const invoiceService = {
     return { items: rowsToCamel(rows), total: count.rows[0].total };
   },
 
-  async getById(id: string) {
-    const { rows } = await pool.query(`${INVOICE_SELECT} WHERE i.id = $1 AND i.deleted_at IS NULL`, [id]);
+  async getById(id: string, technicianId?: string | null) {
+    const where = ['i.id = $1', 'i.deleted_at IS NULL'];
+    const params: unknown[] = [id];
+    if (technicianId) {
+      params.push(technicianId);
+      where.push(`(
+        EXISTS (
+          SELECT 1 FROM customers c
+          WHERE c.id = i.customer_id
+            AND c.assigned_technician_id = $${params.length}
+        )
+        OR EXISTS (
+          SELECT 1 FROM appointments a
+          WHERE a.customer_id = i.customer_id
+            AND a.technician_id = $${params.length}
+            AND a.deleted_at IS NULL
+        )
+      )`);
+    }
+    const { rows } = await pool.query(`${INVOICE_SELECT} WHERE ${where.join(' AND ')}`, params);
     if (!rows[0]) throw ApiError.notFound('Invoice not found');
     return toCamel(rows[0]);
   },
@@ -183,47 +222,104 @@ export const invoiceService = {
       doc.on('end', () => resolve(Buffer.concat(chunks)));
       doc.on('error', reject);
 
-      // Header
-      doc.fontSize(22).fillColor('#1a3c6e').text(company.name, { continued: false });
-      doc.fontSize(9).fillColor('#444').text(company.address).text(`${company.phone}  ·  ${company.email}`);
-      doc.moveDown(1.5);
-      doc.fontSize(18).fillColor('#000').text(`INVOICE ${invoice.invoiceNumber}`);
-      doc.moveDown(0.5);
+      const brand = {
+        black: '#0D0D0D',
+        teal: '#2DC4A2',
+        tealDark: '#24957D',
+        slate: '#5F7F7B',
+        card: '#F5FAF8',
+        line: '#D8E8E4',
+        text: '#111827',
+      };
+      const left = 50;
+      const right = 562;
+      const fullWidth = right - left;
+
+      // Branded top bar
+      doc.rect(0, 0, 612, 96).fill(brand.black);
+      const logoCandidates = [
+        path.resolve(__dirname, '../../../mobile/assets/logo.png'),
+        path.resolve(__dirname, '../../../mobile/assets/logo-mark.png'),
+      ];
+      const logoPath = logoCandidates.find((p) => fs.existsSync(p));
+      if (logoPath) {
+        try {
+          doc.image(logoPath, left, 20, { fit: [48, 48] });
+        } catch {
+          // Continue without logo if image cannot be loaded.
+        }
+      }
+      doc
+        .fillColor('#FFFFFF')
+        .fontSize(20)
+        .text(company.name, left + 58, 24, { width: 330, lineBreak: false })
+        .fontSize(10)
+        .fillColor('#B9D7D0')
+        .text(`${company.phone}  ·  ${company.email}`, left + 58, 50, { width: 340, lineBreak: false });
+      doc
+        .fontSize(22)
+        .fillColor('#FFFFFF')
+        .text('INVOICE', 420, 26, { width: 140, align: 'right' })
+        .fontSize(11)
+        .fillColor('#B9D7D0')
+        .text(invoice.invoiceNumber, 420, 54, { width: 140, align: 'right' });
+
+      doc.y = 110;
+
+      // Invoice summary card
+      doc.roundedRect(left, doc.y, fullWidth, 102, 12).fill(brand.card);
+      const summaryTop = doc.y + 14;
+      doc.fillColor(brand.slate).fontSize(10).text('BILL TO', left + 14, summaryTop);
+      doc.fillColor(brand.text).fontSize(13).text(invoice.customerName, left + 14, summaryTop + 14);
+      if (invoice.customerCompany) doc.fillColor('#374151').fontSize(10).text(invoice.customerCompany, left + 14, summaryTop + 32);
+      if (invoice.serviceAddress) doc.fillColor('#4B5563').fontSize(9).text(invoice.serviceAddress, left + 14, summaryTop + 46, { width: 310 });
 
       const statusLabel = String(invoice.status).replace('_', ' ').toUpperCase();
-      doc.fontSize(10).fillColor('#000');
-      doc.text(`Invoice Date: ${new Date(invoice.invoiceDate).toLocaleDateString('en-US')}`);
-      doc.text(`Due Date: ${new Date(invoice.dueDate).toLocaleDateString('en-US')}`);
-      doc.text(`Status: ${statusLabel}`);
-      doc.moveDown(1);
+      const statusWidth = doc.widthOfString(statusLabel) + 20;
+      doc.roundedRect(right - statusWidth - 14, summaryTop, statusWidth, 22, 10).fill('#D9F4ED');
+      doc.fillColor(brand.tealDark).fontSize(10).text(statusLabel, right - statusWidth - 4, summaryTop + 6, { width: statusWidth - 8, align: 'center' });
+      doc
+        .fillColor('#4B5563')
+        .fontSize(9)
+        .text(`Invoice Date`, 400, summaryTop + 34, { width: 70 })
+        .text(`Due Date`, 493, summaryTop + 34, { width: 60 });
+      doc
+        .fillColor(brand.text)
+        .fontSize(11)
+        .text(new Date(invoice.invoiceDate).toLocaleDateString('en-US'), 400, summaryTop + 48, { width: 84 })
+        .text(new Date(invoice.dueDate).toLocaleDateString('en-US'), 486, summaryTop + 48, { width: 76 });
+      doc.y += 122;
 
-      doc.fontSize(11).fillColor('#1a3c6e').text('BILL TO');
-      doc.fontSize(10).fillColor('#000').text(invoice.customerName);
-      if (invoice.customerCompany) doc.text(invoice.customerCompany);
-      if (invoice.serviceAddress) doc.text(`Service Address: ${invoice.serviceAddress}`);
-      doc.moveDown(1);
-
-      // Table header
-      const startX = 50;
+      // Line-item table
+      const startX = left;
+      const headerHeight = 20;
+      const rowHeight = 18;
+      const headerToRowGap = 6;
+      const rowTextTop = 3;
       let y = doc.y;
       doc.fontSize(9).fillColor('#fff');
-      doc.rect(startX, y, 512, 18).fill('#1a3c6e');
-      doc.fillColor('#fff')
+      doc.rect(startX, y, 512, headerHeight).fill(brand.black);
+      doc
+        .fillColor('#fff')
         .text('DESCRIPTION', startX + 6, y + 5, { width: 250 })
         .text('QTY', startX + 260, y + 5, { width: 50, align: 'right' })
         .text('UNIT PRICE', startX + 320, y + 5, { width: 80, align: 'right' })
         .text('AMOUNT', startX + 410, y + 5, { width: 96, align: 'right' });
-      y += 22;
+      y += headerHeight + headerToRowGap;
 
       doc.fillColor('#000');
-      for (const item of invoice.items ?? []) {
+      (invoice.items ?? []).forEach((item: any, index: number) => {
+        const rowBg = index % 2 === 0 ? '#FFFFFF' : '#F7FBFA';
+        doc.rect(startX, y, 512, rowHeight).fill(rowBg);
         doc.fontSize(9)
-          .text(item.description, startX + 6, y, { width: 250 })
-          .text(String(item.quantity), startX + 260, y, { width: 50, align: 'right' })
-          .text(`$${Number(item.unitPrice).toFixed(2)}`, startX + 320, y, { width: 80, align: 'right' })
-          .text(`$${Number(item.lineTotal).toFixed(2)}`, startX + 410, y, { width: 96, align: 'right' });
-        y += 18;
-      }
+          .fillColor(brand.text)
+          .text(item.description, startX + 6, y + rowTextTop, { width: 250 })
+          .text(String(item.quantity), startX + 260, y + rowTextTop, { width: 50, align: 'right' })
+          .text(`$${Number(item.unitPrice).toFixed(2)}`, startX + 320, y + rowTextTop, { width: 80, align: 'right' })
+          .text(`$${Number(item.lineTotal).toFixed(2)}`, startX + 410, y + rowTextTop, { width: 96, align: 'right' });
+        y += rowHeight;
+      });
+      doc.rect(startX, y, 512, 1).fill(brand.line);
 
       y += 10;
       const totals: [string, string][] = [
@@ -236,8 +332,11 @@ export const invoiceService = {
       ];
       for (const [label, value] of totals) {
         const bold = label === 'TOTAL' || label === 'Balance Due';
+        const valueColor = label === 'Balance Due' && Number(invoice.total) - Number(invoice.amountPaid) > 0 ? '#C2410C' : brand.text;
         doc.fontSize(bold ? 11 : 9)
+          .fillColor('#4B5563')
           .text(label, startX + 300, y, { width: 100, align: 'right' })
+          .fillColor(valueColor)
           .text(value, startX + 410, y, { width: 96, align: 'right' });
         y += bold ? 18 : 15;
       }
@@ -246,7 +345,11 @@ export const invoiceService = {
         doc.moveDown(2);
         doc.fontSize(9).fillColor('#444').text(`Notes: ${invoice.notes}`, startX, y + 10, { width: 500 });
       }
-      doc.fontSize(8).fillColor('#888').text('Thank you for your business.', startX, 720, { width: 512, align: 'center' });
+      doc.rect(0, 740, 612, 22).fill('#ECF7F3');
+      doc
+        .fontSize(8)
+        .fillColor(brand.tealDark)
+        .text('Thank you for your business.', startX, 747, { width: 512, align: 'center' });
       doc.end();
     });
 

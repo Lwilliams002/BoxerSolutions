@@ -11,7 +11,7 @@ import { API_BASE_URL } from '../../src/lib/config';
 export default function MoreScreen() {
   const { user, logout } = useAuth();
   const canReports = useAuth((state) => state.hasPermission('reports:read'));
-  const canMap = useAuth((state) => state.hasPermission('customers:read', 'customers:read_assigned', 'users:write'));
+  const isOwner = user?.roles?.includes('OWNER');
   const canServicesAdmin = useAuth((state) => state.hasPermission('services:write'));
   const canUsersAdmin = useAuth((state) => state.hasPermission('users:write'));
   const canSettingsAdmin = useAuth((state) => state.hasPermission('settings:write'));
@@ -106,11 +106,16 @@ export default function MoreScreen() {
                 <Card><Row><View><Value style={{ fontWeight: '800' }}>Audit Logs</Value><Text style={styles.meta}>Review recent administrative activity</Text></View><Text style={styles.chevron}>›</Text></Row></Card>
               </TouchableOpacity>
             )}
+            {canUsersAdmin && (
+              <TouchableOpacity onPress={() => router.push('/admin/service-requests')} activeOpacity={0.75}>
+                <Card><Row><View><Value style={{ fontWeight: '800' }}>Service Requests</Value><Text style={styles.meta}>Review customer requests, assign technicians, and add pricing</Text></View><Text style={styles.chevron}>›</Text></Row></Card>
+              </TouchableOpacity>
+            )}
           </>
         )}
 
         <SectionTitle>Activity</SectionTitle>
-        {canMap && (
+        {isOwner && (
           <TouchableOpacity onPress={() => router.push('/map')} activeOpacity={0.75}>
             <Card>
               <Row>

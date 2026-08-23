@@ -87,6 +87,9 @@ export const customerService = {
               c.customer_type, c.status, c.balance, c.autopay_enabled, c.assigned_technician_id,
               (SELECT sl.address_line1 || ', ' || sl.city FROM service_locations sl
                 WHERE sl.customer_id = c.id AND sl.deleted_at IS NULL ORDER BY sl.is_primary DESC, sl.created_at LIMIT 1) AS primary_address
+             ,(SELECT MAX(a.completed_at)
+               FROM appointments a
+               WHERE a.customer_id = c.id AND a.deleted_at IS NULL AND a.status = 'completed') AS last_serviced_at
        FROM customers c
        WHERE ${whereSql}
        ORDER BY ${orderBy}

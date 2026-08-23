@@ -8,6 +8,7 @@ import { Button, Card, EmptyState, Label, Loading, Row, StatusBadge, Value } fro
 type User = { id: string; email: string; firstName: string; lastName: string; phone: string | null; isActive: boolean; roles: string[] };
 type Role = { id: string; code: string; name: string; permissions: string[] };
 type Form = { firstName: string; lastName: string; email: string; phone: string; password: string; roleCode: string };
+const ROLE_ORDER = ['OWNER', 'TRUSTED_TECHNICIAN', 'TECHNICIAN'] as const;
 const empty: Form = { firstName: '', lastName: '', email: '', phone: '', password: 'Temp1234!', roleCode: 'TECHNICIAN' };
 
 export default function AdminEmployeesScreen() {
@@ -18,6 +19,10 @@ export default function AdminEmployeesScreen() {
   const users = useQuery({ queryKey: ['admin-users'], queryFn: () => api<User[]>('/users') });
   const roles = useQuery({ queryKey: ['roles'], queryFn: () => api<Role[]>('/roles') });
   const roleByCode = useMemo(() => Object.fromEntries((roles.data ?? []).map((r) => [r.code, r])), [roles.data]);
+  const visibleRoles = useMemo(
+    () => ROLE_ORDER.map((code) => roleByCode[code]).filter(Boolean) as Role[],
+    [roleByCode],
+  );
   const save = useMutation({
     mutationFn: () => editing
       ? api<User>(`/users/${editing.id}`, { method: 'PATCH', body: { firstName: form.firstName, lastName: form.lastName, phone: form.phone || null, roleCodes: [form.roleCode] } })
@@ -32,7 +37,12 @@ export default function AdminEmployeesScreen() {
   });
   if (users.isLoading || roles.isLoading) return <Loading />;
   const startCreate = () => { setEditing(null); setForm(empty); setOpen(true); };
-  const startEdit = (u: User) => { setEditing(u); setForm({ firstName: u.firstName, lastName: u.lastName, email: u.email, phone: u.phone ?? '', password: '', roleCode: u.roles[0] ?? 'TECHNICIAN' }); setOpen(true); };
+  const startEdit = (u: User) => {
+    const roleCode = ROLE_ORDER.find((code) => u.roles.includes(code)) ?? 'TECHNICIAN';
+    setEditing(u);
+    setForm({ firstName: u.firstName, lastName: u.lastName, email: u.email, phone: u.phone ?? '', password: '', roleCode });
+    setOpen(true);
+  };
   const showRole = (code: string) => Alert.alert(roleByCode[code]?.name ?? code, (roleByCode[code]?.permissions ?? []).join('\n') || 'No permissions');
   return (
     <ScrollView contentContainerStyle={styles.container} refreshControl={<RefreshControl refreshing={users.isRefetching || roles.isRefetching} onRefresh={() => { void users.refetch(); void roles.refetch(); }} tintColor={colors.primary} />}>
@@ -55,7 +65,14 @@ export default function AdminEmployeesScreen() {
           <Label>Email</Label><TextInput style={styles.input} value={form.email} editable={!editing} autoCapitalize="none" keyboardType="email-address" onChangeText={(email) => setForm({ ...form, email })} />
           <Label>Phone</Label><TextInput style={styles.input} value={form.phone} keyboardType="phone-pad" onChangeText={(phone) => setForm({ ...form, phone })} />
           {!editing && <><Label>Temp Password</Label><TextInput style={styles.input} value={form.password} secureTextEntry onChangeText={(password) => setForm({ ...form, password })} /></>}
-          <Label>Role</Label><ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.chips}>{roles.data?.map((r) => <TouchableOpacity key={r.code} style={[styles.chip, form.roleCode === r.code && styles.chipActive]} onPress={() => setForm({ ...form, roleCode: r.code })}><Text style={[styles.chipText, form.roleCode === r.code && styles.chipTextActive]}>{r.name}</Text></TouchableOpacity>)}</ScrollView>
+          <Label>Role</Label>
+          <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.chips}>
+            {visibleRoles.map((r) => (
+              <TouchableOpacity key={r.code} style={[styles.chip, form.roleCode === r.code && styles.chipActive]} onPress={() => setForm({ ...form, roleCode: r.code })}>
+                <Text style={[styles.chipText, form.roleCode === r.code && styles.chipTextActive]}>{r.name}</Text>
+              </TouchableOpacity>
+            ))}
+          </ScrollView>
           <Button title="Save User" onPress={() => save.mutate()} loading={save.isPending} disabled={!form.firstName || !form.lastName || !form.email || (!editing && form.password.length < 8)} />
           <Button title="Cancel" variant="outline" onPress={() => setOpen(false)} />
         </ScrollView>

@@ -29,6 +29,8 @@ import settingsRoutes from './routes/settings';
 import roleRoutes from './routes/roles';
 import auditLogRoutes from './routes/auditLogs';
 import territoryRoutes from './routes/territories';
+import customerPortalRoutes from './routes/customerPortal';
+import serviceRequestRoutes from './routes/serviceRequests';
 
 export function createApp() {
   const app = express();
@@ -71,6 +73,8 @@ export function createApp() {
   v1.use('/roles', roleRoutes);
   v1.use('/audit-logs', auditLogRoutes);
   v1.use('/territories', territoryRoutes);
+  v1.use('/customer-portal', customerPortalRoutes);
+  v1.use('/service-requests', serviceRequestRoutes);
   app.use('/api/v1', v1);
 
   app.use(notFoundHandler);

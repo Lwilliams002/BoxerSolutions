@@ -9,6 +9,9 @@ import {
   refreshSchema,
   passwordResetRequestSchema,
   passwordResetSchema,
+  customerPortalRequestCodeSchema,
+  customerPortalVerifyCodeSchema,
+  customerPortalTestLoginSchema,
 } from '../validators/auth';
 import { config } from '../config';
 
@@ -65,6 +68,43 @@ router.post(
     const body = passwordResetSchema.parse(req.body);
     await authService.resetPassword(body.token, body.newPassword);
     ok(res, null, 'Password updated');
+  }),
+);
+
+router.post(
+  '/customer-portal/request-code',
+  authLimiter,
+  asyncHandler(async (req, res) => {
+    const body = customerPortalRequestCodeSchema.parse(req.body);
+    const result = await authService.requestCustomerPortalCode(body.email);
+    ok(
+      res,
+      {
+        sent: true,
+        ...(config.env === 'production' ? {} : result),
+      },
+      'If the account exists, a verification code was sent',
+    );
+  }),
+);
+
+router.post(
+  '/customer-portal/verify-code',
+  authLimiter,
+  asyncHandler(async (req, res) => {
+    const body = customerPortalVerifyCodeSchema.parse(req.body);
+    const result = await authService.verifyCustomerPortalCode(body.email, body.code);
+    ok(res, result, 'Verification successful');
+  }),
+);
+
+router.post(
+  '/customer-portal/test-login',
+  authLimiter,
+  asyncHandler(async (req, res) => {
+    const body = customerPortalTestLoginSchema.parse(req.body ?? {});
+    const result = await authService.testCustomerPortalLogin(body.email);
+    ok(res, result, 'Test customer portal session ready');
   }),
 );
 

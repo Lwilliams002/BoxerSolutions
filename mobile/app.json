@@ -2,7 +2,7 @@
   "expo": {
     "name": "Boxer Solutions",
     "slug": "boxer-solutions",
-    "version": "1.0.0",
+    "version": "1.0.1",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "light",
@@ -12,13 +12,15 @@
       "infoPlist": {
         "NSLocationWhenInUseUsageDescription": "Used to show your position on the route map.",
         "NSCameraUsageDescription": "Used to take service photos.",
-        "NSPhotoLibraryUsageDescription": "Used to attach photos to appointments."
+        "NSPhotoLibraryUsageDescription": "Used to attach photos to appointments.",
+        "ITSAppUsesNonExemptEncryption": false
       }
     },
     "android": {
       "permissions": [
-        "ACCESS_COARSE_LOCATION",
-        "ACCESS_FINE_LOCATION"
+        "android.permission.ACCESS_COARSE_LOCATION",
+        "android.permission.ACCESS_FINE_LOCATION",
+        "android.permission.RECORD_AUDIO"
       ],
       "adaptiveIcon": {
         "backgroundColor": "#0D0D0D",
@@ -53,6 +55,12 @@
       "image": "./assets/splash-icon.png",
       "resizeMode": "contain",
       "backgroundColor": "#0D0D0D"
+    },
+    "extra": {
+      "router": {},
+      "eas": {
+        "projectId": "246c70b3-caa1-463c-a662-60f89485435c"
+      }
     }
   }
 }

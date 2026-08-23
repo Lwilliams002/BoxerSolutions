@@ -54,6 +54,14 @@ npm install
 npm start                 # Expo dev server; press i for iOS simulator
 ```
 
+### 4. Run the web app from the same codebase
+
+```bash
+cd mobile
+npm install
+npm run web               # Expo web dev server
+```
+
 The app auto-detects the API host from the Expo dev server. For a physical device on another network path, set it explicitly:
 
 ```bash
@@ -67,10 +75,8 @@ All passwords: `Demo1234!`
 | Email | Role |
 |---|---|
 | owner@antserve.dev | OWNER (full access) |
-| admin@antserve.dev | ADMIN |
-| office@antserve.dev | OFFICE_MANAGER |
-| sales@antserve.dev | SALES |
-| tech1@antserve.dev … tech5@antserve.dev | TECHNICIAN |
+| tech1@antserve.dev | TRUSTED_TECHNICIAN |
+| tech2@antserve.dev … tech5@antserve.dev | TECHNICIAN |
 
 Demo payment tokens (mock provider): `tok_visa_4242`, `tok_mastercard_5454`, `tok_amex_0005`. Any token containing `declined` (e.g. `tok_declined_0002`) produces a card that fails charges — useful for testing the failed-payment path.
 
@@ -108,3 +114,19 @@ backend/scripts/e2e-milestone.sh
 
 - [AWS deployment guide](docs/aws-deployment.md) — RDS, ECS/Fargate, Secrets Manager, API Gateway, CloudWatch.
 - [Wasabi switchover](docs/wasabi.md) — moving object storage from local MinIO to Wasabi (env-only change).
+
+## North Developer payments
+
+The backend now includes a North Developer payment-link scaffold for invoices and recurring-billing payload helpers. To enable it, set:
+
+```bash
+NORTH_MID=...
+NORTH_DEVELOPER_KEY=...
+NORTH_PASSWORD=...
+NORTH_APPSOURCE=...
+NORTH_SIGNATURE_SECRET=...
+NORTH_FUNCTIONS_BASE_URL=https://proxy.payanywhere.com
+NORTH_BILLING_BASE_URL=https://billing.epxuap.com
+```
+
+Without those values, the app keeps using the existing mock payment provider fallback.

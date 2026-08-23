@@ -61,7 +61,7 @@ export function Button({
 }
 
 export function StatusBadge({ status }: { status: string }) {
-  const c = statusColors[status] ?? colors.textMuted;
+  const c = statusColors[status] ?? statusColors[status.toLowerCase()] ?? colors.textMuted;
   return (
     <View style={[styles.badge, { backgroundColor: `${c}22` }]}>
       <Text style={[styles.badgeText, { color: c }]}>{statusLabel(status)}</Text>

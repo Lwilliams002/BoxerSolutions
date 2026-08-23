@@ -8,11 +8,13 @@ import {
   Platform,
   Image,
 } from 'react-native';
+import { useRouter } from 'expo-router';
 import { useAuth } from '../../src/lib/authStore';
 import { Button, ErrorText } from '../../src/components/ui';
 import { colors } from '../../src/lib/theme';
 
 export default function LoginScreen() {
+  const router = useRouter();
   const login = useAuth((s) => s.login);
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -77,6 +79,16 @@ export default function LoginScreen() {
           onPress={submit}
           loading={busy}
           disabled={!email || !password}
+        />
+        <Button
+          title="Customer Portal"
+          variant="outline"
+          onPress={() => router.push('/(auth)/customer-portal')}
+        />
+        <Button
+          title="Privacy Policy"
+          variant="secondary"
+          onPress={() => router.push('/(auth)/privacy-policy')}
         />
 
         <Text style={styles.tagline}>Boxer Solutions Pest Control</Text>
@@ -150,4 +162,3 @@ const styles = StyleSheet.create({
     letterSpacing: 0.5,
   },
 });
-

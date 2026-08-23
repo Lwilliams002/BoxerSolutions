@@ -14,3 +14,16 @@ export const passwordResetSchema = z.object({
   token: z.string().min(10),
   newPassword: z.string().min(8).max(128),
 });
+
+export const customerPortalRequestCodeSchema = z.object({
+  email: z.string().email(),
+});
+
+export const customerPortalVerifyCodeSchema = z.object({
+  email: z.string().email(),
+  code: z.string().trim().regex(/^\d{6}$/, 'Code must be 6 digits'),
+});
+
+export const customerPortalTestLoginSchema = z.object({
+  email: z.string().email().optional(),
+});

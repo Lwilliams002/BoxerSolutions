@@ -7,8 +7,9 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { api } from '../../src/lib/api';
 import { useAuth } from '../../src/lib/authStore';
 import { colors, money } from '../../src/lib/theme';
-import { Loading, SectionTitle, Card } from '../../src/components/ui';
+import { Loading, SectionTitle, Card, StatusBadge } from '../../src/components/ui';
 import { SyncBanner } from '../../src/components/SyncBanner';
+import { OwnerServiceRequest, Paginated } from '../../src/lib/types';
 
 interface Dashboard {
   today: {
@@ -55,6 +56,10 @@ export default function DashboardScreen() {
   const { data, isLoading, refetch, isRefetching } = useQuery({
     queryKey: ['dashboard'],
     queryFn: () => api<Dashboard>('/dashboard'),
+  });
+  const approvals = useQuery({
+    queryKey: ['dashboard-service-requests'],
+    queryFn: () => api<Paginated<OwnerServiceRequest>>('/service-requests?status=submitted&page=1&pageSize=4'),
   });
 
   if (isLoading) return <Loading />;
@@ -116,21 +121,50 @@ export default function DashboardScreen() {
           </View>
         ) : null}
 
-        {data?.technicianActivity?.length ? (
+        {approvals.data?.items?.length ? (
           <>
-            <SectionTitle>Technician Activity</SectionTitle>
+            <SectionTitle>Needs Approval</SectionTitle>
             <Card>
-              {data.technicianActivity.map((t, i) => (
-                <View key={i} style={styles.techRow}>
-                  <Text style={styles.techName}>{t.technicianName}</Text>
-                  <Text style={styles.techStats}>
-                    {t.completed} done · {t.remaining} left
-                  </Text>
+              {approvals.data.items.map((r) => (
+                <View key={r.id} style={styles.approvalRow}>
+                  <View style={{ flex: 1, paddingRight: 10 }}>
+                    <Text style={styles.techName}>{r.customer_name}</Text>
+                    <Text style={styles.techStats} numberOfLines={1}>
+                      {r.description}
+                    </Text>
+                    <Text style={styles.techMeta}>
+                      {r.requested_at ? new Date(`${r.requested_at}`).toLocaleDateString(undefined, { month: 'short', day: 'numeric' }) : 'New request'}
+                      {r.quoted_price != null ? ` · ${money(r.quoted_price)}` : ''}
+                    </Text>
+                  </View>
+                  <StatusBadge status={r.status} />
                 </View>
               ))}
+              <TouchableOpacity style={styles.approvalBtn} onPress={() => router.push('/admin/service-requests')}>
+                <Text style={styles.approvalBtnText}>Review all service requests</Text>
+                <Ionicons name="chevron-forward" size={16} color="#0D0D0D" />
+              </TouchableOpacity>
             </Card>
           </>
-        ) : null}
+        ) : approvals.isLoading ? (
+          <>
+            <SectionTitle>Needs Approval</SectionTitle>
+            <Card>
+              <Text style={styles.techStats}>Loading approvals...</Text>
+            </Card>
+          </>
+        ) : (
+          <>
+            <SectionTitle>Needs Approval</SectionTitle>
+            <Card>
+              <Text style={styles.techStats}>No service requests waiting for approval.</Text>
+              <TouchableOpacity style={styles.approvalBtn} onPress={() => router.push('/admin/service-requests')}>
+                <Text style={styles.approvalBtnText}>Open service requests</Text>
+                <Ionicons name="chevron-forward" size={16} color="#0D0D0D" />
+              </TouchableOpacity>
+            </Card>
+          </>
+        )}
 
         <SectionTitle>Quick Actions</SectionTitle>
         <View style={styles.actionsRow}>
@@ -207,6 +241,19 @@ const styles = StyleSheet.create({
   techRow: { flexDirection: 'row', justifyContent: 'space-between', paddingVertical: 6 },
   techName: { fontSize: 15, color: colors.text, fontWeight: '600' },
   techStats: { fontSize: 14, color: colors.textMuted },
+  techMeta: { fontSize: 12, color: colors.primaryDark, marginTop: 2, fontWeight: '700' },
+  approvalRow: { flexDirection: 'row', alignItems: 'center', paddingVertical: 8, borderBottomWidth: 1, borderColor: colors.border },
+  approvalBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: colors.primary,
+    borderRadius: 12,
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+    marginTop: 10,
+  },
+  approvalBtnText: { color: colors.text, fontWeight: '900', fontSize: 13, marginRight: 6 },
   actionsRow: { flexDirection: 'row', marginHorizontal: -5 },
   action: {
     flex: 1,

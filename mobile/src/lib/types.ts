@@ -171,3 +171,96 @@ export interface Note {
   createdAt: string;
   authorName?: string;
 }
+
+export interface CustomerPortalMe {
+  id: string;
+  first_name: string;
+  last_name: string;
+  company: string | null;
+  email: string | null;
+  phone: string | null;
+  status: string;
+  customer_type: string;
+  balance: string | number;
+  autopay_enabled: boolean;
+  address_line1: string | null;
+  address_line2: string | null;
+  city: string | null;
+  state: string | null;
+  postal_code: string | null;
+}
+
+export interface CustomerPortalAppointment {
+  id: string;
+  scheduled_date: string;
+  window_start: string;
+  window_end: string;
+  status: string;
+  duration_minutes: number;
+  notes: string | null;
+  address_line1: string | null;
+  city: string | null;
+  state: string | null;
+  service_names: string;
+}
+
+export interface CustomerPortalInvoice {
+  id: string;
+  invoice_number: string;
+  status: string;
+  invoice_date: string;
+  due_date: string;
+  total: string | number;
+  amount_paid: string | number;
+  balance_due: string | number;
+}
+
+export interface CustomerPortalPayment {
+  id: string;
+  amount: string | number;
+  status: string;
+  receipt_number: string | null;
+  processed_at: string | null;
+  created_at: string;
+  failure_reason: string | null;
+  invoice_number: string | null;
+}
+
+export interface CustomerPortalServiceRequestFile {
+  fileId: string;
+  fileName: string;
+  mimeType: string;
+}
+
+export interface CustomerPortalServiceRequest {
+  id: string;
+  description: string;
+  status: 'submitted' | 'reviewed' | 'scheduled' | 'declined';
+  quoted_price: string | number | null;
+  owner_notes: string | null;
+  requested_at: string;
+  reviewed_at: string | null;
+  assigned_technician_id: string | null;
+  technician_first_name?: string | null;
+  technician_last_name?: string | null;
+  files: CustomerPortalServiceRequestFile[];
+}
+
+export interface OwnerServiceRequest {
+  id: string;
+  customer_id: string;
+  customer_name: string;
+  customer_email: string | null;
+  customer_phone: string | null;
+  description: string;
+  status: 'submitted' | 'reviewed' | 'scheduled' | 'declined';
+  assigned_technician_id: string | null;
+  quoted_price: string | number | null;
+  owner_notes: string | null;
+  requested_at: string;
+  reviewed_at: string | null;
+  technician_id?: string | null;
+  technician_first_name?: string | null;
+  technician_last_name?: string | null;
+  files: CustomerPortalServiceRequestFile[];
+}

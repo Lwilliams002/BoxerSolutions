@@ -79,6 +79,21 @@ export default function InvoiceScreen() {
     void qc.invalidateQueries({ queryKey: ['dashboard'] });
   };
 
+  const requestOwnerCharge = async () => {
+    setBusy('request-charge');
+    try {
+      await api('/payments/request-charge', {
+        method: 'POST',
+        body: { invoiceId: id, message: 'Please review and charge this invoice.' },
+      });
+      Alert.alert('Request sent', 'The owner has been notified to charge this invoice.');
+    } catch (e) {
+      Alert.alert('Unable to send request', (e as Error).message);
+    } finally {
+      setBusy(null);
+    }
+  };
+
   const charge = async (method: Method) => {
     Alert.alert('Collect Payment', `Charge ${money(inv!.balanceDue)} to ${method.brand} ****${method.last4}?`, [
       { text: 'Cancel', style: 'cancel' },
@@ -144,6 +159,21 @@ export default function InvoiceScreen() {
     }
   };
 
+  const createNorthInvoiceLink = async () => {
+    setBusy('north-link');
+    try {
+      const { url } = await api<{ url: string }>('/payments/north/invoice-link', {
+        method: 'POST',
+        body: { invoiceId: id },
+      });
+      await Linking.openURL(url);
+    } catch (e) {
+      Alert.alert('Unable to create payment link', (e as Error).message);
+    } finally {
+      setBusy(null);
+    }
+  };
+
   const refund = (payment: PaymentRow) => {
     const amountText = refundAmountByPayment[payment.id] ?? String(Number(payment.remainingRefundableAmount ?? payment.amount).toFixed(2));
     const amount = Number(amountText);
@@ -179,6 +209,7 @@ export default function InvoiceScreen() {
   const unpaid = parseFloat(inv.balanceDue ?? '0') > 0 && !['void', 'draft'].includes(inv.status);
   const canCollect = hasPermission('payments:collect', 'payments:write');
   const canRefund = hasPermission('payments:write') && ['paid', 'partially_paid'].includes(inv.status);
+  const canRequestCharge = !canCollect && hasPermission('invoices:read', 'invoices:read_assigned');
   const paymentRows = payments?.items ?? [];
 
   return (
@@ -244,6 +275,12 @@ export default function InvoiceScreen() {
       </Card>
 
       <Button title={inv.pdfFileId ? 'View PDF' : 'Generate PDF'} variant="outline" onPress={openPdf} loading={busy === 'pdf'} />
+      {canCollect || hasPermission('payments:write') ? (
+        <Button title="Create North Payment Link" variant="secondary" onPress={createNorthInvoiceLink} loading={busy === 'north-link'} />
+      ) : null}
+      {unpaid && canRequestCharge && !canCollect ? (
+        <Button title="Request Owner Charge" variant="outline" onPress={requestOwnerCharge} loading={busy === 'request-charge'} />
+      ) : null}
 
       {paymentRows.length > 0 ? (
         <>
@@ -301,13 +338,14 @@ export default function InvoiceScreen() {
                   <Text style={styles.itemMeta}>
                     Expires {String(m.expirationMonth).padStart(2, '0')}/{String(m.expirationYear).slice(-2)}
                   </Text>
+                  <Text style={styles.chargeAmount}>Due {money(inv.balanceDue)}</Text>
                 </View>
                 <Button
-                  title={`Charge ${money(inv.balanceDue)}`}
+                  title="Charge"
                   variant="success"
                   onPress={() => charge(m)}
                   loading={busy === m.id}
-                  style={{ paddingVertical: 10 }}
+                  style={styles.chargeBtn}
                 />
               </Row>
             </Card>
@@ -345,5 +383,16 @@ const styles = StyleSheet.create({
     color: colors.text,
     marginBottom: 8,
     backgroundColor: colors.bg,
+  },
+  chargeBtn: {
+    marginVertical: 0,
+    paddingVertical: 8,
+    paddingHorizontal: 14,
+    borderRadius: 10,
+  },
+  chargeAmount: {
+    fontSize: 12,
+    color: colors.textMuted,
+    marginTop: 2,
   },
 });

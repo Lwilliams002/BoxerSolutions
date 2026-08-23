@@ -12,11 +12,12 @@ import {
 } from 'react-native';
 import { useLocalSearchParams, useRouter, Stack } from 'expo-router';
 import { useQueryClient } from '@tanstack/react-query';
-import { captureRef } from 'react-native-view-shot';
 import { Ionicons } from '@expo/vector-icons';
 import { api } from '../../src/lib/api';
 import { persistLocally, uploadPendingPhoto } from '../../src/lib/photos';
+import { captureView } from '../../src/lib/capture';
 import { SignaturePad, SignaturePadHandle } from '../../src/components/SignaturePad';
+import { SignatureMark } from '../../src/components/SignatureMark';
 import { colors, company, money } from '../../src/lib/theme';
 import {
   HOME_SIZES,
@@ -30,6 +31,7 @@ import {
   AGREEMENT_TERM_MONTHS as TERM_MONTHS,
   SizeTier,
 } from '../../src/lib/pricing';
+import { pestImage } from '../../src/lib/pestImages';
 
 interface ServiceLocation {
   addressLine1: string;
@@ -66,7 +68,7 @@ export default function AgreementScreen() {
   const [agreed, setAgreed] = useState(false);
   const [busy, setBusy] = useState(false);
   const [signing, setSigning] = useState(false);
-  const [signatureUri, setSignatureUri] = useState<string | null>(null);
+  const [signatureDataUrl, setSignatureDataUrl] = useState<string | null>(null);
 
   const [homeSizeIdx, setHomeSizeIdx] = useState<number | null>(null);
   const [yardOn, setYardOn] = useState(false);
@@ -87,7 +89,6 @@ export default function AgreementScreen() {
   const homeSize = homeSizeIdx != null ? HOME_SIZES[homeSizeIdx] : null;
   const yardTier: SizeTier | null = yardOn && yardTierIdx != null ? YARD_ANT_TIERS[yardTierIdx] : null;
   const webFee = webOn ? webRemovalFee(parseFloat(webSqft) || 0) : 0;
-
   const { lineItems, initialTotal, regularTotal, coveredPests } = useMemo(() => {
     const items: LineItem[] = [];
     const pests = new Set<string>();
@@ -165,13 +166,12 @@ export default function AgreementScreen() {
       Alert.alert('Initials required', 'Please enter your initials.');
       return;
     }
-    if (!signatureUri) {
+    if (!signatureDataUrl) {
       Alert.alert('Signature required', 'Please sign the agreement before continuing.');
       return;
     }
     setBusy(true);
     try {
-      const docUri = await captureRef(docRef, { format: 'png', quality: 0.95, result: 'tmpfile' });
       const created = await api<{ id: string }>('/customers', { method: 'POST', body: data });
 
       const summary = [
@@ -188,12 +188,18 @@ export default function AgreementScreen() {
         body: { customerId: created.id, body: summary, isInternal: false },
       }).catch(() => {});
 
-      const fileName = `service-agreement-${Date.now()}.png`;
-      const localUri = await persistLocally(docUri, fileName);
       try {
-        await uploadPendingPhoto({ localUri, fileType: 'document', fileName, mimeType: 'image/png', customerId: created.id });
+        await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
+        const docUri = await captureView(docRef);
+        const fileName = `service-agreement-${Date.now()}.png`;
+        const localUri = await persistLocally(docUri, fileName);
+        try {
+          await uploadPendingPhoto({ localUri, fileType: 'document', fileName, mimeType: 'image/png', customerId: created.id });
+        } catch {
+          // Non-fatal; retryable later.
+        }
       } catch {
-        // Non-fatal; retryable later.
+        // Continue without image attachment when capture is unavailable.
       }
 
       void qc.invalidateQueries({ queryKey: ['customers'] });
@@ -409,6 +415,7 @@ export default function AgreementScreen() {
             <View style={styles.pestListWrap}>
               {coveredPests.map((p) => (
                 <View key={p} style={styles.pestTag}>
+                  <Image source={pestImage(p)} style={styles.pestTagIcon} resizeMode="contain" />
                   <Text style={styles.pestTagText}>{p}</Text>
                 </View>
               ))}
@@ -439,8 +446,8 @@ export default function AgreementScreen() {
             </View>
             <Text style={[styles.signLabel, { marginTop: 10 }]}>Customer Signature:</Text>
             <TouchableOpacity activeOpacity={0.8} onPress={() => setSigning(true)} style={styles.signArea}>
-              {signatureUri ? (
-                <Image source={{ uri: signatureUri }} style={styles.signImage} resizeMode="contain" />
+              {signatureDataUrl ? (
+                <SignatureMark dataUrl={signatureDataUrl} style={styles.signImage} />
               ) : (
                 <View style={styles.signPlaceholder}>
                   <Ionicons name="create-outline" size={22} color={colors.primaryDark} />
@@ -466,7 +473,7 @@ export default function AgreementScreen() {
           />
           <TouchableOpacity style={styles.clearBtn} onPress={() => setSigning(true)}>
             <Ionicons name="create-outline" size={16} color={colors.primaryDark} />
-            <Text style={styles.clearBtnText}>{signatureUri ? 'Re-Sign' : 'Sign Agreement'}</Text>
+            <Text style={styles.clearBtnText}>{signatureDataUrl ? 'Re-Sign' : 'Sign Agreement'}</Text>
           </TouchableOpacity>
           <TouchableOpacity style={styles.agreeRow} onPress={() => setAgreed((v) => !v)} activeOpacity={0.7}>
             <View style={[styles.checkbox, agreed && styles.checkboxOn]}>
@@ -488,7 +495,7 @@ export default function AgreementScreen() {
         <SigningOverlay
           onCancel={() => setSigning(false)}
           onDone={(uri) => {
-            setSignatureUri(uri);
+            setSignatureDataUrl(uri);
             setSigning(false);
           }}
         />
@@ -509,10 +516,7 @@ function SigningOverlay({ onCancel, onDone }: { onCancel: () => void; onDone: (u
     setSaving(true);
     try {
       const tmp = await padRef.current!.capture();
-      // Copy out of the volatile tmp dir immediately and normalize to a file:// URI.
-      const src = tmp.startsWith('file://') ? tmp : `file://${tmp}`;
-      const stored = await persistLocally(src, `signature-${Date.now()}.png`);
-      onDone(stored.startsWith('file://') ? stored : `file://${stored}`);
+      onDone(tmp);
     } catch (e) {
       Alert.alert('Error', (e as Error).message);
     } finally {
@@ -650,7 +654,8 @@ const styles = StyleSheet.create({
   tblTotalText: { fontWeight: '900', fontSize: 12.5 },
   termsMuted: { fontSize: 11, color: colors.textMuted, fontStyle: 'italic', marginBottom: 4 },
   pestListWrap: { flexDirection: 'row', flexWrap: 'wrap' },
-  pestTag: { backgroundColor: '#E9FBF6', borderRadius: 6, paddingVertical: 3, paddingHorizontal: 8, marginRight: 6, marginBottom: 6, borderWidth: 1, borderColor: colors.border },
+  pestTag: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#E9FBF6', borderRadius: 6, paddingVertical: 3, paddingHorizontal: 8, marginRight: 6, marginBottom: 6, borderWidth: 1, borderColor: colors.border },
+  pestTagIcon: { width: 16, height: 16, marginRight: 5 },
   pestTagText: { fontSize: 11, color: colors.primaryDark, fontWeight: '700' },
   terms: { fontSize: 10.5, color: colors.textMuted, lineHeight: 15, marginBottom: 8 },
   signBlock: { marginTop: 12, borderTopWidth: 1, borderColor: colors.border, paddingTop: 12 },

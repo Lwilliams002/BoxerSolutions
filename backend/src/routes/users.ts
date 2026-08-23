@@ -12,6 +12,9 @@ import { recordAudit } from '../services/auditService';
 const router = Router();
 router.use(authenticate);
 
+const ROLE_CODES = ['OWNER', 'TRUSTED_TECHNICIAN', 'TECHNICIAN'] as const;
+const TECH_ROLE_CODES = ['TRUSTED_TECHNICIAN', 'TECHNICIAN'] as const;
+
 router.get(
   '/',
   authorize('users:read'),
@@ -42,9 +45,10 @@ router.get(
        FROM employees e
        JOIN users u ON u.id = e.user_id
        JOIN user_roles ur ON ur.user_id = u.id
-       JOIN roles r ON r.id = ur.role_id AND r.code = 'TECHNICIAN'
+       JOIN roles r ON r.id = ur.role_id AND r.code = ANY($1::text[])
        WHERE e.deleted_at IS NULL AND e.is_active AND u.is_active
        ORDER BY u.last_name`,
+      [TECH_ROLE_CODES],
     );
     ok(res, rowsToCamel(rows));
   }),
@@ -56,7 +60,7 @@ const createUserSchema = z.object({
   firstName: z.string().min(1),
   lastName: z.string().min(1),
   phone: z.string().nullish(),
-  roleCodes: z.array(z.enum(['OWNER', 'ADMIN', 'OFFICE_MANAGER', 'TECHNICIAN', 'SALES'])).min(1),
+  roleCodes: z.array(z.enum(ROLE_CODES)).min(1),
   employee: z
     .object({
       jobTitle: z.string().nullish(),
@@ -89,7 +93,7 @@ router.post(
           [user.id, code],
         );
       }
-      if (body.employee || body.roleCodes.includes('TECHNICIAN')) {
+      if (body.employee || body.roleCodes.includes('TRUSTED_TECHNICIAN') || body.roleCodes.includes('TECHNICIAN')) {
         const e = body.employee ?? {};
         await tx.query(
           `INSERT INTO employees (user_id, job_title, hire_date, home_base_lat, home_base_lng, work_start_time, work_end_time, color)
@@ -114,7 +118,7 @@ router.patch(
       lastName: z.string().min(1).optional(),
       phone: z.string().nullish().optional(),
       isActive: z.boolean().optional(),
-      roleCodes: z.array(z.enum(['OWNER', 'ADMIN', 'OFFICE_MANAGER', 'TECHNICIAN', 'SALES'])).min(1).optional(),
+      roleCodes: z.array(z.enum(ROLE_CODES)).min(1).optional(),
     }).parse(req.body);
     if (!Object.keys(body).length) throw ApiError.badRequest('No fields to update');
     const result = await withTransaction(async (tx) => {
@@ -154,7 +158,7 @@ router.patch(
         for (const code of body.roleCodes) {
           await tx.query(`INSERT INTO user_roles (user_id, role_id) SELECT $1, id FROM roles WHERE code = $2`, [req.params.id, code]);
         }
-        if (body.roleCodes.includes('TECHNICIAN')) {
+        if (body.roleCodes.includes('TRUSTED_TECHNICIAN') || body.roleCodes.includes('TECHNICIAN')) {
           await tx.query(
             `INSERT INTO employees (user_id, job_title) VALUES ($1, 'Service Technician')
              ON CONFLICT (user_id) DO UPDATE SET is_active = true, deleted_at = NULL, updated_at = now()`,

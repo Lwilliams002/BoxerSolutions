@@ -18,6 +18,8 @@ export default function TabsLayout() {
   const canSchedule = hasPermission('appointments:read', 'appointments:write');
   const canCustomers = hasPermission('customers:read', 'customers:read_assigned', 'appointments:read_assigned');
   const canInvoices = hasPermission('invoices:read', 'invoices:read_assigned', 'payments:collect');
+  const user = useAuth((s) => s.user);
+  const canMap = !!user?.roles?.some((role) => role === 'TECHNICIAN' || role === 'TRUSTED_TECHNICIAN');
 
   return (
     <Tabs
@@ -68,6 +70,14 @@ export default function TabsLayout() {
           title: 'Invoices',
           href: canInvoices ? undefined : null,
           tabBarIcon: icon('receipt', 'receipt-outline'),
+        }}
+      />
+      <Tabs.Screen
+        name="map"
+        options={{
+          title: 'Map',
+          href: canMap ? undefined : null,
+          tabBarIcon: icon('map', 'map-outline'),
         }}
       />
       <Tabs.Screen

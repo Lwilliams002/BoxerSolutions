@@ -28,5 +28,14 @@ export const config = {
     provider: process.env.PAYMENT_PROVIDER ?? 'mock',
     secretKey: process.env.PAYMENT_SECRET_KEY ?? '',
   },
+  north: {
+    functionsBaseUrl: process.env.NORTH_FUNCTIONS_BASE_URL ?? 'https://proxy.payanywhere.com',
+    billingBaseUrl: process.env.NORTH_BILLING_BASE_URL ?? 'https://billing.epxuap.com',
+    mid: process.env.NORTH_MID ?? '',
+    developerKey: process.env.NORTH_DEVELOPER_KEY ?? '',
+    password: process.env.NORTH_PASSWORD ?? '',
+    appSource: process.env.NORTH_APPSOURCE ?? '',
+    signatureSecret: process.env.NORTH_SIGNATURE_SECRET ?? '',
+  },
   routeOptimizer: process.env.ROUTE_OPTIMIZER ?? 'nearest-neighbor',
 };

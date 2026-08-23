@@ -26,6 +26,9 @@ export const colors = {
 };
 
 export const statusColors: Record<string, string> = {
+  owner: colors.accent,
+  trusted_technician: colors.primary,
+  technician: colors.info,
   scheduled: colors.info,
   en_route: colors.accent,
   arrived: colors.accent,
@@ -49,7 +52,10 @@ export const statusColors: Record<string, string> = {
 };
 
 export function statusLabel(s: string): string {
-  return s.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
+  return s
+    .toLowerCase()
+    .replace(/_/g, ' ')
+    .replace(/\b\w/g, (c) => c.toUpperCase());
 }
 
 export function money(v: string | number | null | undefined): string {

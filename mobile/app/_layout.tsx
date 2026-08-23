@@ -46,10 +46,19 @@ export default function RootLayout() {
               headerStyle: { backgroundColor: '#0D0D0D' },
               headerTintColor: '#2DC4A2',
               headerTitleStyle: { color: '#FFFFFF', fontWeight: '700' },
+              headerBackButtonDisplayMode: 'minimal',
               contentStyle: { backgroundColor: colors.bg },
             }}
           >
             <Stack.Screen name="(auth)/login" options={{ headerShown: false }} />
+            <Stack.Screen name="(auth)/customer-portal" options={{ title: 'Customer Portal' }} />
+            <Stack.Screen name="(auth)/customer-portal-verify" options={{ title: 'Verify Login' }} />
+            <Stack.Screen name="(auth)/customer-portal-home" options={{ title: 'Customer Portal' }} />
+            <Stack.Screen name="(auth)/customer-portal-appointments" options={{ title: 'Appointments' }} />
+            <Stack.Screen name="(auth)/customer-portal-invoices" options={{ title: 'Invoices' }} />
+            <Stack.Screen name="(auth)/customer-portal-profile" options={{ title: 'Profile' }} />
+            <Stack.Screen name="(auth)/customer-portal-request-service" options={{ title: 'Request Service' }} />
+            <Stack.Screen name="(auth)/privacy-policy" options={{ title: 'Privacy Policy' }} />
             <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
             <Stack.Screen name="customer/[id]" options={{ title: 'Customer' }} />
             <Stack.Screen name="customer/new" options={{ title: 'New Customer', presentation: 'modal' }} />
@@ -62,11 +71,11 @@ export default function RootLayout() {
             <Stack.Screen name="invoice/[id]" options={{ title: 'Invoice' }} />
             <Stack.Screen name="notifications" options={{ title: 'Notifications' }} />
             <Stack.Screen name="reports" options={{ title: 'Reports' }} />
-            <Stack.Screen name="map" options={{ title: 'Territory Map' }} />
             <Stack.Screen name="admin/services" options={{ title: 'Service Catalog Admin' }} />
             <Stack.Screen name="admin/employees" options={{ title: 'Employees Admin' }} />
             <Stack.Screen name="admin/settings" options={{ title: 'Company Settings' }} />
             <Stack.Screen name="admin/audit" options={{ title: 'Audit Logs' }} />
+            <Stack.Screen name="admin/service-requests" options={{ title: 'Service Requests' }} />
             <Stack.Screen name="signature" options={{ title: 'Customer Signature', presentation: 'modal' }} />
           </Stack>
         </AuthGate>

@@ -28,6 +28,20 @@ export async function assertCustomerAccess(employeeId: string | null, customerId
   if (!rows[0]) throw ApiError.forbidden('You do not have access to this customer');
 }
 
+export async function assertInvoiceAccess(employeeId: string | null, invoiceId: string) {
+  if (!employeeId) return;
+  const { rows } = await pool.query(
+    `SELECT 1 FROM invoices i
+     JOIN customers c ON c.id = i.customer_id
+     WHERE i.id = $1 AND (
+       c.assigned_technician_id = $2
+       OR EXISTS (SELECT 1 FROM appointments a WHERE a.customer_id = c.id AND a.technician_id = $2 AND a.deleted_at IS NULL)
+     )`,
+    [invoiceId, employeeId],
+  );
+  if (!rows[0]) throw ApiError.forbidden('You do not have access to this invoice');
+}
+
 export async function assertAppointmentAccess(employeeId: string | null, appointmentId: string) {
   if (!employeeId) return;
   const { rows } = await pool.query(

@@ -38,7 +38,7 @@ export const fileService = {
   async requestUpload(data: {
     fileType: string; fileName: string; mimeType: string; fileSize?: number | null;
     customerId?: string | null; appointmentId?: string | null; invoiceId?: string | null;
-  }, userId: string) {
+  }, userId?: string | null) {
     if (!EXT_BY_MIME[data.mimeType]) throw ApiError.badRequest(`Unsupported mime type: ${data.mimeType}`);
     if (['customer_photo', 'document'].includes(data.fileType) && !data.customerId)
       throw ApiError.badRequest('customerId is required for this file type');
@@ -53,7 +53,7 @@ export const fileService = {
          storage_bucket, storage_object_key, upload_status, uploaded_by)
        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,'pending',$11) RETURNING *`,
       [fileId, data.customerId ?? null, data.appointmentId ?? null, data.invoiceId ?? null, data.fileType,
-       data.fileName, data.mimeType, data.fileSize ?? null, storage.bucket, objectKey, userId],
+      data.fileName, data.mimeType, data.fileSize ?? null, storage.bucket, objectKey, userId ?? null],
     );
 
     const uploadUrl = await storage.getUploadUrl(objectKey, data.mimeType);

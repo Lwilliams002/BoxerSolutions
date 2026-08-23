@@ -12,6 +12,12 @@ interface TokenPair {
   expiresIn: number;
 }
 
+const CUSTOMER_PORTAL_CODE_TTL_MS = 10 * 60 * 1000;
+const CUSTOMER_PORTAL_SESSION_TTL_MS = 7 * 24 * 60 * 60 * 1000;
+const DEFAULT_TEST_CUSTOMER_EMAIL = 'portal.test@antserve.dev';
+const customerPortalCodes = new Map<string, { codeHash: string; expiresAt: number; customerId: string }>();
+const customerPortalSessions = new Map<string, { customerId: string; email: string; expiresAt: number }>();
+
 async function loadUserAuthContext(userId: string) {
   const { rows } = await pool.query(
     `SELECT u.id, u.email, u.first_name, u.last_name, u.is_active,
@@ -54,6 +60,20 @@ function issueTokens(user: {
 
 function hashToken(token: string) {
   return crypto.createHash('sha256').update(token).digest('hex');
+}
+
+function normalizeEmail(email: string) {
+  return email.trim().toLowerCase();
+}
+
+function issueCustomerPortalSession(customerId: string, email: string) {
+  const token = crypto.randomBytes(32).toString('base64url');
+  customerPortalSessions.set(token, {
+    customerId,
+    email,
+    expiresAt: Date.now() + CUSTOMER_PORTAL_SESSION_TTL_MS,
+  });
+  return { portalSessionToken: token, expiresIn: Math.floor(CUSTOMER_PORTAL_SESSION_TTL_MS / 1000) };
 }
 
 async function createRefreshToken(userId: string, deviceName?: string): Promise<string> {
@@ -164,6 +184,111 @@ export const authService = {
     await pool.query('UPDATE users SET password_hash = $1, updated_at = now() WHERE id = $2', [hash, row.user_id]);
     await pool.query('UPDATE password_reset_tokens SET used_at = now() WHERE id = $1', [row.id]);
     await this.revokeAllSessions(row.user_id);
+  },
+
+  async requestCustomerPortalCode(email: string): Promise<{ debugCode?: string }> {
+    const normalizedEmail = normalizeEmail(email);
+    const { rows } = await pool.query(
+      `SELECT id
+       FROM customers
+       WHERE lower(email) = lower($1)
+         AND deleted_at IS NULL
+       LIMIT 1`,
+      [normalizedEmail],
+    );
+    const customer = rows[0] as { id: string } | undefined;
+    if (!customer) return {};
+
+    const code = `${Math.floor(100000 + Math.random() * 900000)}`;
+    const codeHash = hashToken(code);
+    customerPortalCodes.set(normalizedEmail, {
+      codeHash,
+      expiresAt: Date.now() + CUSTOMER_PORTAL_CODE_TTL_MS,
+      customerId: customer.id,
+    });
+
+    if (config.env !== 'production') {
+      return { debugCode: code };
+    }
+    return {};
+  },
+
+  async verifyCustomerPortalCode(email: string, code: string) {
+    const normalizedEmail = normalizeEmail(email);
+    const entry = customerPortalCodes.get(normalizedEmail);
+    if (!entry) throw ApiError.unauthorized('Invalid or expired code');
+    if (entry.expiresAt < Date.now()) {
+      customerPortalCodes.delete(normalizedEmail);
+      throw ApiError.unauthorized('Invalid or expired code');
+    }
+    if (hashToken(code) !== entry.codeHash) throw ApiError.unauthorized('Invalid or expired code');
+    customerPortalCodes.delete(normalizedEmail);
+    const session = issueCustomerPortalSession(entry.customerId, normalizedEmail);
+
+    return {
+      customerId: entry.customerId,
+      email: normalizedEmail,
+      cognitoRequired: true,
+      ...session,
+    };
+  },
+
+  async testCustomerPortalLogin(email?: string) {
+    if (config.env === 'production') throw ApiError.forbidden('Test portal login is disabled in production');
+    const normalizedEmail = normalizeEmail(email ?? DEFAULT_TEST_CUSTOMER_EMAIL);
+    const existing = await pool.query(
+      `SELECT id, first_name, last_name, email
+       FROM customers
+       WHERE lower(email) = lower($1)
+         AND deleted_at IS NULL
+       LIMIT 1`,
+      [normalizedEmail],
+    );
+    if (existing.rows[0]) {
+      const session = issueCustomerPortalSession(existing.rows[0].id, existing.rows[0].email);
+      return {
+        customerId: existing.rows[0].id,
+        email: existing.rows[0].email,
+        firstName: existing.rows[0].first_name,
+        lastName: existing.rows[0].last_name,
+        isTestAccount: true,
+        ...session,
+      };
+    }
+
+    const owner = await pool.query(
+      `SELECT id
+       FROM users
+       WHERE deleted_at IS NULL
+       ORDER BY created_at ASC
+       LIMIT 1`,
+    );
+    const created = await pool.query(
+      `INSERT INTO customers (first_name, last_name, email, customer_type, status, created_by)
+       VALUES ('Portal', 'Tester', $1, 'residential', 'active', $2)
+       RETURNING id, first_name, last_name, email`,
+      [normalizedEmail, owner.rows[0]?.id ?? null],
+    );
+
+    const session = issueCustomerPortalSession(created.rows[0].id, created.rows[0].email);
+    return {
+      customerId: created.rows[0].id,
+      email: created.rows[0].email,
+      firstName: created.rows[0].first_name,
+      lastName: created.rows[0].last_name,
+      isTestAccount: true,
+      ...session,
+    };
+  },
+
+  getCustomerPortalSession(token: string) {
+    const session = customerPortalSessions.get(token);
+    if (!session) throw ApiError.unauthorized('Invalid portal session');
+    if (session.expiresAt < Date.now()) {
+      customerPortalSessions.delete(token);
+      throw ApiError.unauthorized('Portal session expired');
+    }
+    return session;
   },
 
   async me(userId: string) {

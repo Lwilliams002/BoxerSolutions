@@ -55,6 +55,7 @@ export default function CustomerScreen() {
     queryFn: () => api<any[]>(`/payment-methods?customerId=${id}`),
     enabled: tab === 'Payment Methods' || tab === 'Overview',
   });
+  const canCollectPaymentInfo = hasPermission('payments:collect_info', 'payments:collect', 'payments:write');
   const { data: history } = useQuery({
     queryKey: ['customerHistory', id],
     queryFn: () => api<any[]>(`/customers/${id}/service-history`),
@@ -485,7 +486,7 @@ export default function CustomerScreen() {
                 </Row>
               </Card>
             ))}
-            {hasPermission('payments:write', 'payments:collect') && (
+            {canCollectPaymentInfo && (
               <Button title="+ Add Payment Method" onPress={() => setShowAddCard(true)} />
             )}
             {(methods ?? []).length === 0 && !(promptPayment === '1') && (

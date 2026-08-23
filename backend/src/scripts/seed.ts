@@ -9,29 +9,24 @@ const PERMS = [
   'appointments:read', 'appointments:read_assigned', 'appointments:write', 'appointments:write_assigned',
   'routes:read', 'routes:read_assigned', 'routes:write',
   'invoices:read', 'invoices:read_assigned', 'invoices:write', 'invoices:write_assigned',
-  'payments:read', 'payments:write', 'payments:collect',
+  'payments:read', 'payments:write', 'payments:collect', 'payments:collect_info',
   'files:read', 'files:write', 'notes:read', 'notes:write',
   'users:read', 'users:write', 'settings:read', 'settings:write', 'dashboard:read', 'reports:read',
 ];
 
 const ROLE_PERMS: Record<string, string[]> = {
   OWNER: ['*'],
-  ADMIN: PERMS,
-  OFFICE_MANAGER: [
-    'customers:read', 'customers:write', 'services:read', 'services:write',
-    'appointments:read', 'appointments:write', 'routes:read', 'routes:write',
-    'invoices:read', 'invoices:write', 'payments:read', 'payments:write', 'payments:collect',
-    'files:read', 'files:write', 'notes:read', 'notes:write', 'users:read',
-    'settings:read', 'settings:write', 'dashboard:read', 'reports:read',
+  TRUSTED_TECHNICIAN: [
+    'customers:read_assigned', 'customers:write', 'appointments:read_assigned', 'appointments:write_assigned',
+    'routes:read_assigned', 'invoices:read_assigned',
+    'payments:read', 'payments:collect', 'payments:collect_info',
+    'files:read', 'files:write', 'notes:write', 'notes:read', 'services:read',
   ],
   TECHNICIAN: [
-    'customers:read_assigned', 'appointments:read_assigned', 'appointments:write_assigned',
-    'routes:read_assigned', 'invoices:read_assigned', 'invoices:write_assigned',
-    'payments:collect', 'notes:write', 'notes:read', 'services:read',
-  ],
-  SALES: [
-    'customers:read', 'customers:write', 'services:read',
-    'appointments:read', 'appointments:write', 'notes:read', 'notes:write', 'dashboard:read',
+    'customers:read_assigned', 'customers:write', 'appointments:read_assigned', 'appointments:write_assigned',
+    'routes:read_assigned', 'invoices:read_assigned',
+    'payments:read', 'payments:collect_info',
+    'files:read', 'files:write', 'notes:write', 'notes:read', 'services:read',
   ],
 };
 
@@ -131,15 +126,12 @@ async function main() {
 
     // ---- Users ----
     const owner = await createUser('owner@antserve.dev', 'Olivia', 'Owner', ['OWNER'], { title: 'Owner' });
-    await createUser('admin@antserve.dev', 'Adam', 'Admin', ['ADMIN']);
-    await createUser('office@antserve.dev', 'Wendy', 'Office', ['OFFICE_MANAGER']);
-    await createUser('sales@antserve.dev', 'Sam', 'Sales', ['SALES']);
 
     const techIds: string[] = [];
     for (let i = 0; i < TECHS.length; i++) {
       const t = TECHS[i];
       const { employeeId } = await createUser(
-        `tech${i + 1}@antserve.dev`, t.first, t.last, ['TECHNICIAN'],
+        `tech${i + 1}@antserve.dev`, t.first, t.last, [i === 0 ? 'TRUSTED_TECHNICIAN' : 'TECHNICIAN'],
         { color: t.color, lat: 30.25 + i * 0.02, lng: -97.75 + i * 0.02 },
       );
       techIds.push(employeeId!);

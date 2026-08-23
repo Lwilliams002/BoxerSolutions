@@ -19,6 +19,7 @@ import { useAuth } from '../../src/lib/authStore';
 import { colors, fmtDate, fmtTime, statusColors, todayISO } from '../../src/lib/theme';
 import { EmptyState, Loading, StatusBadge } from '../../src/components/ui';
 import { SyncBanner } from '../../src/components/SyncBanner';
+import { MonthWeekPicker } from '../../src/components/MonthWeekPicker';
 
 type ViewMode = 'day' | 'week';
 type EditorMode = 'actions' | 'reschedule' | 'reassign';
@@ -69,6 +70,12 @@ function addDays(iso: string, n: number): string {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 }
 
+function startOfWeek(iso: string): string {
+  const d = new Date(`${iso}T12:00:00`);
+  d.setDate(d.getDate() - d.getDay());
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+
 function minutesOf(t?: string | null): number {
   if (!t) return START_HOUR * 60;
   const [h = START_HOUR, m = 0] = t.split(':').map(Number);
@@ -102,26 +109,27 @@ export default function ScheduleScreen() {
   const qc = useQueryClient();
   const hasPermission = useAuth((s) => s.hasPermission);
   const canWrite = hasPermission('appointments:write');
-  const [date, setDate] = useState(todayISO());
-  const [mode, setMode] = useState<ViewMode>('day');
+  const [selectedDate, setSelectedDate] = useState(todayISO());
+  const [mode, setMode] = useState<ViewMode>('week');
   const [selected, setSelected] = useState<Appointment | null>(null);
   const [editorMode, setEditorMode] = useState<EditorMode>('actions');
-  const [editDate, setEditDate] = useState(date);
+  const [editDate, setEditDate] = useState(selectedDate);
   const [editStart, setEditStart] = useState('08:00');
   const [editDuration, setEditDuration] = useState('60');
   const [editTechId, setEditTechId] = useState<string | null>(null);
 
   const days = useMemo(() => Array.from({ length: 14 }, (_, i) => addDays(todayISO(), i)), []);
-  const weekDays = useMemo(() => Array.from({ length: 7 }, (_, i) => addDays(date, i)), [date]);
+  const weekStart = useMemo(() => startOfWeek(selectedDate), [selectedDate]);
+  const weekDays = useMemo(() => Array.from({ length: 7 }, (_, i) => addDays(weekStart, i)), [weekStart]);
 
   const appointmentsQuery = useQuery({
-    queryKey: ['schedule', date],
-    queryFn: () => api<ListResponse<Appointment>>(`/appointments?date=${date}&pageSize=500`),
+    queryKey: ['schedule', selectedDate],
+    queryFn: () => api<ListResponse<Appointment>>(`/appointments?date=${selectedDate}&pageSize=500`),
   });
   const techQuery = useQuery({ queryKey: ['technicians'], queryFn: () => api<Technician[]>('/users/technicians') });
   const weekQuery = useQuery({
-    queryKey: ['schedule-week', date],
-    queryFn: () => api<ListResponse<Appointment>>(`/appointments?from=${date}&to=${addDays(date, 6)}&pageSize=700`),
+    queryKey: ['schedule-week', weekStart],
+    queryFn: () => api<ListResponse<Appointment>>(`/appointments?from=${weekStart}&to=${addDays(weekStart, 6)}&pageSize=700`),
     enabled: mode === 'week',
   });
 
@@ -193,12 +201,22 @@ export default function ScheduleScreen() {
     void techQuery.refetch();
   };
 
+  const changeDate = (date: string) => {
+    setSelectedDate(date);
+    setMode('day');
+  };
+
   return (
     <View style={styles.screen}>
       <View style={[styles.header, { paddingTop: insets.top + 8 }]}>
         <View style={{ flex: 1, marginRight: 10 }}>
-          <Text style={styles.headerTitle} numberOfLines={1}>Dispatch Calendar</Text>
-          <Text style={styles.headerSub}>{fmtDate(date)}</Text>
+          <View style={styles.headerToggleRow}>
+            {(['day', 'week'] as ViewMode[]).map((m) => (
+              <TouchableOpacity key={m} style={[styles.modeBtn, mode === m && styles.modeActive]} onPress={() => setMode(m)}>
+                <Text style={[styles.modeText, mode === m && styles.modeTextActive]}>{m === 'day' ? 'Day Board' : 'Week View'}</Text>
+              </TouchableOpacity>
+            ))}
+          </View>
         </View>
         {canWrite ? (
           <TouchableOpacity style={styles.createBtn} onPress={() => router.push('/appointment/new')}>
@@ -208,26 +226,7 @@ export default function ScheduleScreen() {
         ) : null}
       </View>
 
-      <View style={styles.modeRow}>
-        {(['day', 'week'] as ViewMode[]).map((m) => (
-          <TouchableOpacity key={m} style={[styles.modeBtn, mode === m && styles.modeActive]} onPress={() => setMode(m)}>
-            <Text style={[styles.modeText, mode === m && styles.modeTextActive]}>{m === 'day' ? 'Day Board' : 'Week View'}</Text>
-          </TouchableOpacity>
-        ))}
-      </View>
-
-      <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.dayBar} contentContainerStyle={styles.dayBarContent}>
-        {days.map((d) => {
-          const dt = new Date(`${d}T12:00:00`);
-          const active = d === date;
-          return (
-            <TouchableOpacity key={d} style={[styles.day, active && styles.dayActive]} onPress={() => setDate(d)}>
-              <Text style={[styles.dayName, active && styles.dayTextActive]}>{dt.toLocaleDateString(undefined, { weekday: 'short' })}</Text>
-              <Text style={[styles.dayNum, active && styles.dayTextActive]}>{dt.getDate()}</Text>
-            </TouchableOpacity>
-          );
-        })}
-      </ScrollView>
+      <MonthWeekPicker value={selectedDate} onChange={changeDate} />
 
       <SyncBanner />
 
@@ -238,7 +237,7 @@ export default function ScheduleScreen() {
           loading={weekQuery.isLoading}
           refreshing={weekQuery.isRefetching || appointmentsQuery.isRefetching}
           onRefresh={refresh}
-          onDayPress={(d) => { setDate(d); setMode('day'); }}
+          onDayPress={(d) => { setSelectedDate(d); setMode('day'); }}
           onAppointmentPress={openAppointment}
         />
       ) : (
@@ -362,8 +361,34 @@ function DayBoard({ appointments, lanes, refreshing, onRefresh, onAppointmentPre
     );
   }
 
+  const laneData = lanes.map((lane) => {
+    const laneAppointments = appointments
+      .filter((a) => (a.technicianId ?? null) === lane.id)
+      .sort((a, b) => a.windowStart.localeCompare(b.windowStart));
+    return {
+      ...lane,
+      appointments: laneAppointments,
+      nextLabel: laneAppointments[0]
+        ? `${fmtTime(laneAppointments[0].windowStart)} · ${customerName(laneAppointments[0])}`
+        : 'Open',
+    };
+  });
+
   return (
     <ScrollView refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={colors.primary} />}>
+      <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.daySummaryRail}>
+        {laneData.map((lane) => (
+          <View key={lane.id ?? 'unassigned'} style={styles.daySummaryCard}>
+            <View style={styles.daySummaryTop}>
+              <View style={[styles.techDot, { backgroundColor: lane.color }]} />
+              <Text style={styles.daySummaryName} numberOfLines={1}>{lane.name}</Text>
+            </View>
+            <Text style={styles.daySummaryCount}>{lane.appointments.length} appointment{lane.appointments.length === 1 ? '' : 's'}</Text>
+            <Text style={styles.daySummaryMeta} numberOfLines={1}>{lane.nextLabel}</Text>
+          </View>
+        ))}
+      </ScrollView>
+
       <ScrollView horizontal showsHorizontalScrollIndicator contentContainerStyle={styles.boardScroll}>
         <View style={styles.axisColumn}>
           <View style={styles.laneHeaderSpacer} />
@@ -373,11 +398,11 @@ function DayBoard({ appointments, lanes, refreshing, onRefresh, onAppointmentPre
             ))}
           </View>
         </View>
-        {lanes.map((lane) => (
+        {laneData.map((lane) => (
           <LaneColumn
             key={lane.id ?? 'unassigned'}
             lane={lane}
-            appointments={appointments.filter((a) => (a.technicianId ?? null) === lane.id)}
+            appointments={lane.appointments}
             onAppointmentPress={onAppointmentPress}
           />
         ))}
@@ -427,7 +452,10 @@ function WeekView({ days, appointments, loading, refreshing, onRefresh, onDayPre
   return (
     <ScrollView contentContainerStyle={styles.weekWrap} refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={colors.primary} />}>
       {days.map((day) => {
-        const dayItems = appointments.filter((a) => a.scheduledDate === day).sort((a, b) => a.windowStart.localeCompare(b.windowStart));
+        const dayKey = day.slice(0, 10);
+        const dayItems = appointments
+          .filter((a) => String(a.scheduledDate).slice(0, 10) === dayKey)
+          .sort((a, b) => a.windowStart.localeCompare(b.windowStart));
         const grouped = dayItems.reduce<Record<string, Appointment[]>>((acc, a) => {
           const key = a.technicianName ?? 'Unassigned';
           acc[key] = acc[key] ? [...acc[key], a] : [a];
@@ -464,22 +492,13 @@ function WeekView({ days, appointments, loading, refreshing, onRefresh, onDayPre
 const styles = StyleSheet.create({
   screen: { flex: 1, backgroundColor: colors.bg },
   header: { backgroundColor: colors.text, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 18, paddingBottom: 14 },
-  headerTitle: { color: '#fff', fontSize: 20, fontWeight: '900' },
-  headerSub: { color: colors.primary, fontSize: 12, fontWeight: '700', marginTop: 2 },
-  createBtn: { flexDirection: 'row', alignItems: 'center', backgroundColor: colors.primary, borderRadius: 22, paddingVertical: 8, paddingHorizontal: 12, maxWidth: 178 },
-  createBtnText: { color: colors.text, fontWeight: '900', fontSize: 12, marginLeft: 4 },
-  modeRow: { flexDirection: 'row', backgroundColor: '#111', paddingHorizontal: 14, paddingBottom: 10 },
-  modeBtn: { height: 34, paddingHorizontal: 14, borderRadius: 17, justifyContent: 'center', marginRight: 8, backgroundColor: '#1D1D1D' },
+  headerToggleRow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 4 },
+  createBtn: { flexDirection: 'row', alignItems: 'center', backgroundColor: colors.primary, borderRadius: 22, paddingVertical: 8, paddingHorizontal: 12, maxWidth: 144 },
+  createBtnText: { color: colors.text, fontWeight: '900', fontSize: 11, marginLeft: 4 },
+  modeBtn: { height: 32, paddingHorizontal: 10, borderRadius: 16, justifyContent: 'center', marginRight: 0, backgroundColor: '#1D1D1D' },
   modeActive: { backgroundColor: colors.primary },
-  modeText: { color: '#fff', fontWeight: '800', fontSize: 12, lineHeight: 16 },
+  modeText: { color: '#fff', fontWeight: '800', fontSize: 11, lineHeight: 14 },
   modeTextActive: { color: colors.text },
-  dayBar: { flexGrow: 0, height: 72, backgroundColor: '#111', paddingVertical: 8 },
-  dayBarContent: { paddingHorizontal: 14, alignItems: 'center' },
-  day: { height: 56, minWidth: 48, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 11, borderRadius: 12, marginRight: 6 },
-  dayActive: { backgroundColor: colors.primary },
-  dayName: { fontSize: 11, lineHeight: 15, color: '#6B7C78', fontWeight: '700' },
-  dayNum: { fontSize: 18, lineHeight: 23, color: '#fff', fontWeight: '900', marginTop: 1 },
-  dayTextActive: { color: colors.text },
   emptyWrap: { flexGrow: 1, justifyContent: 'center' },
   boardScroll: { padding: 12, paddingBottom: 32 },
   axisColumn: { width: AXIS_WIDTH },
@@ -498,6 +517,25 @@ const styles = StyleSheet.create({
   apptName: { color: colors.text, fontSize: 13, lineHeight: 16, fontWeight: '900', marginTop: 2 },
   apptMeta: { color: colors.textMuted, fontSize: 11, lineHeight: 14, marginTop: 2 },
   weekWrap: { padding: 14, paddingBottom: 40 },
+  daySummaryRail: { paddingHorizontal: 12, paddingTop: 10, paddingBottom: 6 },
+  daySummaryCard: {
+    width: 162,
+    backgroundColor: colors.card,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: colors.border,
+    padding: 12,
+    marginRight: 10,
+    shadowColor: colors.text,
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.05,
+    shadowRadius: 5,
+    elevation: 2,
+  },
+  daySummaryTop: { flexDirection: 'row', alignItems: 'center', marginBottom: 6 },
+  daySummaryName: { flex: 1, color: colors.text, fontSize: 14, lineHeight: 18, fontWeight: '900' },
+  daySummaryCount: { color: colors.primaryDark, fontSize: 13, lineHeight: 17, fontWeight: '800' },
+  daySummaryMeta: { color: colors.textMuted, fontSize: 11, lineHeight: 15, marginTop: 2 },
   weekCard: { backgroundColor: colors.card, borderRadius: 18, padding: 14, marginBottom: 12, borderWidth: 1, borderColor: colors.border, shadowColor: colors.text, shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.06, shadowRadius: 8, elevation: 2 },
   weekTop: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 },
   weekDay: { color: colors.text, fontSize: 17, lineHeight: 22, fontWeight: '900' },

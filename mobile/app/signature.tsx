@@ -4,7 +4,7 @@ import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useQueryClient } from '@tanstack/react-query';
 import { api } from '../src/lib/api';
 import { useSync } from '../src/lib/offline';
-import { persistLocally, uploadPendingPhoto, PendingPhoto } from '../src/lib/photos';
+import { persistSignatureCapture, uploadPendingPhoto, PendingPhoto } from '../src/lib/photos';
 import { SignaturePad, SignaturePadHandle } from '../src/components/SignaturePad';
 import { Button, SectionTitle } from '../src/components/ui';
 import { colors } from '../src/lib/theme';
@@ -25,13 +25,14 @@ export default function SignatureScreen() {
     setBusy(true);
     try {
       const uri = await padRef.current!.capture();
-      const fileName = `signature-${Date.now()}.png`;
-      const localUri = await persistLocally(uri, fileName);
+      const isSvg = uri.startsWith('data:image/svg+xml');
+      const fileName = `signature-${Date.now()}${isSvg ? '.svg' : '.png'}`;
+      const localUri = await persistSignatureCapture(uri, fileName);
       const pending: PendingPhoto = {
         localUri,
         fileType: 'signature',
         fileName,
-        mimeType: 'image/png',
+        mimeType: isSvg ? 'image/svg+xml' : 'image/png',
         appointmentId,
         customerId,
       };

@@ -1,7 +1,7 @@
-import React, { useState } from 'react';
-import { View, Text, FlatList, StyleSheet, TouchableOpacity, RefreshControl, ScrollView } from 'react-native';
+import React, { useCallback, useState } from 'react';
+import { View, Text, FlatList, StyleSheet, TouchableOpacity, RefreshControl } from 'react-native';
 import { useQuery } from '@tanstack/react-query';
-import { useRouter } from 'expo-router';
+import { useFocusEffect, useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { api } from '../../src/lib/api';
@@ -9,6 +9,7 @@ import { useAuth } from '../../src/lib/authStore';
 import { colors, todayISO, fmtDate } from '../../src/lib/theme';
 import { Loading, StatusBadge } from '../../src/components/ui';
 import { SyncBanner } from '../../src/components/SyncBanner';
+import { MonthWeekPicker } from '../../src/components/MonthWeekPicker';
 
 interface RouteRow {
   id: string;
@@ -27,17 +28,30 @@ function addDays(iso: string, n: number): string {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 }
 
+function startOfWeek(iso: string): string {
+  const d = new Date(`${iso}T12:00:00`);
+  d.setDate(d.getDate() - d.getDay());
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+
 export default function RoutesScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const hasPermission = useAuth((s) => s.hasPermission);
   const [date, setDate] = useState(todayISO());
-  const days = React.useMemo(() => Array.from({ length: 14 }, (_, i) => addDays(todayISO(), i)), []);
+  const weekStart = React.useMemo(() => startOfWeek(date), [date]);
+  const weekEnd = React.useMemo(() => addDays(weekStart, 6), [weekStart]);
 
   const { data, isLoading, refetch, isRefetching } = useQuery({
-    queryKey: ['routes', date],
-    queryFn: () => api<{ items: RouteRow[] }>(`/routes?date=${date}`),
+    queryKey: ['routes', weekStart],
+    queryFn: () => api<{ items: RouteRow[] }>(`/routes?from=${weekStart}&to=${weekEnd}`),
   });
+
+  useFocusEffect(
+    useCallback(() => {
+      void refetch();
+    }, [refetch]),
+  );
 
   const items = data?.items ?? [];
   const canCreate = hasPermission('routes:write');
@@ -46,7 +60,12 @@ export default function RoutesScreen() {
     <View style={{ flex: 1, backgroundColor: colors.bg }}>
       {/* Dark header */}
       <View style={[styles.header, { paddingTop: insets.top + 8 }]}>
-        <Text style={styles.headerTitle}>Routes</Text>
+        <View style={{ flex: 1 }}>
+          <Text style={styles.headerTitle}>Routes</Text>
+          <Text style={styles.headerSub}>
+            {fmtDate(weekStart)} – {fmtDate(weekEnd)}
+          </Text>
+        </View>
         {canCreate && (
           <TouchableOpacity style={styles.createBtn} onPress={() => router.push('/route/new')}>
             <Ionicons name="add" size={18} color="#0D0D0D" />
@@ -55,30 +74,7 @@ export default function RoutesScreen() {
         )}
       </View>
 
-      {/* Date picker strip */}
-      <ScrollView
-        horizontal
-        showsHorizontalScrollIndicator={false}
-        style={styles.dayBar}
-        contentContainerStyle={{ paddingHorizontal: 14, alignItems: 'center' }}
-      >
-        {days.map((d) => {
-          const dt = new Date(`${d}T12:00:00`);
-          const active = d === date;
-          return (
-            <TouchableOpacity
-              key={d}
-              style={[styles.day, active && styles.dayActive]}
-              onPress={() => setDate(d)}
-            >
-              <Text style={[styles.dayName, active && styles.dayTextActive]}>
-                {dt.toLocaleDateString(undefined, { weekday: 'short' })}
-              </Text>
-              <Text style={[styles.dayNum, active && styles.dayTextActive]}>{dt.getDate()}</Text>
-            </TouchableOpacity>
-          );
-        })}
-      </ScrollView>
+      <MonthWeekPicker value={date} onChange={setDate} />
 
       <SyncBanner />
 
@@ -93,7 +89,7 @@ export default function RoutesScreen() {
           ListEmptyComponent={
             <View style={styles.empty}>
               <Ionicons name="navigate-outline" size={48} color={colors.border} />
-              <Text style={styles.emptyTitle}>No routes for this day</Text>
+              <Text style={styles.emptyTitle}>No routes for this week</Text>
               {canCreate && (
                 <TouchableOpacity style={styles.emptyAction} onPress={() => router.push('/route/new')}>
                   <Ionicons name="add-circle" size={20} color="#0D0D0D" />
@@ -148,23 +144,13 @@ const styles = StyleSheet.create({
     paddingBottom: 14,
   },
   headerTitle: { color: '#fff', fontSize: 22, fontWeight: '900' },
+  headerSub: { color: '#8FA6A1', fontSize: 12, fontWeight: '700', marginTop: 2 },
   createBtn: {
     flexDirection: 'row', alignItems: 'center',
     backgroundColor: '#2DC4A2', borderRadius: 20,
     paddingVertical: 8, paddingHorizontal: 14,
   },
   createBtnText: { color: '#0D0D0D', fontWeight: '800', fontSize: 14, marginLeft: 4 },
-  dayBar: {
-    flexGrow: 0, height: 72, backgroundColor: '#111', paddingVertical: 8,
-  },
-  day: {
-    height: 56, minWidth: 48, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 11,
-    borderRadius: 12, marginRight: 6,
-  },
-  dayActive: { backgroundColor: '#2DC4A2' },
-  dayName: { fontSize: 11, lineHeight: 15, color: '#6B7C78', fontWeight: '700' },
-  dayNum: { fontSize: 18, lineHeight: 23, color: '#fff', fontWeight: '900', marginTop: 1 },
-  dayTextActive: { color: '#0D0D0D' },
   empty: { alignItems: 'center', paddingVertical: 60 },
   emptyTitle: { fontSize: 16, color: colors.textMuted, fontWeight: '600', marginTop: 12 },
   emptyAction: {

@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { z } from 'zod';
 import { authenticate, authorize } from '../middleware/auth';
+import { technicianScope, assertCustomerAccess, assertInvoiceAccess } from '../middleware/scope';
 import { asyncHandler } from '../utils/asyncHandler';
 import { ok, parsePagination } from '../utils/http';
 import { invoiceService } from '../services/invoiceService';
@@ -32,6 +33,8 @@ router.get(
   '/',
   authorize('invoices:read', 'invoices:read_assigned'),
   asyncHandler(async (req, res) => {
+    const scope = technicianScope(req, 'invoices:read');
+    if (scope && req.query.customerId) await assertCustomerAccess(scope, req.query.customerId as string);
     const { page, pageSize, offset, limit } = parsePagination(req.query, 50);
     const result = await invoiceService.list(
       {
@@ -40,6 +43,7 @@ router.get(
         from: req.query.from as string | undefined,
         to: req.query.to as string | undefined,
         pastDue: req.query.pastDue === 'true',
+        technicianId: scope,
       },
       limit,
       offset,
@@ -52,7 +56,9 @@ router.get(
   '/:id',
   authorize('invoices:read', 'invoices:read_assigned'),
   asyncHandler(async (req, res) => {
-    ok(res, await invoiceService.getById(req.params.id));
+    const scope = technicianScope(req, 'invoices:read');
+    await assertInvoiceAccess(scope, req.params.id);
+    ok(res, await invoiceService.getById(req.params.id, scope));
   }),
 );
 
@@ -60,7 +66,9 @@ router.get(
   '/:id/pdf',
   authorize('invoices:read', 'invoices:read_assigned'),
   asyncHandler(async (req, res) => {
-    const invoice = (await invoiceService.getById(req.params.id)) as any;
+    const scope = technicianScope(req, 'invoices:read');
+    await assertInvoiceAccess(scope, req.params.id);
+    const invoice = (await invoiceService.getById(req.params.id, scope)) as any;
     if (!invoice.pdfFileId) throw ApiError.notFound('PDF not generated yet');
     ok(res, await fileService.getDownloadUrl(invoice.pdfFileId));
   }),
