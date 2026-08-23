@@ -37,5 +37,15 @@ export const config = {
     appSource: process.env.NORTH_APPSOURCE ?? '',
     signatureSecret: process.env.NORTH_SIGNATURE_SECRET ?? '',
   },
+  cognito: {
+    employeeAuthEnabled: (process.env.COGNITO_EMPLOYEE_AUTH_ENABLED ?? 'false') === 'true',
+    customerOtpEnabled: (process.env.COGNITO_CUSTOMER_OTP_ENABLED ?? 'false') === 'true',
+    autoCreateCustomerUsers: (process.env.COGNITO_AUTO_CREATE_CUSTOMER_USERS ?? 'true') === 'true',
+    autoCreateEmployeeUsers: (process.env.COGNITO_AUTO_CREATE_EMPLOYEE_USERS ?? 'true') === 'true',
+    region: process.env.COGNITO_REGION ?? '',
+    userPoolId: process.env.COGNITO_USER_POOL_ID ?? '',
+    userPoolClientId: process.env.COGNITO_USER_POOL_CLIENT_ID ?? '',
+    userPoolClientSecret: process.env.COGNITO_USER_POOL_CLIENT_SECRET ?? '',
+  },
   routeOptimizer: process.env.ROUTE_OPTIMIZER ?? 'nearest-neighbor',
 };

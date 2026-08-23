@@ -1,6 +1,8 @@
 import { pool, withTransaction } from '../config/db';
+import { config } from '../config';
 import { ApiError } from '../utils/errors';
 import { recordAudit } from './auditService';
+import { cognitoUsers } from '../integrations/cognito';
 
 function camel(row: Record<string, unknown> | undefined | null) {
   if (!row) return row;
@@ -157,6 +159,10 @@ export const customerService = {
         { userId, action: 'customer.created', entityType: 'customer', entityId: customer.id, newValue: { name: `${data.firstName} ${data.lastName}` } },
         tx,
       );
+
+      if (config.cognito.customerOtpEnabled && config.cognito.autoCreateCustomerUsers && data.email) {
+        await cognitoUsers.ensureCustomerUser(data.email);
+      }
       return camel(customer);
     });
   },

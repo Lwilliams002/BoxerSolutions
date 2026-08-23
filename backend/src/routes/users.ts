@@ -1,13 +1,16 @@
 import { Router } from 'express';
 import { z } from 'zod';
+import crypto from 'crypto';
 import bcrypt from 'bcryptjs';
 import { authenticate, authorize } from '../middleware/auth';
 import { asyncHandler } from '../utils/asyncHandler';
 import { ok } from '../utils/http';
 import { pool, withTransaction } from '../config/db';
+import { config } from '../config';
 import { toCamel, rowsToCamel } from '../services/customerService';
 import { ApiError } from '../utils/errors';
 import { recordAudit } from '../services/auditService';
+import { cognitoUsers } from '../integrations/cognito';
 
 const router = Router();
 router.use(authenticate);
@@ -56,7 +59,7 @@ router.get(
 
 const createUserSchema = z.object({
   email: z.string().email(),
-  password: z.string().min(8),
+  password: z.string().min(8).optional(),
   firstName: z.string().min(1),
   lastName: z.string().min(1),
   phone: z.string().nullish(),
@@ -79,12 +82,25 @@ router.post(
   authorize('users:write'),
   asyncHandler(async (req, res) => {
     const body = createUserSchema.parse(req.body);
+    const normalizedEmail = body.email.trim().toLowerCase();
+
+    const existing = await pool.query('SELECT 1 FROM users WHERE lower(email) = lower($1) AND deleted_at IS NULL', [normalizedEmail]);
+    if (existing.rows[0]) throw ApiError.conflict('A user with this email already exists');
+
+    if (!config.cognito.employeeAuthEnabled && !body.password) {
+      throw ApiError.badRequest('password is required');
+    }
+    if (config.cognito.employeeAuthEnabled && config.cognito.autoCreateEmployeeUsers) {
+      await cognitoUsers.ensureEmployeeUser(normalizedEmail);
+    }
+
     const result = await withTransaction(async (tx) => {
-      const hash = await bcrypt.hash(body.password, 12);
+      const localPassword = body.password ?? crypto.randomBytes(24).toString('base64url');
+      const hash = await bcrypt.hash(localPassword, 12);
       const userRes = await tx.query(
         `INSERT INTO users (email, password_hash, first_name, last_name, phone)
          VALUES ($1,$2,$3,$4,$5) RETURNING id, email, first_name, last_name`,
-        [body.email.toLowerCase(), hash, body.firstName, body.lastName, body.phone ?? null],
+        [normalizedEmail, hash, body.firstName, body.lastName, body.phone ?? null],
       );
       const user = userRes.rows[0];
       for (const code of body.roleCodes) {
@@ -102,7 +118,7 @@ router.post(
            (e as any).homeBaseLng ?? null, (e as any).workStartTime ?? '08:00', (e as any).workEndTime ?? '17:00', (e as any).color ?? null],
         );
       }
-      await recordAudit({ userId: req.user!.id, action: 'user.created', entityType: 'user', entityId: user.id, newValue: { email: body.email, roles: body.roleCodes } }, tx);
+      await recordAudit({ userId: req.user!.id, action: 'user.created', entityType: 'user', entityId: user.id, newValue: { email: normalizedEmail, roles: body.roleCodes } }, tx);
       return toCamel(user);
     });
     ok(res, result, 'User created', 201);
