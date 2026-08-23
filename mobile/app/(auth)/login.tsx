@@ -12,6 +12,7 @@ import { useRouter } from 'expo-router';
 import { useAuth } from '../../src/lib/authStore';
 import { Button, ErrorText } from '../../src/components/ui';
 import { colors } from '../../src/lib/theme';
+import { API_URL } from '../../src/lib/config';
 
 export default function LoginScreen() {
   const router = useRouter();
@@ -19,10 +20,16 @@ export default function LoginScreen() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
+  const [notice, setNotice] = useState('');
   const [busy, setBusy] = useState(false);
+  const [showReset, setShowReset] = useState(false);
+  const [resetCode, setResetCode] = useState('');
+  const [newPassword, setNewPassword] = useState('');
+  const [resetBusy, setResetBusy] = useState(false);
 
   const submit = async () => {
     setError('');
+    setNotice('');
     setBusy(true);
     try {
       await login(email.trim().toLowerCase(), password);
@@ -30,6 +37,61 @@ export default function LoginScreen() {
       setError((e as Error).message);
     } finally {
       setBusy(false);
+    }
+  };
+
+  const requestResetCode = async () => {
+    if (!email.trim()) {
+      setError('Enter your email first.');
+      return;
+    }
+    setError('');
+    setNotice('');
+    setResetBusy(true);
+    try {
+      const res = await fetch(`${API_URL}/auth/password-reset/request`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: email.trim().toLowerCase() }),
+      });
+      const json = await res.json();
+      if (!res.ok || !json.success) throw new Error(json.message ?? 'Could not request reset code');
+      setShowReset(true);
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setResetBusy(false);
+    }
+  };
+
+  const submitReset = async () => {
+    if (!email.trim() || !resetCode.trim() || !newPassword) {
+      setError('Enter email, reset code, and a new password.');
+      return;
+    }
+    setError('');
+    setNotice('');
+    setResetBusy(true);
+    try {
+      const res = await fetch(`${API_URL}/auth/password-reset/confirm`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          email: email.trim().toLowerCase(),
+          token: resetCode.trim(),
+          newPassword,
+        }),
+      });
+      const json = await res.json();
+      if (!res.ok || !json.success) throw new Error(json.message ?? 'Could not reset password');
+      setResetCode('');
+      setNewPassword('');
+      setShowReset(false);
+      setNotice('Password updated. Sign in with your new password.');
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setResetBusy(false);
     }
   };
 
@@ -74,12 +136,46 @@ export default function LoginScreen() {
           onSubmitEditing={submit}
         />
         {error ? <ErrorText message={error} /> : null}
+        {notice ? <Text style={styles.notice}>{notice}</Text> : null}
         <Button
           title="Sign In"
           onPress={submit}
           loading={busy}
           disabled={!email || !password}
         />
+        <Button
+          title="Forgot Password"
+          variant="secondary"
+          onPress={requestResetCode}
+          loading={resetBusy}
+          disabled={!email}
+        />
+        {showReset ? (
+          <View style={styles.resetBox}>
+            <TextInput
+              style={styles.input}
+              placeholder="Reset Code"
+              placeholderTextColor={colors.textMuted}
+              keyboardType="number-pad"
+              value={resetCode}
+              onChangeText={setResetCode}
+            />
+            <TextInput
+              style={styles.input}
+              placeholder="New Password"
+              placeholderTextColor={colors.textMuted}
+              secureTextEntry
+              value={newPassword}
+              onChangeText={setNewPassword}
+            />
+            <Button
+              title="Reset Password"
+              onPress={submitReset}
+              loading={resetBusy}
+              disabled={!resetCode || !newPassword}
+            />
+          </View>
+        ) : null}
         <Button
           title="Customer Portal"
           variant="outline"
@@ -160,5 +256,15 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     marginTop: 20,
     letterSpacing: 0.5,
+  },
+  resetBox: {
+    marginTop: 10,
+    marginBottom: 4,
+  },
+  notice: {
+    color: '#047857',
+    marginBottom: 10,
+    textAlign: 'center',
+    fontWeight: '600',
   },
 });

@@ -66,7 +66,7 @@ router.post(
   '/password-reset/confirm',
   asyncHandler(async (req, res) => {
     const body = passwordResetSchema.parse(req.body);
-    await authService.resetPassword(body.token, body.newPassword);
+    await authService.resetPassword(body.token, body.newPassword, body.email);
     ok(res, null, 'Password updated');
   }),
 );

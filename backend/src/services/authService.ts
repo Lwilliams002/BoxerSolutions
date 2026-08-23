@@ -5,6 +5,7 @@ import { pool } from '../config/db';
 import { config } from '../config';
 import { ApiError } from '../utils/errors';
 import { recordAudit } from './auditService';
+import { cognitoAuth, cognitoOtp } from '../integrations/cognito';
 
 interface TokenPair {
   accessToken: string;
@@ -15,7 +16,11 @@ interface TokenPair {
 const CUSTOMER_PORTAL_CODE_TTL_MS = 10 * 60 * 1000;
 const CUSTOMER_PORTAL_SESSION_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 const DEFAULT_TEST_CUSTOMER_EMAIL = 'portal.test@antserve.dev';
-const customerPortalCodes = new Map<string, { codeHash: string; expiresAt: number; customerId: string }>();
+type CustomerPortalCodeEntry =
+  | { provider: 'local'; codeHash: string; expiresAt: number; customerId: string }
+  | { provider: 'cognito'; session: string; expiresAt: number; customerId: string };
+
+const customerPortalCodes = new Map<string, CustomerPortalCodeEntry>();
 const customerPortalSessions = new Map<string, { customerId: string; email: string; expiresAt: number }>();
 
 async function loadUserAuthContext(userId: string) {
@@ -88,12 +93,19 @@ async function createRefreshToken(userId: string, deviceName?: string): Promise<
 
 export const authService = {
   async login(email: string, password: string, deviceName?: string): Promise<TokenPair & { user: unknown }> {
+    const normalizedEmail = normalizeEmail(email);
+    if (config.cognito.employeeAuthEnabled) {
+      await cognitoAuth.verifyUserPassword(normalizedEmail, password);
+    }
+
     const { rows } = await pool.query(
       'SELECT id, password_hash, is_active FROM users WHERE lower(email) = lower($1) AND deleted_at IS NULL',
-      [email],
+      [normalizedEmail],
     );
     const row = rows[0];
-    const valid = row && (await bcrypt.compare(password, row.password_hash));
+    const valid = config.cognito.employeeAuthEnabled
+      ? Boolean(row)
+      : row && (await bcrypt.compare(password, row.password_hash));
     if (!valid || !row.is_active) throw ApiError.unauthorized('Invalid email or password');
 
     const ctx = await loadUserAuthContext(row.id);
@@ -158,9 +170,15 @@ export const authService = {
   },
 
   async requestPasswordReset(email: string): Promise<string | null> {
+    const normalizedEmail = normalizeEmail(email);
+    if (config.cognito.employeeAuthEnabled) {
+      await cognitoAuth.requestPasswordReset(normalizedEmail);
+      return null;
+    }
+
     const { rows } = await pool.query(
       'SELECT id FROM users WHERE lower(email) = lower($1) AND deleted_at IS NULL',
-      [email],
+      [normalizedEmail],
     );
     if (!rows[0]) return null; // do not reveal whether the account exists
     const token = crypto.randomBytes(32).toString('base64url');
@@ -172,7 +190,19 @@ export const authService = {
     return token;
   },
 
-  async resetPassword(token: string, newPassword: string): Promise<void> {
+  async resetPassword(token: string, newPassword: string, email?: string): Promise<void> {
+    if (config.cognito.employeeAuthEnabled) {
+      const normalizedEmail = normalizeEmail(email ?? '');
+      if (!normalizedEmail) throw ApiError.badRequest('Email is required');
+      await cognitoAuth.confirmPasswordReset(normalizedEmail, token, newPassword);
+      const user = await pool.query(
+        'SELECT id FROM users WHERE lower(email) = lower($1) AND deleted_at IS NULL',
+        [normalizedEmail],
+      );
+      if (user.rows[0]) await this.revokeAllSessions(user.rows[0].id);
+      return;
+    }
+
     const { rows } = await pool.query(
       `SELECT id, user_id FROM password_reset_tokens
        WHERE token_hash = $1 AND used_at IS NULL AND expires_at > now()`,
@@ -199,9 +229,21 @@ export const authService = {
     const customer = rows[0] as { id: string } | undefined;
     if (!customer) return {};
 
+    if (config.cognito.customerOtpEnabled) {
+      const { session } = await cognitoOtp.startEmailOtp(normalizedEmail);
+      customerPortalCodes.set(normalizedEmail, {
+        provider: 'cognito',
+        session,
+        expiresAt: Date.now() + CUSTOMER_PORTAL_CODE_TTL_MS,
+        customerId: customer.id,
+      });
+      return {};
+    }
+
     const code = `${Math.floor(100000 + Math.random() * 900000)}`;
     const codeHash = hashToken(code);
     customerPortalCodes.set(normalizedEmail, {
+      provider: 'local',
       codeHash,
       expiresAt: Date.now() + CUSTOMER_PORTAL_CODE_TTL_MS,
       customerId: customer.id,
@@ -221,14 +263,18 @@ export const authService = {
       customerPortalCodes.delete(normalizedEmail);
       throw ApiError.unauthorized('Invalid or expired code');
     }
-    if (hashToken(code) !== entry.codeHash) throw ApiError.unauthorized('Invalid or expired code');
+    if (entry.provider === 'cognito') {
+      await cognitoOtp.verifyEmailOtp(normalizedEmail, code, entry.session);
+    } else if (hashToken(code) !== entry.codeHash) {
+      throw ApiError.unauthorized('Invalid or expired code');
+    }
     customerPortalCodes.delete(normalizedEmail);
     const session = issueCustomerPortalSession(entry.customerId, normalizedEmail);
 
     return {
       customerId: entry.customerId,
       email: normalizedEmail,
-      cognitoRequired: true,
+      cognitoRequired: config.cognito.customerOtpEnabled,
       ...session,
     };
   },

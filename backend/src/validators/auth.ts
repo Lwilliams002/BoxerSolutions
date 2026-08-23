@@ -11,6 +11,7 @@ export const refreshSchema = z.object({ refreshToken: z.string().min(10) });
 export const passwordResetRequestSchema = z.object({ email: z.string().email() });
 
 export const passwordResetSchema = z.object({
+  email: z.string().email(),
   token: z.string().min(10),
   newPassword: z.string().min(8).max(128),
 });

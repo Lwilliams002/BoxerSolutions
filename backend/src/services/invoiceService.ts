@@ -102,7 +102,18 @@ const INVOICE_SELECT = `
   LEFT JOIN files f ON f.id = i.pdf_file_id`;
 
 export const invoiceService = {
-  async list(filters: { customerId?: string; status?: string; from?: string; to?: string; pastDue?: boolean }, limit: number, offset: number) {
+  async list(
+    filters: {
+      customerId?: string;
+      status?: string;
+      from?: string;
+      to?: string;
+      pastDue?: boolean;
+      technicianId?: string | null;
+    },
+    limit: number,
+    offset: number,
+  ) {
     const where: string[] = ['i.deleted_at IS NULL'];
     const params: unknown[] = [];
     if (filters.customerId) { params.push(filters.customerId); where.push(`i.customer_id = $${params.length}`); }
