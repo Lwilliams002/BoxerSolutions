@@ -19,6 +19,7 @@ import { captureView } from '../../src/lib/capture';
 import { SignaturePad, SignaturePadHandle } from '../../src/components/SignaturePad';
 import { SignatureMark } from '../../src/components/SignatureMark';
 import { colors, company, money } from '../../src/lib/theme';
+import { useAuth } from '../../src/lib/authStore';
 import {
   HOME_SIZES,
   STANDARD_PESTS,
@@ -53,9 +54,29 @@ interface CustomerPayload {
   serviceLocation: ServiceLocation;
 }
 interface LineItem {
+  key: string;
   label: string;
   initial: number;
   regular: number;
+}
+
+type PriceField = 'initial' | 'regular';
+type PriceOverride = Partial<Record<PriceField, string>>;
+
+function normalizePriceInput(value: string) {
+  const cleaned = value.replace(/[^0-9.]/g, '');
+  const firstDot = cleaned.indexOf('.');
+  if (firstDot === -1) return cleaned;
+  const head = cleaned.slice(0, firstDot + 1);
+  const tail = cleaned.slice(firstDot + 1).replace(/\./g, '');
+  return `${head}${tail}`.slice(0, 12);
+}
+
+function parseOverride(value?: string) {
+  if (!value || !value.trim()) return null;
+  const parsed = Number.parseFloat(value);
+  if (!Number.isFinite(parsed) || parsed < 0) return null;
+  return parsed;
 }
 
 export default function AgreementScreen() {
@@ -63,7 +84,9 @@ export default function AgreementScreen() {
   const router = useRouter();
   const qc = useQueryClient();
   const docRef = useRef<View>(null);
+  const user = useAuth((state) => state.user);
   const existingCustomerId = typeof customerId === 'string' && customerId ? customerId : null;
+  const isOwner = !!user?.roles?.includes('OWNER');
 
   const [initials, setInitials] = useState('');
   const [agreed, setAgreed] = useState(false);
@@ -79,6 +102,7 @@ export default function AgreementScreen() {
   const [webOn, setWebOn] = useState(false);
   const [webSqft, setWebSqft] = useState('');
   const [oddKeys, setOddKeys] = useState<string[]>([]);
+  const [priceOverrides, setPriceOverrides] = useState<Record<string, PriceOverride>>({});
 
   const data = useMemo<CustomerPayload | null>(() => {
     try {
@@ -91,39 +115,71 @@ export default function AgreementScreen() {
   const homeSize = homeSizeIdx != null ? HOME_SIZES[homeSizeIdx] : null;
   const yardTier: SizeTier | null = yardOn && yardTierIdx != null ? YARD_ANT_TIERS[yardTierIdx] : null;
   const webFee = webOn ? webRemovalFee(parseFloat(webSqft) || 0) : 0;
-  const { lineItems, initialTotal, regularTotal, coveredPests } = useMemo(() => {
+  const { baseLineItems, coveredPests } = useMemo(() => {
     const items: LineItem[] = [];
     const pests = new Set<string>();
 
     if (homeSize) {
-      items.push({ label: `Standard Four Point Service · ${homeSize.label}`, initial: homeSize.initial, regular: homeSize.regular });
+      items.push({
+        key: `standard:${homeSize.label}`,
+        label: `Standard Four Point Service · ${homeSize.label}`,
+        initial: homeSize.initial,
+        regular: homeSize.regular,
+      });
       STANDARD_PESTS.forEach((p) => pests.add(p));
     }
     if (yardTier) {
-      items.push({ label: `All Yard Ants · ${yardTier.label}`, initial: yardTier.initial, regular: yardTier.regular });
+      items.push({
+        key: `yard:${yardTier.label}`,
+        label: `All Yard Ants · ${yardTier.label}`,
+        initial: yardTier.initial,
+        regular: yardTier.regular,
+      });
       YARD_ANT_PESTS.forEach((p) => pests.add(p));
     }
     ADDONS.forEach((a) => {
       if (addonKeys.includes(a.key)) {
-        items.push({ label: a.label, initial: 0, regular: a.addRegular });
+        items.push({ key: `addon:${a.key}`, label: a.label, initial: 0, regular: a.addRegular });
         a.pests.forEach((p) => pests.add(p));
       }
     });
     if (webOn) {
-      items.push({ label: `Web Removal + Prevention (${parseFloat(webSqft) || 0} sf)`, initial: webFee, regular: 0 });
+      items.push({ key: 'web-removal', label: `Web Removal + Prevention (${parseFloat(webSqft) || 0} sf)`, initial: webFee, regular: 0 });
       pests.add(WEB_REMOVAL.pest);
     }
     ODD_JOBS.forEach((o) => {
       if (oddKeys.includes(o.key)) {
-        items.push({ label: `${o.label} (${o.treatments} treatment${o.treatments > 1 ? 's' : ''})`, initial: o.total, regular: 0 });
+        items.push({
+          key: `odd:${o.key}`,
+          label: `${o.label} (${o.treatments} treatment${o.treatments > 1 ? 's' : ''})`,
+          initial: o.total,
+          regular: 0,
+        });
         pests.add(o.pest);
       }
     });
 
-    const initialTotal = items.reduce((s, i) => s + i.initial, 0);
-    const regularTotal = items.reduce((s, i) => s + i.regular, 0);
-    return { lineItems: items, initialTotal, regularTotal, coveredPests: Array.from(pests) };
+    return { baseLineItems: items, coveredPests: Array.from(pests) };
   }, [homeSize, yardTier, addonKeys, webOn, webSqft, webFee, oddKeys]);
+
+  const lineItems = useMemo(
+    () =>
+      baseLineItems.map((item) => {
+        if (!isOwner) return item;
+        const override = priceOverrides[item.key];
+        const initial = parseOverride(override?.initial);
+        const regular = parseOverride(override?.regular);
+        return {
+          ...item,
+          initial: initial ?? item.initial,
+          regular: regular ?? item.regular,
+        };
+      }),
+    [baseLineItems, isOwner, priceOverrides],
+  );
+
+  const initialTotal = useMemo(() => lineItems.reduce((s, i) => s + i.initial, 0), [lineItems]);
+  const regularTotal = useMemo(() => lineItems.reduce((s, i) => s + i.regular, 0), [lineItems]);
 
   if (!data) {
     return (
@@ -146,6 +202,20 @@ export default function AgreementScreen() {
     setAddonKeys((prev) => (prev.includes(k) ? prev.filter((x) => x !== k) : [...prev, k]));
   const toggleOdd = (k: string) =>
     setOddKeys((prev) => (prev.includes(k) ? prev.filter((x) => x !== k) : [...prev, k]));
+
+  const setPriceOverride = (lineKey: string, field: PriceField, value: string) => {
+    const normalized = normalizePriceInput(value);
+    setPriceOverrides((prev) => {
+      const existing = prev[lineKey] ?? {};
+      const nextEntry: PriceOverride = { ...existing, [field]: normalized };
+      const hasValue = (nextEntry.initial && nextEntry.initial.trim().length > 0) || (nextEntry.regular && nextEntry.regular.trim().length > 0);
+      if (!hasValue) {
+        const { [lineKey]: _removed, ...rest } = prev;
+        return rest;
+      }
+      return { ...prev, [lineKey]: nextEntry };
+    });
+  };
 
   const submit = async () => {
     if (!homeSize) {
@@ -394,6 +464,38 @@ export default function AgreementScreen() {
         })}
 
         {/* Running totals */}
+        {isOwner && lineItems.length ? (
+          <View style={styles.ownerPriceCard}>
+            <Text style={styles.ownerPriceTitle}>Owner Price Overrides</Text>
+            <Text style={styles.ownerPriceHint}>Adjust initial/regular amounts before saving or sending for signature.</Text>
+            {baseLineItems.map((item) => (
+              <View key={item.key} style={styles.ownerPriceRow}>
+                <Text style={styles.ownerPriceLabel}>{item.label}</Text>
+                <View style={styles.ownerPriceInputs}>
+                  <View style={styles.ownerPriceInputWrap}>
+                    <Text style={styles.ownerPriceInputLabel}>Initial</Text>
+                    <TextInput
+                      style={styles.ownerPriceInput}
+                      keyboardType="decimal-pad"
+                      value={priceOverrides[item.key]?.initial ?? item.initial.toFixed(2)}
+                      onChangeText={(value) => setPriceOverride(item.key, 'initial', value)}
+                    />
+                  </View>
+                  <View style={styles.ownerPriceInputWrap}>
+                    <Text style={styles.ownerPriceInputLabel}>Regular</Text>
+                    <TextInput
+                      style={styles.ownerPriceInput}
+                      keyboardType="decimal-pad"
+                      value={priceOverrides[item.key]?.regular ?? item.regular.toFixed(2)}
+                      onChangeText={(value) => setPriceOverride(item.key, 'regular', value)}
+                    />
+                  </View>
+                </View>
+              </View>
+            ))}
+          </View>
+        ) : null}
+
         <View style={styles.totalsBar}>
           <View style={styles.totalCol}>
             <Text style={styles.totalLabel}>INITIAL</Text>
@@ -450,8 +552,8 @@ export default function AgreementScreen() {
           {lineItems.length === 0 ? (
             <Text style={styles.termsMuted}>No services selected yet.</Text>
           ) : (
-            lineItems.map((i, idx) => (
-              <View key={idx} style={styles.tblRow}>
+            lineItems.map((i) => (
+              <View key={i.key} style={styles.tblRow}>
                 <Text style={[styles.tblCell, styles.tblItem]}>{i.label}</Text>
                 <Text style={[styles.tblCell, styles.tblNum]}>{i.initial ? money(i.initial) : '—'}</Text>
                 <Text style={[styles.tblCell, styles.tblNum]}>{i.regular ? money(i.regular) : '—'}</Text>
@@ -686,6 +788,31 @@ const styles = StyleSheet.create({
     minWidth: 90,
   },
   webFee: { fontSize: 14, fontWeight: '800', color: colors.text },
+  ownerPriceCard: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: colors.border,
+    padding: 12,
+    marginTop: 14,
+  },
+  ownerPriceTitle: { fontSize: 14, fontWeight: '900', color: colors.text },
+  ownerPriceHint: { fontSize: 12, color: colors.textMuted, marginTop: 2, marginBottom: 10 },
+  ownerPriceRow: { marginBottom: 10 },
+  ownerPriceLabel: { fontSize: 12, fontWeight: '700', color: colors.text, marginBottom: 6 },
+  ownerPriceInputs: { flexDirection: 'row', justifyContent: 'space-between' },
+  ownerPriceInputWrap: { width: '48.5%' },
+  ownerPriceInputLabel: { fontSize: 11, fontWeight: '700', color: colors.textMuted, marginBottom: 4 },
+  ownerPriceInput: {
+    backgroundColor: '#fff',
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: colors.border,
+    paddingVertical: 8,
+    paddingHorizontal: 10,
+    fontSize: 14,
+    color: colors.text,
+  },
   totalsBar: {
     flexDirection: 'row',
     backgroundColor: '#0D0D0D',
