@@ -92,6 +92,202 @@ function renderAgreementDocument(ctx: Awaited<ReturnType<typeof agreementSigning
   </div>`;
 }
 
+function signingClientScript() {
+  return `'use strict';
+(function () {
+  var canvas = document.getElementById('signaturePad');
+  var form = document.getElementById('sign-form');
+  var clearBtn = document.getElementById('clearBtn');
+  var errorEl = document.getElementById('formError');
+  var signerInput = document.getElementById('signerName');
+  var initialsInput = document.getElementById('initials');
+  var acceptEl = document.getElementById('acceptTerms');
+  var tokenEl = document.getElementById('signToken');
+  if (!canvas || !form || !clearBtn || !errorEl || !signerInput || !initialsInput || !acceptEl || !tokenEl) return;
+
+  var ctx2d = canvas.getContext('2d');
+  if (!ctx2d) return;
+
+  var drawing = false;
+  var hasStroke = false;
+  var dpr = 1;
+  var activePointerId = null;
+
+  function sizeCanvas() {
+    var rect = canvas.getBoundingClientRect();
+    dpr = window.devicePixelRatio || 1;
+    canvas.width = Math.max(1, Math.floor(rect.width * dpr));
+    canvas.height = Math.max(1, Math.floor(rect.height * dpr));
+    ctx2d.setTransform(1, 0, 0, 1, 0, 0);
+    ctx2d.scale(dpr, dpr);
+    ctx2d.lineWidth = 2;
+    ctx2d.lineCap = 'round';
+    ctx2d.lineJoin = 'round';
+    ctx2d.strokeStyle = '#0D0D0D';
+    hasStroke = false;
+  }
+
+  function point(clientX, clientY) {
+    var rect = canvas.getBoundingClientRect();
+    return { x: clientX - rect.left, y: clientY - rect.top };
+  }
+
+  function startAt(clientX, clientY) {
+    drawing = true;
+    var p = point(clientX, clientY);
+    ctx2d.beginPath();
+    ctx2d.moveTo(p.x, p.y);
+  }
+
+  function moveAt(clientX, clientY) {
+    if (!drawing) return;
+    var p = point(clientX, clientY);
+    ctx2d.lineTo(p.x, p.y);
+    ctx2d.stroke();
+    hasStroke = true;
+  }
+
+  function endStroke() {
+    drawing = false;
+  }
+
+  function startPointer(e) {
+    if (activePointerId !== null && activePointerId !== e.pointerId) return;
+    activePointerId = e.pointerId;
+    e.preventDefault();
+    startAt(e.clientX, e.clientY);
+    if (canvas.setPointerCapture) canvas.setPointerCapture(e.pointerId);
+  }
+
+  function movePointer(e) {
+    if (activePointerId !== e.pointerId) return;
+    e.preventDefault();
+    moveAt(e.clientX, e.clientY);
+  }
+
+  function endPointer(e) {
+    if (activePointerId !== e.pointerId) return;
+    e.preventDefault();
+    endStroke();
+    activePointerId = null;
+    if (canvas.releasePointerCapture) {
+      try { canvas.releasePointerCapture(e.pointerId); } catch (_) {}
+    }
+  }
+
+  sizeCanvas();
+  window.addEventListener('resize', sizeCanvas);
+
+  if (window.PointerEvent) {
+    canvas.addEventListener('pointerdown', startPointer);
+    canvas.addEventListener('pointermove', movePointer);
+    canvas.addEventListener('pointerup', endPointer);
+    canvas.addEventListener('pointercancel', endPointer);
+  }
+
+  canvas.addEventListener('mousedown', function (e) {
+    if (window.PointerEvent) return;
+    e.preventDefault();
+    startAt(e.clientX, e.clientY);
+  });
+  canvas.addEventListener('mousemove', function (e) {
+    if (window.PointerEvent) return;
+    e.preventDefault();
+    moveAt(e.clientX, e.clientY);
+  });
+  window.addEventListener('mouseup', function () {
+    if (window.PointerEvent) return;
+    endStroke();
+  });
+
+  canvas.addEventListener('touchstart', function (e) {
+    if (window.PointerEvent) return;
+    e.preventDefault();
+    if (!e.touches || !e.touches[0]) return;
+    startAt(e.touches[0].clientX, e.touches[0].clientY);
+  }, { passive: false });
+  canvas.addEventListener('touchmove', function (e) {
+    if (window.PointerEvent) return;
+    e.preventDefault();
+    if (!e.touches || !e.touches[0]) return;
+    moveAt(e.touches[0].clientX, e.touches[0].clientY);
+  }, { passive: false });
+  canvas.addEventListener('touchend', function (e) {
+    if (window.PointerEvent) return;
+    e.preventDefault();
+    endStroke();
+  }, { passive: false });
+  canvas.addEventListener('touchcancel', function (e) {
+    if (window.PointerEvent) return;
+    e.preventDefault();
+    endStroke();
+  }, { passive: false });
+
+  clearBtn.addEventListener('click', function () {
+    ctx2d.clearRect(0, 0, canvas.width / dpr, canvas.height / dpr);
+    hasStroke = false;
+  });
+
+  form.addEventListener('submit', async function (e) {
+    e.preventDefault();
+    errorEl.style.display = 'none';
+
+    var signerName = String(signerInput.value || '').trim();
+    var initials = String(initialsInput.value || '').trim().toUpperCase();
+    var acceptedTerms = !!acceptEl.checked;
+    var token = String(tokenEl.value || '');
+
+    if (!signerName) {
+      errorEl.textContent = 'Full name is required.';
+      errorEl.style.display = 'block';
+      return;
+    }
+    if (!/^[A-Za-z]{1,4}$/.test(initials)) {
+      errorEl.textContent = 'Initials must be 1-4 letters.';
+      errorEl.style.display = 'block';
+      return;
+    }
+    if (!hasStroke) {
+      errorEl.textContent = 'Please draw your signature.';
+      errorEl.style.display = 'block';
+      return;
+    }
+    if (!acceptedTerms) {
+      errorEl.textContent = 'You must accept the terms before signing.';
+      errorEl.style.display = 'block';
+      return;
+    }
+
+    try {
+      var signatureDataUrl = canvas.toDataURL('image/png');
+      var response = await fetch('/api/v1/agreements/sign/confirm', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ token: token, signerName: signerName, initials: initials, signatureDataUrl: signatureDataUrl, acceptedTerms: acceptedTerms })
+      });
+      var contentType = String(response.headers.get('content-type') || '');
+      if (!response.ok && contentType.includes('application/json')) {
+        var payload = await response.json();
+        errorEl.textContent = payload.message || 'Failed to sign agreement.';
+        errorEl.style.display = 'block';
+        return;
+      }
+      var html = await response.text();
+      document.open();
+      document.write(html);
+      document.close();
+    } catch (err) {
+      errorEl.textContent = 'Could not submit signature. Please try again.';
+      errorEl.style.display = 'block';
+    }
+  });
+})();`;
+}
+
+router.get('/sign/client.js', (_req, res) => {
+  res.status(200).type('application/javascript').send(signingClientScript());
+});
+
 router.get(
   '/sign',
   asyncHandler(async (req, res) => {
@@ -105,6 +301,7 @@ router.get(
       ? ''
       : `
       <form id="sign-form" style="margin-top:16px;border-top:1px solid #D5EDE9;padding-top:14px;">
+        <input id="signToken" type="hidden" value="${htmlEscape(ctx.token)}" />
         <h4 style="margin:0 0 12px 0;color:#0D0D0D;">Customer Signature</h4>
         <label style="display:block;margin-bottom:8px;color:#0D0D0D;font-weight:600;">Full Name</label>
         <input id="signerName" type="text" maxlength="120" style="width:100%;padding:10px;border:1px solid #CBD7D4;border-radius:8px;margin-bottom:12px;" />
@@ -122,183 +319,7 @@ router.get(
         </label>
         <button type="submit" style="display:inline-block;margin-top:16px;padding:10px 14px;background:#2DC4A2;color:#0D0D0D;border:none;border-radius:8px;font-weight:700;cursor:pointer;">Sign Agreement</button>
       </form>
-      <p id="formError" style="color:#B3261E;font-size:14px;margin-top:10px;display:none;"></p>
-      <script>
-        (function() {
-          const token = ${JSON.stringify(ctx.token)};
-          const canvas = document.getElementById('signaturePad');
-          const form = document.getElementById('sign-form');
-          const clearBtn = document.getElementById('clearBtn');
-          const errorEl = document.getElementById('formError');
-          const signerInput = document.getElementById('signerName');
-          const initialsInput = document.getElementById('initials');
-          const acceptEl = document.getElementById('acceptTerms');
-          if (!canvas || !form || !clearBtn || !errorEl || !signerInput || !initialsInput || !acceptEl) return;
-          const ctx2d = canvas.getContext('2d');
-          if (!ctx2d) return;
-          let drawing = false;
-          let hasStroke = false;
-          let activePointerId = null;
-          let dpr = 1;
-
-          function sizeCanvas() {
-            const rect = canvas.getBoundingClientRect();
-            dpr = window.devicePixelRatio || 1;
-            canvas.width = Math.max(1, Math.floor(rect.width * dpr));
-            canvas.height = Math.max(1, Math.floor(rect.height * dpr));
-            ctx2d.setTransform(1, 0, 0, 1, 0, 0);
-            ctx2d.scale(dpr, dpr);
-            ctx2d.lineWidth = 2;
-            ctx2d.lineCap = 'round';
-            ctx2d.lineJoin = 'round';
-            ctx2d.strokeStyle = '#0D0D0D';
-            hasStroke = false;
-          }
-          sizeCanvas();
-          window.addEventListener('resize', sizeCanvas);
-
-          function point(clientX, clientY) {
-            const rect = canvas.getBoundingClientRect();
-            const x = clientX - rect.left;
-            const y = clientY - rect.top;
-            return { x, y };
-          }
-
-          function startAt(clientX, clientY) {
-            drawing = true;
-            const p = point(clientX, clientY);
-            ctx2d.beginPath();
-            ctx2d.moveTo(p.x, p.y);
-          }
-
-          function moveAt(clientX, clientY) {
-            if (!drawing) return;
-            const p = point(clientX, clientY);
-            ctx2d.lineTo(p.x, p.y);
-            ctx2d.stroke();
-            hasStroke = true;
-          }
-
-          function endStroke() {
-            drawing = false;
-          }
-
-          function startPointer(e) {
-            if (activePointerId !== null && activePointerId !== e.pointerId) return;
-            activePointerId = e.pointerId;
-            e.preventDefault();
-            startAt(e.clientX, e.clientY);
-            if (canvas.setPointerCapture) canvas.setPointerCapture(e.pointerId);
-          }
-          function movePointer(e) {
-            if (activePointerId !== e.pointerId) return;
-            e.preventDefault();
-            moveAt(e.clientX, e.clientY);
-          }
-          function endPointer(e) {
-            if (activePointerId !== e.pointerId) return;
-            e.preventDefault();
-            endStroke();
-            activePointerId = null;
-            if (canvas.releasePointerCapture) {
-              try { canvas.releasePointerCapture(e.pointerId); } catch (_) {}
-            }
-          }
-
-          if (window.PointerEvent) {
-            canvas.addEventListener('pointerdown', startPointer);
-            canvas.addEventListener('pointermove', movePointer);
-            canvas.addEventListener('pointerup', endPointer);
-            canvas.addEventListener('pointercancel', endPointer);
-          } else {
-            canvas.addEventListener('mousedown', function(e) {
-              e.preventDefault();
-              startAt(e.clientX, e.clientY);
-            });
-            canvas.addEventListener('mousemove', function(e) {
-              e.preventDefault();
-              moveAt(e.clientX, e.clientY);
-            });
-            window.addEventListener('mouseup', function() {
-              endStroke();
-            });
-
-            canvas.addEventListener('touchstart', function(e) {
-              e.preventDefault();
-              if (!e.touches || !e.touches[0]) return;
-              startAt(e.touches[0].clientX, e.touches[0].clientY);
-            }, { passive: false });
-            canvas.addEventListener('touchmove', function(e) {
-              e.preventDefault();
-              if (!e.touches || !e.touches[0]) return;
-              moveAt(e.touches[0].clientX, e.touches[0].clientY);
-            }, { passive: false });
-            canvas.addEventListener('touchend', function(e) {
-              e.preventDefault();
-              endStroke();
-            }, { passive: false });
-            canvas.addEventListener('touchcancel', function(e) {
-              e.preventDefault();
-              endStroke();
-            }, { passive: false });
-          }
-
-          clearBtn.addEventListener('click', function() {
-            ctx2d.clearRect(0, 0, canvas.width / dpr, canvas.height / dpr);
-            hasStroke = false;
-          });
-
-          form.addEventListener('submit', async function(e) {
-            e.preventDefault();
-            errorEl.style.display = 'none';
-            const signerName = String(signerInput.value || '').trim();
-            const initials = String(initialsInput.value || '').trim().toUpperCase();
-            const acceptedTerms = !!acceptEl.checked;
-            if (!signerName) {
-              errorEl.textContent = 'Full name is required.';
-              errorEl.style.display = 'block';
-              return;
-            }
-            if (!/^[A-Za-z]{1,4}$/.test(initials)) {
-              errorEl.textContent = 'Initials must be 1-4 letters.';
-              errorEl.style.display = 'block';
-              return;
-            }
-            if (!hasStroke) {
-              errorEl.textContent = 'Please draw your signature.';
-              errorEl.style.display = 'block';
-              return;
-            }
-            if (!acceptedTerms) {
-              errorEl.textContent = 'You must accept the terms before signing.';
-              errorEl.style.display = 'block';
-              return;
-            }
-            try {
-              const signatureDataUrl = canvas.toDataURL('image/png');
-              const response = await fetch('/api/v1/agreements/sign/confirm', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ token, signerName, initials, signatureDataUrl, acceptedTerms }),
-              });
-              const contentType = String(response.headers.get('content-type') || '');
-              if (!response.ok && contentType.includes('application/json')) {
-                const payload = await response.json();
-                errorEl.textContent = payload.message || 'Failed to sign agreement.';
-                errorEl.style.display = 'block';
-                return;
-              }
-              const html = await response.text();
-              document.open();
-              document.write(html);
-              document.close();
-            } catch (err) {
-              errorEl.textContent = 'Could not submit signature. Please try again.';
-              errorEl.style.display = 'block';
-            }
-          });
-        })();
-      </script>`;
+      <p id="formError" style="color:#B3261E;font-size:14px;margin-top:10px;display:none;"></p>`;
     res
       .status(200)
       .type('html')
@@ -312,6 +333,7 @@ router.get(
       ${renderAgreementDocument(ctx)}
       ${action}
     </div>
+    ${ctx.alreadySigned ? '' : '<script src="/api/v1/agreements/sign/client.js"></script>'}
   </body>
 </html>`);
   }),
