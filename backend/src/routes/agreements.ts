@@ -1,4 +1,6 @@
 import { Router } from 'express';
+import fs from 'fs/promises';
+import path from 'path';
 import { z } from 'zod';
 import { asyncHandler } from '../utils/asyncHandler';
 import { agreementSigningService } from '../services/agreementSigningService';
@@ -18,6 +20,110 @@ function money(value: number) {
   return `$${value.toFixed(2)}`;
 }
 
+const ASSET_FILES: Record<string, string> = {
+  'logo-mark.png': '../../../mobile/assets/logo-mark.png',
+  'general.png': '../../../mobile/pests/general.png',
+  'ant.png': '../../../mobile/pests/ant.png',
+  'centipede.png': '../../../mobile/pests/centipede.png',
+  'cricket.png': '../../../mobile/pests/cricket.png',
+  'cockroach.png': '../../../mobile/pests/cockroach.png',
+  'flea.png': '../../../mobile/pests/flea.png',
+  'millepede.png': '../../../mobile/pests/millepede.png',
+  'sliverfish.png': '../../../mobile/pests/sliverfish.png',
+  'spider.png': '../../../mobile/pests/spider.png',
+  'hornet.png': '../../../mobile/pests/hornet.png',
+  'mosquito.png': '../../../mobile/pests/mosquito.png',
+  'termite.png': '../../../mobile/pests/termite.png',
+  'rodent.png': '../../../mobile/pests/rodent.png',
+  'scorpion.png': '../../../mobile/pests/scorpion.png',
+  'wasp.png': '../../../mobile/pests/wasp.png',
+  'bee.png': '../../../mobile/pests/bee.png',
+  'wildlife.png': '../../../mobile/pests/wildlife.png',
+  'packrat.png': '../../../mobile/pests/packrat.png',
+  'pigeon.png': '../../../mobile/pests/pigeon.png',
+  'noseeum.png': '../../../mobile/pests/noseeum.png',
+  'kissingbug.png': '../../../mobile/pests/kissingbug.png',
+  'iguana.png': '../../../mobile/pests/iguana.png',
+  'commercial.png': '../../../mobile/pests/commercial.png',
+  'earwig.png': '../../../mobile/pests/earwig.png',
+};
+
+function pestAssetForName(name: string) {
+  const key = name.trim().toLowerCase();
+  const map: Record<string, string> = {
+    'box elder bugs': 'general.png',
+    'asian beetles': 'general.png',
+    centipedes: 'centipede.png',
+    clovermites: 'general.png',
+    crickets: 'cricket.png',
+    'sow / pill bug': 'general.png',
+    spiders: 'spider.png',
+    'household ants': 'ant.png',
+    'palmetto bugs': 'cockroach.png',
+    'yard ants': 'ant.png',
+    'fire ants': 'ant.png',
+    'carpenter ants': 'ant.png',
+    fleas: 'flea.png',
+    ticks: 'flea.png',
+    'black widow': 'spider.png',
+    'brown recluse': 'spider.png',
+    'spider web removal': 'spider.png',
+    'wasps / hornets': 'hornet.png',
+    millipedes: 'millepede.png',
+    silverfish: 'sliverfish.png',
+    earwigs: 'earwig.png',
+    mosquitoes: 'mosquito.png',
+    mosquito: 'mosquito.png',
+    termites: 'termite.png',
+    termite: 'termite.png',
+    rodents: 'rodent.png',
+    rodent: 'rodent.png',
+    scorpions: 'scorpion.png',
+    scorpion: 'scorpion.png',
+    wasps: 'wasp.png',
+    hornets: 'hornet.png',
+    bees: 'bee.png',
+    bee: 'bee.png',
+    wildlife: 'wildlife.png',
+    'pack rats': 'packrat.png',
+    packrat: 'packrat.png',
+    pigeons: 'pigeon.png',
+    pigeon: 'pigeon.png',
+    noseeums: 'noseeum.png',
+    noseeum: 'noseeum.png',
+    'kissing bugs': 'kissingbug.png',
+    'kissing bug': 'kissingbug.png',
+    iguanas: 'iguana.png',
+    iguana: 'iguana.png',
+    commercial: 'commercial.png',
+  };
+  return map[key] ?? 'general.png';
+}
+
+function signPageStyles() {
+  return `<style>
+  body { font-family: Arial, sans-serif; background: #F5FAF8; padding: 24px; margin: 0; }
+  .page-card { max-width: 860px; margin: 0 auto; background: #fff; border: 1px solid #D5EDE9; border-radius: 12px; padding: 20px; }
+  .agreement-doc { border:1px solid #D5EDE9; border-radius:14px; padding:16px; background:#FFF; box-shadow:0 3px 10px rgba(13,13,13,.08); }
+  .agreement-grid { display:grid; grid-template-columns:1fr 1fr; gap:10px; margin-bottom:12px; }
+  .pricing-table { width:100%; border-collapse:collapse; table-layout: fixed; }
+  .pricing-table th, .pricing-table td { vertical-align: top; }
+  .pest-pill { display:inline-flex; align-items:center; gap:6px; margin:0 8px 8px 0; padding:6px 10px; border-radius:999px; background:#EAF8F5; color:#0D0D0D; font-size:13px; }
+  .pest-pill img { width:14px; height:14px; object-fit:contain; }
+  @media (max-width: 640px) {
+    body { padding: 10px; }
+    .page-card { padding: 14px; }
+    .agreement-doc { padding: 12px; }
+    .agreement-grid { grid-template-columns: 1fr; }
+    .pricing-table th { font-size: 11px !important; padding: 6px 2px !important; }
+    .pricing-table td { font-size: 11px !important; padding: 6px 2px !important; }
+    .pricing-table td:first-child, .pricing-table th:first-child { width: 48%; word-break: break-word; }
+    .pricing-table td:nth-child(2), .pricing-table th:nth-child(2),
+    .pricing-table td:nth-child(3), .pricing-table th:nth-child(3) { width: 26%; }
+  }
+  </style>`;
+}
+
 function renderAgreementDocument(ctx: Awaited<ReturnType<typeof agreementSigningService.getSigningContext>>) {
   const serviceRows = ctx.agreement?.lineItems?.length
     ? ctx.agreement.lineItems.map((item) => `
@@ -30,7 +136,7 @@ function renderAgreementDocument(ctx: Awaited<ReturnType<typeof agreementSigning
     : `<tr><td colspan="3" style="padding:12px;color:#607D78;">No service pricing details were found for this agreement.</td></tr>`;
 
   const pests = ctx.agreement?.coveredPests?.length
-    ? ctx.agreement.coveredPests.map((p) => `<span style="display:inline-block;margin:0 8px 8px 0;padding:6px 10px;border-radius:999px;background:#EAF8F5;color:#0D0D0D;font-size:13px;">${htmlEscape(p)}</span>`).join('')
+    ? ctx.agreement.coveredPests.map((p) => `<span class="pest-pill"><img src="/api/v1/agreements/assets/${encodeURIComponent(pestAssetForName(p))}" alt="" loading="lazy" />${htmlEscape(p)}</span>`).join('')
     : '<p style="color:#607D78;margin:0;">No covered pests were listed.</p>';
 
   const termMonths = ctx.agreement?.termMonths ?? 12;
@@ -39,15 +145,16 @@ function renderAgreementDocument(ctx: Awaited<ReturnType<typeof agreementSigning
   const customerType = ctx.customerType ? `${ctx.customerType.slice(0, 1).toUpperCase()}${ctx.customerType.slice(1)} Account` : 'Account';
 
   return `
-  <div style="border:1px solid #D5EDE9;border-radius:14px;padding:16px;background:#FFFFFF;box-shadow:0 3px 10px rgba(13,13,13,0.08);">
+  <div class="agreement-doc">
     <div style="background:#0D0D0D;border-radius:10px;padding:12px;">
+      <img src="/api/v1/agreements/assets/logo-mark.png" alt="Boxer Solutions" style="width:44px;height:44px;object-fit:contain;vertical-align:middle;margin-right:10px;" />
       <div style="font-size:20px;font-weight:900;color:#FFFFFF;">Boxer Solutions Pest Control</div>
       <div style="font-size:11px;font-weight:800;letter-spacing:2px;color:#2DC4A2;">PEST CONTROL</div>
     </div>
     <h3 style="text-align:center;font-size:20px;font-weight:900;letter-spacing:1px;margin:14px 0 10px 0;color:#0D0D0D;">SERVICE AGREEMENT</h3>
     ${ctx.alreadySigned ? '<p style="text-align:center;margin:0 0 10px 0;color:#2E7D32;font-weight:700;">Already signed</p>' : '<p style="text-align:center;margin:0 0 10px 0;color:#B26B00;font-weight:800;">Pending customer signature</p>'}
 
-    <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:12px;">
+    <div class="agreement-grid">
       <div>
         <div style="background:#2DC4A2;color:#0D0D0D;font-weight:800;font-size:12px;text-align:center;padding:4px;border-radius:4px;margin-bottom:6px;">Service Address</div>
         <div style="font-size:12px;color:#0D0D0D;line-height:1.45;">${ctx.serviceAddress ? htmlEscape(ctx.serviceAddress) : 'Not provided'}</div>
@@ -61,7 +168,7 @@ function renderAgreementDocument(ctx: Awaited<ReturnType<typeof agreementSigning
     </div>
 
     <h4 style="background:#2DC4A2;color:#0D0D0D;font-weight:800;font-size:12px;text-align:center;padding:4px;border-radius:4px;margin:14px 0 8px 0;">Services & Pricing</h4>
-    <table style="width:100%;border-collapse:collapse;">
+    <table class="pricing-table">
       <thead>
         <tr style="border-bottom:2px solid #0D0D0D;">
           <th style="text-align:left;padding:6px 4px;color:#607D78;font-weight:800;font-size:11px;">Service</th>
@@ -289,6 +396,21 @@ router.get('/sign/client.js', (_req, res) => {
 });
 
 router.get(
+  '/assets/:name',
+  asyncHandler(async (req, res) => {
+    const parsed = z.object({ name: z.string().min(1).max(64) }).parse(req.params);
+    const rel = ASSET_FILES[parsed.name];
+    if (!rel) {
+      res.status(404).end();
+      return;
+    }
+    const filePath = path.resolve(__dirname, rel);
+    const data = await fs.readFile(filePath);
+    res.status(200).type('image/png').send(data);
+  }),
+);
+
+router.get(
   '/sign',
   asyncHandler(async (req, res) => {
     const query = z.object({ token: z.string().min(20) }).parse(req.query);
@@ -325,9 +447,9 @@ router.get(
       .type('html')
       .send(`<!doctype html>
 <html>
-  <head><meta charset="utf-8"/><meta name="viewport" content="width=device-width, initial-scale=1"/><title>${title}</title></head>
-  <body style="font-family:Arial,sans-serif;background:#F5FAF8;padding:24px;">
-    <div style="max-width:860px;margin:0 auto;background:#fff;border:1px solid #D5EDE9;border-radius:12px;padding:20px;">
+  <head><meta charset="utf-8"/><meta name="viewport" content="width=device-width, initial-scale=1"/><title>${title}</title>${signPageStyles()}</head>
+  <body>
+    <div class="page-card">
       <h2 style="margin-top:0;color:#0D0D0D;">${title}</h2>
       <p style="color:#30433F;line-height:1.5;">${body}</p>
       ${renderAgreementDocument(ctx)}
