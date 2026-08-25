@@ -39,7 +39,19 @@ function agreementSignedFileName(original: string | null | undefined) {
   return original;
 }
 
-function signedAgreementPdf(data: { customerName: string; signedAt: Date; signerName?: string | null }) {
+function parseSignatureDataUrl(dataUrl: string) {
+  const match = dataUrl.match(/^data:image\/png;base64,([A-Za-z0-9+/=]+)$/);
+  if (!match) throw ApiError.badRequest('Signature must be a PNG image.');
+  return Buffer.from(match[1], 'base64');
+}
+
+function signedAgreementPdf(data: {
+  customerName: string;
+  signedAt: Date;
+  signerName: string;
+  initials: string;
+  signaturePng: Buffer;
+}) {
   return new Promise<Buffer>((resolve, reject) => {
     const doc = new PDFDocument({ size: 'LETTER', margin: 50 });
     const chunks: Buffer[] = [];
@@ -51,8 +63,12 @@ function signedAgreementPdf(data: { customerName: string; signedAt: Date; signer
     doc.moveDown(1);
     doc.fontSize(12).text(`Customer: ${data.customerName}`);
     doc.text(`Signed At: ${data.signedAt.toLocaleString('en-US')}`);
-    if (data.signerName) doc.text(`Signer Name: ${data.signerName}`);
+    doc.text(`Signer Name: ${data.signerName}`);
+    doc.text(`Initials: ${data.initials}`);
     doc.moveDown(1);
+    doc.text('Signature:');
+    doc.image(data.signaturePng, { fit: [320, 120], align: 'left', valign: 'top' });
+    doc.moveDown(7);
     doc.text('This document confirms the customer reviewed and signed the agreement via secure email link.');
     doc.end();
   });
@@ -118,8 +134,23 @@ export const agreementSigningService = {
     };
   },
 
-  async signFromToken(token: string, signerName?: string | null) {
-    const payload = parseSigningToken(token);
+  async signFromToken(data: {
+    token: string;
+    signerName: string;
+    initials: string;
+    signatureDataUrl: string;
+    acceptedTerms: boolean;
+  }) {
+    if (!data.acceptedTerms) throw ApiError.badRequest('You must accept the agreement terms before signing.');
+    const signerName = data.signerName.trim();
+    const initials = data.initials.trim().toUpperCase();
+    if (!signerName) throw ApiError.badRequest('Signer name is required.');
+    if (!/^[A-Za-z]{1,4}$/.test(initials)) throw ApiError.badRequest('Initials must be 1-4 letters.');
+    if (!data.signatureDataUrl) throw ApiError.badRequest('Drawn signature is required.');
+    const signaturePng = parseSignatureDataUrl(data.signatureDataUrl);
+    if (signaturePng.length > 1_500_000) throw ApiError.badRequest('Signature image is too large.');
+
+    const payload = parseSigningToken(data.token);
     const { rows } = await pool.query(
       `SELECT f.*, c.first_name, c.last_name, c.company
        FROM files f
@@ -144,7 +175,13 @@ export const agreementSigningService = {
       return { alreadySigned: true, customerId: row.customer_id };
     }
     const customerName = row.company || `${row.first_name} ${row.last_name}`;
-    const pdf = await signedAgreementPdf({ customerName, signedAt: new Date(), signerName: signerName ?? null });
+    const pdf = await signedAgreementPdf({
+      customerName,
+      signedAt: new Date(),
+      signerName,
+      initials,
+      signaturePng,
+    });
     await storage.putObject(row.storage_object_key, pdf, 'application/pdf');
     await pool.query(
       `UPDATE files
