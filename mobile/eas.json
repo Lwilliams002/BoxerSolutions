@@ -6,16 +6,23 @@
   "build": {
     "development": {
       "developmentClient": true,
-      "distribution": "internal"
+      "distribution": "internal",
+      "env": {
+        "EXPO_PUBLIC_API_URL": "https://api.boxersolutionspestcontrol.com"
+      }
     },
     "preview": {
-      "distribution": "internal"
+      "distribution": "internal",
+      "env": {
+        "EXPO_PUBLIC_API_URL": "https://api.boxersolutionspestcontrol.com"
+      }
     },
     "production": {
       "distribution": "store",
       "autoIncrement": true,
       "env": {
-        "EXPO_USE_FRAMEWORKS": "static"
+        "EXPO_USE_FRAMEWORKS": "static",
+        "EXPO_PUBLIC_API_URL": "https://api.boxersolutionspestcontrol.com"
       }
     }
   },
