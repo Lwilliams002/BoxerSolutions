@@ -106,7 +106,8 @@ function signPageStyles() {
   .page-card { max-width: 860px; margin: 0 auto; background: #fff; border: 1px solid #D5EDE9; border-radius: 12px; padding: 20px; }
   .agreement-doc { border:1px solid #D5EDE9; border-radius:14px; padding:16px; background:#FFF; box-shadow:0 3px 10px rgba(13,13,13,.08); }
   .agreement-grid { display:grid; grid-template-columns:1fr 1fr; gap:10px; margin-bottom:12px; }
-  .pricing-table { width:100%; border-collapse:collapse; table-layout: fixed; }
+  .pricing-table-wrap { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+  .pricing-table { width:100%; min-width: 520px; border-collapse:collapse; table-layout: auto; }
   .pricing-table th, .pricing-table td { vertical-align: top; }
   .pest-pill { display:inline-flex; align-items:center; gap:6px; margin:0 8px 8px 0; padding:6px 10px; border-radius:999px; background:#EAF8F5; color:#0D0D0D; font-size:13px; }
   .pest-pill img { width:14px; height:14px; object-fit:contain; }
@@ -115,11 +116,9 @@ function signPageStyles() {
     .page-card { padding: 14px; }
     .agreement-doc { padding: 12px; }
     .agreement-grid { grid-template-columns: 1fr; }
-    .pricing-table th { font-size: 11px !important; padding: 6px 2px !important; }
-    .pricing-table td { font-size: 11px !important; padding: 6px 2px !important; }
-    .pricing-table td:first-child, .pricing-table th:first-child { width: 48%; word-break: break-word; }
-    .pricing-table td:nth-child(2), .pricing-table th:nth-child(2),
-    .pricing-table td:nth-child(3), .pricing-table th:nth-child(3) { width: 26%; }
+    .pricing-table { min-width: 520px; }
+    .pricing-table th { font-size: 11px !important; padding: 6px 4px !important; }
+    .pricing-table td { font-size: 11px !important; padding: 6px 4px !important; }
   }
   </style>`;
 }
@@ -136,7 +135,7 @@ function renderAgreementDocument(ctx: Awaited<ReturnType<typeof agreementSigning
     : `<tr><td colspan="3" style="padding:12px;color:#607D78;">No service pricing details were found for this agreement.</td></tr>`;
 
   const pests = ctx.agreement?.coveredPests?.length
-    ? ctx.agreement.coveredPests.map((p) => `<span class="pest-pill"><img src="/api/v1/agreements/assets/${encodeURIComponent(pestAssetForName(p))}" alt="" loading="lazy" />${htmlEscape(p)}</span>`).join('')
+    ? ctx.agreement.coveredPests.map((p) => `<span class="pest-pill"><img src="/api/v1/agreements/assets/${encodeURIComponent(pestAssetForName(p))}?v=3" alt="" loading="lazy" />${htmlEscape(p)}</span>`).join('')
     : '<p style="color:#607D78;margin:0;">No covered pests were listed.</p>';
 
   const termMonths = ctx.agreement?.termMonths ?? 12;
@@ -147,7 +146,7 @@ function renderAgreementDocument(ctx: Awaited<ReturnType<typeof agreementSigning
   return `
   <div class="agreement-doc">
     <div style="background:#0D0D0D;border-radius:10px;padding:12px;">
-      <img src="/api/v1/agreements/assets/logo-mark.png" alt="Boxer Solutions" style="width:44px;height:44px;object-fit:contain;vertical-align:middle;margin-right:10px;" />
+      <img src="/api/v1/agreements/assets/logo-mark.png?v=3" alt="Boxer Solutions" style="width:44px;height:44px;object-fit:contain;vertical-align:middle;margin-right:10px;" />
       <div style="font-size:20px;font-weight:900;color:#FFFFFF;">Boxer Solutions Pest Control</div>
       <div style="font-size:11px;font-weight:800;letter-spacing:2px;color:#2DC4A2;">PEST CONTROL</div>
     </div>
@@ -168,6 +167,7 @@ function renderAgreementDocument(ctx: Awaited<ReturnType<typeof agreementSigning
     </div>
 
     <h4 style="background:#2DC4A2;color:#0D0D0D;font-weight:800;font-size:12px;text-align:center;padding:4px;border-radius:4px;margin:14px 0 8px 0;">Services & Pricing</h4>
+    <div class="pricing-table-wrap">
     <table class="pricing-table">
       <thead>
         <tr style="border-bottom:2px solid #0D0D0D;">
@@ -185,6 +185,7 @@ function renderAgreementDocument(ctx: Awaited<ReturnType<typeof agreementSigning
         </tr>
       </tfoot>
     </table>
+    </div>
 
     <h4 style="background:#2DC4A2;color:#0D0D0D;font-weight:800;font-size:12px;text-align:center;padding:4px;border-radius:4px;margin:14px 0 8px 0;">Covered Pests</h4>
     <div>${pests}</div>
@@ -392,6 +393,7 @@ function signingClientScript() {
 }
 
 router.get('/sign/client.js', (_req, res) => {
+  res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
   res.status(200).type('application/javascript').send(signingClientScript());
 });
 
@@ -406,6 +408,7 @@ router.get(
     }
     const filePath = path.resolve(__dirname, rel);
     const data = await fs.readFile(filePath);
+    res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
     res.status(200).type('image/png').send(data);
   }),
 );
@@ -444,6 +447,7 @@ router.get(
       <p id="formError" style="color:#B3261E;font-size:14px;margin-top:10px;display:none;"></p>`;
     res
       .status(200)
+      .setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate')
       .type('html')
       .send(`<!doctype html>
 <html>
@@ -455,7 +459,7 @@ router.get(
       ${renderAgreementDocument(ctx)}
       ${action}
     </div>
-    ${ctx.alreadySigned ? '' : '<script src="/api/v1/agreements/sign/client.js"></script>'}
+    ${ctx.alreadySigned ? '' : '<script src="/api/v1/agreements/sign/client.js?v=3"></script>'}
   </body>
 </html>`);
   }),
