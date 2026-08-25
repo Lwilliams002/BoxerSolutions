@@ -3,6 +3,7 @@ import { pool } from '../config/db';
 import { getOutboundMessageProvider } from '../integrations/notifications';
 import { rowsToCamel, toCamel } from './customerService';
 import { logger } from '../utils/logger';
+import { agreementSigningService } from './agreementSigningService';
 
 export type CommunicationChannel = 'sms' | 'email' | 'push';
 export type CommunicationTemplateKey =
@@ -280,12 +281,20 @@ export const communicationService = {
     });
   },
 
-  async sendAgreementReviewRequest(customerId: string, sentBy?: string | null, reviewUrl?: string | null) {
+  async sendAgreementReviewRequest(
+    customerId: string,
+    sentBy?: string | null,
+    reviewUrl?: string | null,
+    apiBaseUrl?: string | null,
+  ) {
     const ctx = await customerContext(customerId);
     if (!ctx) throw new Error('Customer not found for communication');
     if (!ctx.customer_email) throw new Error('Customer email is required to send agreement review request');
     const templateKey: CommunicationTemplateKey = 'agreement_review_sign';
-    const rendered = renderTemplate(templateKey, ctx, reviewUrl ? { reviewUrl } : undefined);
+    const resolvedReviewUrl =
+      reviewUrl ??
+      (apiBaseUrl ? await agreementSigningService.buildReviewUrl(customerId, apiBaseUrl) : null);
+    const rendered = renderTemplate(templateKey, ctx, resolvedReviewUrl ? { reviewUrl: resolvedReviewUrl } : undefined);
     return insertAndSend({
       customerId,
       appointmentId: null,

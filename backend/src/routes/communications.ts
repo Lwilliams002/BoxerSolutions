@@ -34,9 +34,17 @@ router.post(
       customerId: z.string().uuid(),
       reviewUrl: z.string().url().nullish(),
     }).parse(req.body);
+    const forwardedProto = req.header('x-forwarded-proto');
+    const proto = (forwardedProto ? forwardedProto.split(',')[0] : req.protocol).trim();
+    const apiBaseUrl = `${proto}://${req.get('host')}`;
     ok(
       res,
-      await communicationService.sendAgreementReviewRequest(body.customerId, req.user!.id, body.reviewUrl ?? null),
+      await communicationService.sendAgreementReviewRequest(
+        body.customerId,
+        req.user!.id,
+        body.reviewUrl ?? null,
+        apiBaseUrl,
+      ),
       'Agreement review request sent',
       201,
     );
