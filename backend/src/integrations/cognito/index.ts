@@ -28,6 +28,15 @@ function assertConfigured() {
   }
 }
 
+function assertAdminConfigured() {
+  if (!config.cognito.region || !config.cognito.userPoolId) {
+    throw new ApiError(
+      500,
+      'Cognito user provisioning is enabled but missing COGNITO_REGION or COGNITO_USER_POOL_ID.',
+    );
+  }
+}
+
 function endpoint() {
   return `https://cognito-idp.${config.cognito.region}.amazonaws.com/`;
 }
@@ -151,17 +160,12 @@ function toUnauthorized(err: unknown) {
     if (err.code === 'NotAuthorizedException' || err.code === 'UserNotFoundException') {
       return ApiError.unauthorized('Invalid email or password');
     }
-
-    function assertAdminConfigured() {
-      if (!config.cognito.region || !config.cognito.userPoolId) {
-        throw new ApiError(
-          500,
-          'Cognito customer user provisioning is enabled but missing COGNITO_REGION or COGNITO_USER_POOL_ID.',
-        );
-      }
-    }
   }
   return err;
+}
+
+function randomPassword() {
+  return `${crypto.randomBytes(8).toString('base64url')}Aa1!`;
 }
 
 export const cognitoAuth = {
@@ -191,52 +195,6 @@ export const cognitoAuth = {
       const payload: { ClientId: string; Username: string; SecretHash?: string } = {
         ClientId: config.cognito.userPoolClientId,
         Username: username,
-      };
-
-      function randomPassword() {
-        return `${crypto.randomBytes(8).toString('base64url')}Aa1!`;
-      }
-
-      export const cognitoUsers = {
-        async ensureUser(email: string) {
-          assertAdminConfigured();
-          const username = email.trim().toLowerCase();
-          try {
-            await adminClient.send(
-              new AdminCreateUserCommand({
-                UserPoolId: config.cognito.userPoolId,
-                Username: username,
-                MessageAction: 'SUPPRESS',
-                UserAttributes: [
-                  { Name: 'email', Value: username },
-                  { Name: 'email_verified', Value: 'true' },
-                ],
-              }),
-            );
-
-            await adminClient.send(
-              new AdminSetUserPasswordCommand({
-                UserPoolId: config.cognito.userPoolId,
-                Username: username,
-                Password: randomPassword(),
-                Permanent: true,
-              }),
-            );
-          } catch (err: any) {
-            if (err?.name === 'UsernameExistsException') {
-              return;
-            }
-            throw new ApiError(502, `Failed to provision Cognito user for email ${username}`);
-          }
-        },
-
-        async ensureCustomerUser(email: string) {
-          return this.ensureUser(email);
-        },
-
-        async ensureEmployeeUser(email: string) {
-          return this.ensureUser(email);
-        },
       };
       if (secret) payload.SecretHash = secret;
       await cognitoCall('ForgotPassword', payload);
@@ -276,5 +234,47 @@ export const cognitoAuth = {
       }
       throw err;
     }
+  },
+};
+
+export const cognitoUsers = {
+  async ensureUser(email: string) {
+    assertAdminConfigured();
+    const username = email.trim().toLowerCase();
+    try {
+      await adminClient.send(
+        new AdminCreateUserCommand({
+          UserPoolId: config.cognito.userPoolId,
+          Username: username,
+          MessageAction: 'SUPPRESS',
+          UserAttributes: [
+            { Name: 'email', Value: username },
+            { Name: 'email_verified', Value: 'true' },
+          ],
+        }),
+      );
+
+      await adminClient.send(
+        new AdminSetUserPasswordCommand({
+          UserPoolId: config.cognito.userPoolId,
+          Username: username,
+          Password: randomPassword(),
+          Permanent: true,
+        }),
+      );
+    } catch (err: any) {
+      if (err?.name === 'UsernameExistsException') {
+        return;
+      }
+      throw new ApiError(502, `Failed to provision Cognito user for email ${username}`);
+    }
+  },
+
+  async ensureCustomerUser(email: string) {
+    return this.ensureUser(email);
+  },
+
+  async ensureEmployeeUser(email: string) {
+    return this.ensureUser(email);
   },
 };
