@@ -13,12 +13,13 @@ export type CommunicationTemplateKey =
   | 'invoice_created'
   | 'payment_received'
   | 'payment_failed'
-  | 'payment_refunded';
+  | 'payment_refunded'
+  | 'agreement_review_sign';
 
 const COMPANY = {
   name: 'Boxer Solutions Pest Control',
   phone: '(512) 555-0142',
-  email: 'service@boxersolutions.com',
+  email: 'service@boxersolutionspestcontrol.com',
 };
 
 const DEFAULT_CHANNEL: Record<CommunicationTemplateKey, CommunicationChannel> = {
@@ -30,6 +31,7 @@ const DEFAULT_CHANNEL: Record<CommunicationTemplateKey, CommunicationChannel> = 
   payment_received: 'email',
   payment_failed: 'email',
   payment_refunded: 'email',
+  agreement_review_sign: 'email',
 };
 
 function fmtDate(value: string | Date) {
@@ -95,6 +97,17 @@ async function invoiceContext(invoiceId: string) {
   return rows[0];
 }
 
+async function customerContext(customerId: string) {
+  const { rows } = await pool.query(
+    `SELECT c.id, c.first_name AS customer_first_name, c.last_name AS customer_last_name,
+            c.company AS customer_company, c.email AS customer_email, c.phone AS customer_phone
+     FROM customers c
+     WHERE c.id = $1 AND c.deleted_at IS NULL`,
+    [customerId],
+  );
+  return rows[0];
+}
+
 function renderTemplate(templateKey: CommunicationTemplateKey, ctx: QueryResultRow, extra?: Record<string, unknown>) {
   const date = ctx.scheduled_date ? fmtDate(ctx.scheduled_date) : '';
   const window = ctx.window_start ? `${fmtTime(ctx.window_start)}–${fmtTime(ctx.window_end)}` : '';
@@ -141,6 +154,11 @@ function renderTemplate(templateKey: CommunicationTemplateKey, ctx: QueryResultR
       return {
         subject: `Refund processed for invoice ${ctx.invoice_number}`,
         body: `Hi ${firstName(ctx)}, we processed a refund of ${money(extra?.amount as number | string | undefined)} for invoice ${ctx.invoice_number}.`,
+      };
+    case 'agreement_review_sign':
+      return {
+        subject: `Review and sign your service agreement with ${COMPANY.name}`,
+        body: `Hi ${firstName(ctx)}, your service agreement is ready for review and signature. ${extra?.reviewUrl ? `Please open ${String(extra.reviewUrl)} to review and sign.` : `Please reply to this email or call ${COMPANY.phone} and we will walk you through signing.`}`,
       };
   }
 }
@@ -253,6 +271,25 @@ export const communicationService = {
       customerId: ctx.customer_id,
       appointmentId: ctx.appointment_id,
       invoiceId,
+      channel: DEFAULT_CHANNEL[templateKey],
+      templateKey,
+      subject: rendered.subject,
+      body: rendered.body,
+      sentBy,
+      to: ctx.customer_email,
+    });
+  },
+
+  async sendAgreementReviewRequest(customerId: string, sentBy?: string | null, reviewUrl?: string | null) {
+    const ctx = await customerContext(customerId);
+    if (!ctx) throw new Error('Customer not found for communication');
+    if (!ctx.customer_email) throw new Error('Customer email is required to send agreement review request');
+    const templateKey: CommunicationTemplateKey = 'agreement_review_sign';
+    const rendered = renderTemplate(templateKey, ctx, reviewUrl ? { reviewUrl } : undefined);
+    return insertAndSend({
+      customerId,
+      appointmentId: null,
+      invoiceId: null,
       channel: DEFAULT_CHANNEL[templateKey],
       templateKey,
       subject: rendered.subject,

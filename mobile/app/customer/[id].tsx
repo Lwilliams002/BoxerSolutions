@@ -11,6 +11,12 @@ import { AddPaymentMethodModal } from '../../src/components/AddPaymentMethodModa
 const TABS = ['Overview', 'Plan', 'Appointments', 'Invoices', 'Payments', 'Comms', 'Notes', 'Documents', 'Payment Methods', 'History'] as const;
 type Tab = (typeof TABS)[number];
 
+function maskedLast4(value: unknown) {
+  const digits = String(value ?? '').replace(/\D/g, '');
+  const last4 = digits.slice(-4);
+  return last4 || '••••';
+}
+
 export default function CustomerScreen() {
   const { id, tab: tabParam, promptPayment } = useLocalSearchParams<{ id: string; tab?: string; promptPayment?: string }>();
   const router = useRouter();
@@ -72,7 +78,17 @@ export default function CustomerScreen() {
     enabled: tab === 'Plan',
   });
 
-  const openDocument = async (fileId: string) => {
+  const openDocument = async (fileId: string, uploadStatus?: string, fileName?: string | null) => {
+    if (uploadStatus !== 'uploaded') {
+      const isUnsignedAgreement = fileName?.startsWith('service-agreement-unsigned-');
+      Alert.alert(
+        isUnsignedAgreement ? 'Unsigned document' : 'Document is processing',
+        isUnsignedAgreement
+          ? 'This agreement has not been signed yet.'
+          : 'This signed document is still uploading and will be viewable once processing finishes.',
+      );
+      return;
+    }
     try {
       const { downloadUrl } = await api<{ downloadUrl: string }>(`/files/${fileId}/download`);
       await Linking.openURL(downloadUrl);
@@ -203,6 +219,72 @@ export default function CustomerScreen() {
   if (isLoading || !cust) return <Loading />;
 
   const name = cust.company ?? `${cust.firstName} ${cust.lastName}`;
+  const allDocs = docs?.items ?? [];
+  const isServiceAgreement = (fileName: string | null | undefined) => fileName?.startsWith('service-agreement');
+  const isUnsignedAgreementName = (fileName: string | null | undefined) => fileName?.startsWith('service-agreement-unsigned-');
+  const agreementStatus = (doc: any) => {
+    if (!isServiceAgreement(doc.fileName)) return doc.uploadStatus;
+    if (doc.uploadStatus === 'uploaded') return 'Signed';
+    return isUnsignedAgreementName(doc.fileName) ? 'Unsigned' : 'Signed';
+  };
+  const agreementDocs = allDocs.filter((d) => isServiceAgreement(d.fileName));
+  const activeAgreement = agreementDocs[0] ?? null;
+  const canResendAgreementRequest = Boolean(
+    activeAgreement &&
+    activeAgreement.uploadStatus !== 'uploaded' &&
+    isUnsignedAgreementName(activeAgreement.fileName),
+  );
+  const visibleDocs = allDocs;
+  const addAgreement = () => {
+    const primaryLocation =
+      (cust.serviceLocations ?? []).find((l: any) => l.isPrimary) ??
+      (cust.serviceLocations ?? [])[0];
+    if (!primaryLocation?.addressLine1 || !primaryLocation?.city || !primaryLocation?.state || !primaryLocation?.postalCode) {
+      Alert.alert('Service location required', 'Add a valid service location before creating a new agreement.');
+      return;
+    }
+    const payload = {
+      firstName: cust.firstName,
+      lastName: cust.lastName,
+      company: cust.company ?? null,
+      email: cust.email ?? null,
+      phone: cust.phone ?? null,
+      customerType: cust.customerType,
+      billingAddressLine1: cust.billingAddressLine1 ?? null,
+      billingCity: cust.billingCity ?? null,
+      billingState: cust.billingState ?? null,
+      billingPostalCode: cust.billingPostalCode ?? null,
+      serviceLocation: {
+        addressLine1: primaryLocation.addressLine1,
+        city: primaryLocation.city,
+        state: primaryLocation.state,
+        postalCode: primaryLocation.postalCode,
+      },
+    };
+    router.push({
+      pathname: '/customer/agreement',
+      params: { payload: JSON.stringify(payload), customerId: id },
+    });
+  };
+  const resendAgreementRequest = async () => {
+    if (!cust.email) {
+      Alert.alert('Customer email required', 'This customer needs an email address before sending a signature request.');
+      return;
+    }
+    setBusy(true);
+    try {
+      await api('/communications/agreement-review-request', {
+        method: 'POST',
+        body: { customerId: id },
+      });
+      void qc.invalidateQueries({ queryKey: ['customerComms', id] });
+      Alert.alert('Sent', 'Agreement review/signature email was sent again.');
+    } catch (e) {
+      Alert.alert('Error', (e as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  };
 
   return (
     <View style={{ flex: 1 }}>
@@ -464,7 +546,7 @@ export default function CustomerScreen() {
                 <Row>
                   <View>
                     <Value style={{ fontWeight: '700' }}>
-                      {m.brand === 'Bank Account' ? 'Bank Account' : m.brand} •••• {m.last4}
+                      {m.brand === 'Bank Account' ? 'Bank Account' : m.brand} •••• {maskedLast4(m.last4)}
                     </Value>
                     <Text style={styles.metaText}>
                       {m.brand === 'Bank Account'
@@ -518,28 +600,53 @@ export default function CustomerScreen() {
             ))
           ))}
         {tab === 'Documents' &&
-          ((docs?.items?.length ?? 0) === 0 ? (
-            <EmptyState title="No documents" subtitle="Signed agreements and uploads appear here." />
-          ) : (
-            docs!.items.map((d) => (
-              <TouchableOpacity key={d.id} onPress={() => openDocument(d.id)}>
+          (
+            <>
+              {canResendAgreementRequest && hasPermission('customers:write') ? (
                 <Card>
-                  <Row>
-                    <View style={{ flexDirection: 'row', alignItems: 'center', flex: 1 }}>
-                      <Text style={{ fontSize: 20, marginRight: 10 }}>📄</Text>
-                      <View style={{ flex: 1 }}>
-                        <Text style={{ fontWeight: '700', color: colors.text, fontSize: 15 }} numberOfLines={1}>
-                          {d.fileName?.startsWith('service-agreement') ? 'Service Agreement' : d.fileName}
-                        </Text>
-                        <Text style={styles.metaText}>{fmtDate(d.createdAt)}</Text>
-                      </View>
-                    </View>
-                    <Text style={{ color: colors.primaryDark, fontWeight: '800' }}>View</Text>
-                  </Row>
+                  <Text style={styles.metaText}>Customer has not signed yet.</Text>
+                  <Button title="Resend Signature Email" variant="outline" onPress={resendAgreementRequest} loading={busy} />
                 </Card>
-              </TouchableOpacity>
-            ))
-          ))}
+              ) : null}
+              {hasPermission('customers:write') ? (
+                <Card>
+                  <Text style={styles.metaText}>Need to change services? Create a new agreement version.</Text>
+                  <Button title="+ Add Agreement" onPress={addAgreement} />
+                </Card>
+              ) : null}
+              {visibleDocs.length === 0 ? (
+                <EmptyState title="No documents" subtitle="Signed agreements and uploads appear here." />
+              ) : (
+                <>
+              {visibleDocs.map((d) => (
+                <TouchableOpacity key={d.id} onPress={() => openDocument(d.id, d.uploadStatus, d.fileName)}>
+                  <Card>
+                    <Row>
+                      <View style={{ flexDirection: 'row', alignItems: 'center', flex: 1 }}>
+                        <Text style={{ fontSize: 20, marginRight: 10 }}>📄</Text>
+                        <View style={{ flex: 1 }}>
+                          <Text style={{ fontWeight: '700', color: colors.text, fontSize: 15 }} numberOfLines={1}>
+                            {d.fileName?.startsWith('service-agreement') ? 'Service Agreement' : d.fileName}
+                          </Text>
+                          <Text style={styles.metaText}>{fmtDate(d.createdAt)}</Text>
+                        </View>
+                      </View>
+                      <View style={{ alignItems: 'flex-end' }}>
+                        <Text style={{ color: agreementStatus(d) === 'Signed' ? '#2A8F57' : '#B26B00', fontWeight: '800' }}>
+                          {isServiceAgreement(d.fileName) ? agreementStatus(d) : d.uploadStatus}
+                        </Text>
+                        <Text style={{ color: colors.primaryDark, fontWeight: '800', marginTop: 4 }}>
+                          {d.uploadStatus === 'uploaded' ? 'View' : 'Pending'}
+                        </Text>
+                      </View>
+                    </Row>
+                  </Card>
+                </TouchableOpacity>
+              ))}
+                </>
+              )}
+            </>
+          )}
       </ScrollView>
       <AddPaymentMethodModal
         visible={showAddCard}

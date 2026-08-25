@@ -59,16 +59,18 @@ interface LineItem {
 }
 
 export default function AgreementScreen() {
-  const { payload } = useLocalSearchParams<{ payload: string }>();
+  const { payload, customerId } = useLocalSearchParams<{ payload: string; customerId?: string }>();
   const router = useRouter();
   const qc = useQueryClient();
   const docRef = useRef<View>(null);
+  const existingCustomerId = typeof customerId === 'string' && customerId ? customerId : null;
 
   const [initials, setInitials] = useState('');
   const [agreed, setAgreed] = useState(false);
   const [busy, setBusy] = useState(false);
   const [signing, setSigning] = useState(false);
   const [signatureDataUrl, setSignatureDataUrl] = useState<string | null>(null);
+  const [sendForSignature, setSendForSignature] = useState(false);
 
   const [homeSizeIdx, setHomeSizeIdx] = useState<number | null>(null);
   const [yardOn, setYardOn] = useState(false);
@@ -158,24 +160,32 @@ export default function AgreementScreen() {
       Alert.alert('Enter square footage', 'Please enter the structure size for Web Removal.');
       return;
     }
-    if (!agreed) {
+    if (!agreed && !sendForSignature) {
       Alert.alert('Agreement required', 'Please check the box to accept the terms.');
       return;
     }
-    if (!initials.trim()) {
+    if (!sendForSignature && !initials.trim()) {
       Alert.alert('Initials required', 'Please enter your initials.');
       return;
     }
-    if (!signatureDataUrl) {
+    if (!sendForSignature && !signatureDataUrl) {
       Alert.alert('Signature required', 'Please sign the agreement before continuing.');
+      return;
+    }
+    if (sendForSignature && !data.email) {
+      Alert.alert('Customer email required', 'Add an email address on the customer details screen to send for review and signature.');
       return;
     }
     setBusy(true);
     try {
-      const created = await api<{ id: string }>('/customers', { method: 'POST', body: data });
+      const targetCustomerId =
+        existingCustomerId ??
+        (await api<{ id: string }>('/customers', { method: 'POST', body: data })).id;
+      let signatureRequestSent = !sendForSignature;
 
       const summary = [
         'SERVICE AGREEMENT',
+        sendForSignature ? 'Status: UNSIGNED (sent by email for review/signature)' : 'Status: SIGNED',
         ...lineItems.map((i) => `• ${i.label} — Initial ${money(i.initial)} / Regular ${money(i.regular)}`),
         `Initial Total: ${money(initialTotal)}`,
         `Recurring Total: ${money(regularTotal)}/service`,
@@ -185,39 +195,85 @@ export default function AgreementScreen() {
       ].join('\n');
       await api('/notes', {
         method: 'POST',
-        body: { customerId: created.id, body: summary, isInternal: false },
+        body: { customerId: targetCustomerId, body: summary, isInternal: false },
       }).catch(() => {});
 
-      try {
-        await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
-        const docUri = await captureView(docRef);
-        const fileName = `service-agreement-${Date.now()}.png`;
-        const localUri = await persistLocally(docUri, fileName);
+      if (sendForSignature) {
         try {
-          await uploadPendingPhoto({ localUri, fileType: 'document', fileName, mimeType: 'image/png', customerId: created.id });
+          await api('/files/upload-request', {
+            method: 'POST',
+            body: {
+              fileType: 'document',
+              fileName: `service-agreement-unsigned-${Date.now()}.pdf`,
+              mimeType: 'application/pdf',
+              customerId: targetCustomerId,
+            },
+          });
         } catch {
-          // Non-fatal; retryable later.
+          // Keep customer creation success even if document placeholder creation fails.
         }
-      } catch {
-        // Continue without image attachment when capture is unavailable.
+        try {
+          await api('/communications/agreement-review-request', {
+            method: 'POST',
+            body: { customerId: targetCustomerId },
+          });
+        } catch {
+          signatureRequestSent = false;
+        }
+      } else {
+        try {
+          await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
+          const docUri = await captureView(docRef);
+          const fileName = `service-agreement-${Date.now()}.png`;
+          const localUri = await persistLocally(docUri, fileName);
+          try {
+            await uploadPendingPhoto({ localUri, fileType: 'document', fileName, mimeType: 'image/png', customerId: targetCustomerId });
+          } catch {
+            // Non-fatal; retryable later.
+          }
+        } catch {
+          // Continue without image attachment when capture is unavailable.
+        }
       }
 
       void qc.invalidateQueries({ queryKey: ['customers'] });
-      Alert.alert(
-        'Agreement Signed',
-        `${name} has been added and the signed agreement was saved.\n\nAdd a payment method now so billing and AutoPay are ready.`,
-        [
-          { text: 'Later', style: 'cancel', onPress: () => router.replace(`/customer/${created.id}`) },
-          {
-            text: 'Add Payment Method',
-            onPress: () =>
-              router.replace({
-                pathname: '/customer/[id]',
-                params: { id: created.id, tab: 'Payment Methods', promptPayment: '1' },
-              }),
-          },
-        ],
-      );
+      void qc.invalidateQueries({ queryKey: ['customer', targetCustomerId] });
+      void qc.invalidateQueries({ queryKey: ['customerDocs', targetCustomerId] });
+      void qc.invalidateQueries({ queryKey: ['customerNotes', targetCustomerId] });
+      void qc.invalidateQueries({ queryKey: ['customerComms', targetCustomerId] });
+      if (sendForSignature) {
+        Alert.alert(
+          signatureRequestSent ? 'Agreement Sent for Signature' : 'Agreement Created',
+          signatureRequestSent
+            ? (existingCustomerId
+              ? `${name}'s updated agreement was added. It is marked Unsigned in Documents and an email request was sent.`
+              : `${name} was created. The agreement is now marked Unsigned in Documents and an email request was sent.`)
+            : (existingCustomerId
+              ? `${name}'s updated agreement was added, but the signature email could not be sent. Use Resend Signature Email in Documents.`
+              : `${name} was created and agreement is marked Unsigned, but the signature email could not be sent. Use Resend Signature Email in Documents.`),
+          [{ text: 'OK', onPress: () => router.replace(`/customer/${targetCustomerId}?tab=Documents`) }],
+        );
+      } else {
+        Alert.alert(
+          'Agreement Signed',
+          existingCustomerId
+            ? `${name}'s updated signed agreement was saved.`
+            : `${name} has been added and the signed agreement was saved.\n\nAdd a payment method now so billing and AutoPay are ready.`,
+          existingCustomerId
+            ? [{ text: 'OK', onPress: () => router.replace(`/customer/${targetCustomerId}?tab=Documents`) }]
+            : [
+                { text: 'Later', style: 'cancel', onPress: () => router.replace(`/customer/${targetCustomerId}`) },
+                {
+                  text: 'Add Payment Method',
+                  onPress: () =>
+                    router.replace({
+                      pathname: '/customer/[id]',
+                      params: { id: targetCustomerId, tab: 'Payment Methods', promptPayment: '1' },
+                    }),
+                },
+              ],
+        );
+      }
     } catch (e) {
       Alert.alert('Error', (e as Error).message);
     } finally {
@@ -367,6 +423,7 @@ export default function AgreementScreen() {
           </View>
 
           <Text style={styles.docTitle}>SERVICE AGREEMENT</Text>
+          {sendForSignature ? <Text style={styles.pendingBanner}>Pending customer signature</Text> : null}
 
           <View style={styles.twoCol}>
             <View style={styles.col}>
@@ -461,25 +518,36 @@ export default function AgreementScreen() {
 
         {/* ---------- Controls ---------- */}
         <View style={styles.controls}>
-          <Text style={styles.controlLabel}>Your Initials</Text>
-          <TextInput
-            style={styles.input}
-            value={initials}
-            onChangeText={(t) => setInitials(t.slice(0, 4))}
+        <TouchableOpacity style={styles.agreeRow} onPress={() => setSendForSignature((v) => !v)} activeOpacity={0.7}>
+          <View style={[styles.checkbox, sendForSignature && styles.checkboxOn]}>
+            {sendForSignature && <Ionicons name="checkmark" size={16} color="#0D0D0D" />}
+          </View>
+          <Text style={styles.agreeText}>Send to customer email to review and sign (creates Unsigned document).</Text>
+        </TouchableOpacity>
+        {sendForSignature ? (
+          <Text style={styles.sendHint}>When the customer signs and uploads the agreement, this document will show Signed.</Text>
+        ) : null}
+        <Text style={styles.controlLabel}>Your Initials</Text>
+        <TextInput
+          style={styles.input}
+          value={initials}
+          onChangeText={(t) => setInitials(t.slice(0, 4))}
             autoCapitalize="characters"
             placeholder="e.g. JS"
             placeholderTextColor={colors.textMuted}
             maxLength={4}
           />
-          <TouchableOpacity style={styles.clearBtn} onPress={() => setSigning(true)}>
+          <TouchableOpacity style={styles.clearBtn} onPress={() => setSigning(true)} disabled={sendForSignature}>
             <Ionicons name="create-outline" size={16} color={colors.primaryDark} />
-            <Text style={styles.clearBtnText}>{signatureDataUrl ? 'Re-Sign' : 'Sign Agreement'}</Text>
+            <Text style={[styles.clearBtnText, sendForSignature && { opacity: 0.5 }]}>
+              {signatureDataUrl ? 'Re-Sign' : 'Sign Agreement'}
+            </Text>
           </TouchableOpacity>
-          <TouchableOpacity style={styles.agreeRow} onPress={() => setAgreed((v) => !v)} activeOpacity={0.7}>
+          <TouchableOpacity style={styles.agreeRow} onPress={() => setAgreed((v) => !v)} activeOpacity={0.7} disabled={sendForSignature}>
             <View style={[styles.checkbox, agreed && styles.checkboxOn]}>
               {agreed && <Ionicons name="checkmark" size={16} color="#0D0D0D" />}
             </View>
-            <Text style={styles.agreeText}>I have read and accept the terms of this service agreement.</Text>
+            <Text style={[styles.agreeText, sendForSignature && { opacity: 0.5 }]}>I have read and accept the terms of this service agreement.</Text>
           </TouchableOpacity>
         </View>
       </ScrollView>
@@ -487,7 +555,17 @@ export default function AgreementScreen() {
       <View style={styles.bottomBar}>
         <TouchableOpacity style={[styles.submitBtn, busy && { opacity: 0.6 }]} onPress={submit} disabled={busy} activeOpacity={0.85}>
           <Ionicons name="checkmark-circle" size={20} color="#0D0D0D" />
-          <Text style={styles.submitText}>{busy ? 'Saving…' : 'Agree & Create Customer'}</Text>
+          <Text style={styles.submitText}>
+            {busy
+              ? 'Saving…'
+              : existingCustomerId
+                ? sendForSignature
+                  ? 'Save Agreement & Send for Signature'
+                  : 'Save Signed Agreement'
+                : sendForSignature
+                  ? 'Create Customer & Send for Signature'
+                  : 'Agree & Create Customer'}
+          </Text>
         </TouchableOpacity>
       </View>
 
@@ -638,6 +716,14 @@ const styles = StyleSheet.create({
   brandContact: { alignItems: 'flex-end' },
   brandContactLine: { color: '#B9C9C5', fontSize: 9, lineHeight: 13 },
   docTitle: { textAlign: 'center', fontSize: 18, fontWeight: '900', color: colors.text, marginTop: 14, marginBottom: 12, letterSpacing: 1 },
+  pendingBanner: {
+    textAlign: 'center',
+    color: '#B26B00',
+    fontSize: 12,
+    fontWeight: '800',
+    marginTop: -4,
+    marginBottom: 10,
+  },
   twoCol: { flexDirection: 'row', marginHorizontal: -4 },
   col: { flex: 1, marginHorizontal: 4 },
   sectionBar: { backgroundColor: colors.primary, color: '#0D0D0D', fontWeight: '800', fontSize: 12, textAlign: 'center', paddingVertical: 4, borderRadius: 4, marginBottom: 6 },
@@ -672,6 +758,7 @@ const styles = StyleSheet.create({
   checkbox: { width: 24, height: 24, borderRadius: 6, borderWidth: 2, borderColor: colors.primary, alignItems: 'center', justifyContent: 'center' },
   checkboxOn: { backgroundColor: colors.primary },
   agreeText: { flex: 1, fontSize: 13, color: colors.text, lineHeight: 18, marginLeft: 10 },
+  sendHint: { fontSize: 12, color: colors.textMuted, marginTop: 8, marginBottom: 8 },
   bottomBar: { padding: 14, backgroundColor: '#fff', borderTopWidth: 1, borderColor: colors.border },
   submitBtn: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', backgroundColor: colors.primary, borderRadius: 14, paddingVertical: 15 },
   submitText: { color: '#0D0D0D', fontWeight: '900', fontSize: 16, marginLeft: 8 },

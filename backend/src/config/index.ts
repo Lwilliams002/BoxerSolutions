@@ -28,6 +28,14 @@ export const config = {
     provider: process.env.PAYMENT_PROVIDER ?? 'mock',
     secretKey: process.env.PAYMENT_SECRET_KEY ?? '',
   },
+  email: {
+    provider: process.env.EMAIL_PROVIDER ?? 'mock',
+    from: process.env.EMAIL_FROM ?? '',
+    replyTo: process.env.EMAIL_REPLY_TO ?? '',
+    sesRegion: process.env.EMAIL_SES_REGION ?? process.env.AWS_REGION ?? 'us-east-1',
+    sesAccessKeyId: process.env.EMAIL_SES_ACCESS_KEY_ID ?? process.env.AWS_ACCESS_KEY_ID ?? '',
+    sesSecretAccessKey: process.env.EMAIL_SES_SECRET_ACCESS_KEY ?? process.env.AWS_SECRET_ACCESS_KEY ?? '',
+  },
   north: {
     functionsBaseUrl: process.env.NORTH_FUNCTIONS_BASE_URL ?? 'https://proxy.payanywhere.com',
     billingBaseUrl: process.env.NORTH_BILLING_BASE_URL ?? 'https://billing.epxuap.com',

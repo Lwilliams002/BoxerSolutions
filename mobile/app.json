@@ -1,7 +1,7 @@
 {
   "expo": {
-    "name": "Boxer Solutions",
-    "slug": "boxer-solutions",
+    "name": "Boxer Solutions Pest Control",
+    "slug": "boxersolutionspestcontrol",
     "version": "1.0.1",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
@@ -40,7 +40,7 @@
       [
         "expo-image-picker",
         {
-          "cameraPermission": "Allow Boxer Solutions to take service photos."
+          "cameraPermission": "Allow Boxer Solutions Pest Control to take service photos."
         }
       ],
       [
@@ -50,7 +50,7 @@
         }
       ]
     ],
-    "scheme": "boxersolutions",
+    "scheme": "boxersolutionspestcontrol",
     "splash": {
       "image": "./assets/splash-icon.png",
       "resizeMode": "contain",

@@ -1,12 +1,12 @@
 // Boxer Solutions Pest Control brand palette
 // Teal: #2DC4A2  |  Black: #0D0D0D  |  White: #FFFFFF
 export const company = {
-  name: 'Boxer Solutions',
+  name: 'Boxer Solutions Pest Control',
   tagline: 'Pest Control',
   addressLine1: '2500 Bee Cave Rd',
   addressLine2: 'Austin, TX 78746',
   phone: '(512) 555-0142',
-  email: 'service@boxersolutions.com',
+  email: 'service@boxersolutionspestcontrol.com',
   license: 'License #: TPCL-0099421',
 };
 

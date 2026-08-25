@@ -13,7 +13,7 @@ const COMPANY = {
   name: 'Boxer Solutions Pest Control',
   address: '2500 Bee Cave Rd, Austin, TX 78746',
   phone: '(512) 555-0142',
-  email: 'service@boxersolutions.com',
+  email: 'service@boxersolutionspestcontrol.com',
 };
 
 type ChargeSource = 'manual' | 'autopay';
@@ -25,6 +25,12 @@ function money(value: string | number | null | undefined) {
 function todayIso() {
   const d = new Date();
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+
+function normalizeLast4(value: unknown) {
+  if (value == null) return null;
+  const digits = String(value).replace(/\D/g, '');
+  return digits.slice(-4);
 }
 
 function invoiceStatusFor(total: number, paid: number, dueDate?: string | Date | null) {
@@ -99,7 +105,9 @@ export const paymentService = {
 
   async listMethods(customerId: string) {
     const { rows } = await pool.query(
-      `SELECT id, customer_id, payment_provider, method_type, brand, last4, expiration_month, expiration_year, is_default, created_at
+      `SELECT id, customer_id, payment_provider, method_type, brand,
+              right(coalesce(last4::text, ''), 4) AS last4,
+              expiration_month, expiration_year, is_default, created_at
        FROM payment_methods WHERE customer_id = $1 AND deleted_at IS NULL ORDER BY is_default DESC, created_at DESC`,
       [customerId],
     );
@@ -121,7 +129,7 @@ export const paymentService = {
         `INSERT INTO payment_methods (customer_id, payment_provider, provider_payment_method_id, brand, last4, expiration_month, expiration_year, is_default)
          VALUES ($1,$2,$3,$4,$5,$6,$7,$8) RETURNING id, customer_id, payment_provider, brand, last4, expiration_month, expiration_year, is_default`,
         [customerId, paymentProvider.name, tokenized.providerPaymentMethodId, tokenized.brand,
-         tokenized.last4, tokenized.expirationMonth, tokenized.expirationYear, setDefault],
+         normalizeLast4(tokenized.last4), tokenized.expirationMonth, tokenized.expirationYear, setDefault],
       );
       await recordAudit({ userId, action: 'payment_method.added', entityType: 'payment_method', entityId: rows[0].id, newValue: { brand: tokenized.brand, last4: tokenized.last4 } }, tx);
       return toCamel(rows[0]);
@@ -359,7 +367,7 @@ export const paymentService = {
     const { rows } = await pool.query(
       `SELECT p.*, (p.amount - p.refunded_amount) AS remaining_refundable_amount,
               i.invoice_number, c.first_name || ' ' || c.last_name AS customer_name,
-              pm.brand, pm.last4
+              pm.brand, right(coalesce(pm.last4::text, ''), 4) AS last4
        FROM payments p
        LEFT JOIN invoices i ON i.id = p.invoice_id
        JOIN customers c ON c.id = p.customer_id

@@ -26,4 +26,21 @@ router.get(
   }),
 );
 
+router.post(
+  '/agreement-review-request',
+  authorize('customers:write'),
+  asyncHandler(async (req, res) => {
+    const body = z.object({
+      customerId: z.string().uuid(),
+      reviewUrl: z.string().url().nullish(),
+    }).parse(req.body);
+    ok(
+      res,
+      await communicationService.sendAgreementReviewRequest(body.customerId, req.user!.id, body.reviewUrl ?? null),
+      'Agreement review request sent',
+      201,
+    );
+  }),
+);
+
 export default router;

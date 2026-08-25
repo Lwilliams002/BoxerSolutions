@@ -1,4 +1,6 @@
 import { pool } from '../../config/db';
+import { config } from '../../config';
+import { SESv2Client, SendEmailCommand } from '@aws-sdk/client-sesv2';
 import { logger } from '../../utils/logger';
 
 /**
@@ -81,6 +83,42 @@ class MockEmailProvider implements OutboundMessageProvider {
   }
 }
 
+class SesEmailProvider implements OutboundMessageProvider {
+  name = 'aws-ses';
+  private client: SESv2Client;
+
+  constructor() {
+    this.client = new SESv2Client({
+      region: config.email.sesRegion,
+      ...(config.email.sesAccessKeyId && config.email.sesSecretAccessKey
+        ? {
+            credentials: {
+              accessKeyId: config.email.sesAccessKeyId,
+              secretAccessKey: config.email.sesSecretAccessKey,
+            },
+          }
+        : {}),
+    });
+  }
+
+  async send(payload: OutboundMessagePayload): Promise<void> {
+    if (!payload.to) throw new Error('Missing recipient email address for SES send');
+    if (!config.email.from) throw new Error('Missing EMAIL_FROM configuration for SES send');
+    const command = new SendEmailCommand({
+      FromEmailAddress: config.email.from,
+      ReplyToAddresses: config.email.replyTo ? [config.email.replyTo] : undefined,
+      Destination: { ToAddresses: [payload.to] },
+      Content: {
+        Simple: {
+          Subject: { Data: payload.subject ?? 'Service Update' },
+          Body: { Text: { Data: payload.body } },
+        },
+      },
+    });
+    await this.client.send(command);
+  }
+}
+
 class MockPushProvider implements OutboundMessageProvider {
   name = 'mock-push';
 
@@ -92,14 +130,19 @@ class MockPushProvider implements OutboundMessageProvider {
   }
 }
 
+const mockSmsProvider = new MockSmsProvider();
+const mockEmailProvider = new MockEmailProvider();
+const mockPushProvider = new MockPushProvider();
+const sesEmailProvider = new SesEmailProvider();
+
 export function getOutboundMessageProvider(channel: 'sms' | 'email' | 'push'): OutboundMessageProvider {
   switch (channel) {
     case 'sms':
-      return new MockSmsProvider();
+      return mockSmsProvider;
     case 'email':
-      return new MockEmailProvider();
+      return config.email.provider === 'ses' ? sesEmailProvider : mockEmailProvider;
     case 'push':
-      return new MockPushProvider();
+      return mockPushProvider;
   }
 }
 

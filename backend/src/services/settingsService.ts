@@ -41,4 +41,3 @@ export async function getCompanySettings(db: Queryable = pool): Promise<CompanyS
     appointmentReminderHours: readNumber(appointments.appointmentReminderHours ?? appointments.reminderHours, DEFAULT_SETTINGS.appointmentReminderHours),
   };
 }
-

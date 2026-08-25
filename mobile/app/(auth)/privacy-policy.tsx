@@ -61,7 +61,7 @@ export default function PrivacyPolicyScreen() {
 
         <Section title="Contact us">
           Boxer Solutions Pest Control{'\n'}
-          Email: service@boxersolutions.com{'\n'}
+          Email: service@boxersolutionspestcontrol.com{'\n'}
           Phone: (512) 555-0142
         </Section>
       </View>

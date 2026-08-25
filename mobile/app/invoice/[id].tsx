@@ -50,6 +50,12 @@ interface PaymentRow {
   remainingRefundableAmount?: string | null;
 }
 
+function maskedLast4(value: unknown) {
+  const digits = String(value ?? '').replace(/\D/g, '');
+  const last4 = digits.slice(-4);
+  return last4 || '••••';
+}
+
 export default function InvoiceScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const qc = useQueryClient();
@@ -95,7 +101,7 @@ export default function InvoiceScreen() {
   };
 
   const charge = async (method: Method) => {
-    Alert.alert('Collect Payment', `Charge ${money(inv!.balanceDue)} to ${method.brand} ****${method.last4}?`, [
+    Alert.alert('Collect Payment', `Charge ${money(inv!.balanceDue)} to ${method.brand} ****${maskedLast4(method.last4)}?`, [
       { text: 'Cancel', style: 'cancel' },
       {
         text: `Charge ${money(inv!.balanceDue)}`,
@@ -333,7 +339,7 @@ export default function InvoiceScreen() {
               <Row>
                 <View>
                   <Value style={{ fontWeight: '700' }}>
-                    {m.brand} **** {m.last4} {m.isDefault ? ' · DEFAULT' : ''}
+                    {m.brand} **** {maskedLast4(m.last4)} {m.isDefault ? ' · DEFAULT' : ''}
                   </Value>
                   <Text style={styles.itemMeta}>
                     Expires {String(m.expirationMonth).padStart(2, '0')}/{String(m.expirationYear).slice(-2)}

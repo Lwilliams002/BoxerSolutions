@@ -32,7 +32,7 @@ export default function MoreScreen() {
         <SectionTitle>Account</SectionTitle>
         <Card>
           <View style={styles.brandRow}>
-            <Text style={styles.brandName}>Boxer Solutions</Text>
+            <Text style={styles.brandName}>Boxer Solutions Pest Control</Text>
             <Text style={styles.brandSub}>Pest Control</Text>
           </View>
           <Label>Signed in as</Label>
