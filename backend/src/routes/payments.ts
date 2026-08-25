@@ -1,4 +1,6 @@
 import { Router } from 'express';
+import fs from 'fs/promises';
+import path from 'path';
 import { z } from 'zod';
 import { authenticate, authorize } from '../middleware/auth';
 import { technicianScope, assertInvoiceAccess, assertCustomerAccess } from '../middleware/scope';
@@ -10,8 +12,42 @@ import { pool } from '../config/db';
 import { northGatewayService } from '../services/northGatewayService';
 import { ApiError } from '../utils/errors';
 import { notifications } from '../integrations/notifications';
+import { logger } from '../utils/logger';
 
 const router = Router();
+
+router.get(
+  '/north/logo',
+  asyncHandler(async (_req, res) => {
+    const filePath = path.resolve(__dirname, '../../../mobile/assets/logo-mark.png');
+    const data = await fs.readFile(filePath);
+    res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
+    res.status(200).type('image/png').send(data);
+  }),
+);
+
+router.post(
+  '/north/webhook',
+  asyncHandler(async (req, res) => {
+    logger.info(
+      {
+        eventType: (req.body as { eventType?: string } | undefined)?.eventType ?? null,
+        hasBody: !!req.body,
+        signature: req.headers['x-signature'] ?? req.headers['north-signature'] ?? null,
+      },
+      'north webhook received',
+    );
+    ok(res, { received: true }, 'Webhook received');
+  }),
+);
+
+router.get(
+  '/north/webhook',
+  asyncHandler(async (_req, res) => {
+    ok(res, { status: 'ok' }, 'Webhook endpoint active');
+  }),
+);
+
 router.use(authenticate);
 
 router.get(
