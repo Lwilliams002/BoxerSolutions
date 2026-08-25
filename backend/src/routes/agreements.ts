@@ -14,6 +14,80 @@ function htmlEscape(value: string) {
     .replace(/'/g, '&#39;');
 }
 
+function money(value: number) {
+  return `$${value.toFixed(2)}`;
+}
+
+function renderAgreementDocument(ctx: Awaited<ReturnType<typeof agreementSigningService.getSigningContext>>) {
+  const serviceRows = ctx.agreement?.lineItems?.length
+    ? ctx.agreement.lineItems.map((item) => `
+      <tr>
+        <td style="padding:10px;border-bottom:1px solid #E5EEEC;color:#0D0D0D;">${htmlEscape(item.label)}</td>
+        <td style="padding:10px;border-bottom:1px solid #E5EEEC;color:#0D0D0D;text-align:right;">${money(item.initial)}</td>
+        <td style="padding:10px;border-bottom:1px solid #E5EEEC;color:#0D0D0D;text-align:right;">${money(item.regular)}</td>
+      </tr>
+    `).join('')
+    : `<tr><td colspan="3" style="padding:12px;color:#607D78;">No service pricing details were found for this agreement.</td></tr>`;
+
+  const pests = ctx.agreement?.coveredPests?.length
+    ? ctx.agreement.coveredPests.map((p) => `<span style="display:inline-block;margin:0 8px 8px 0;padding:6px 10px;border-radius:999px;background:#EAF8F5;color:#0D0D0D;font-size:13px;">${htmlEscape(p)}</span>`).join('')
+    : '<p style="color:#607D78;margin:0;">No covered pests were listed.</p>';
+
+  const termMonths = ctx.agreement?.termMonths ?? 12;
+  const initialTotal = ctx.agreement?.initialTotal != null ? money(ctx.agreement.initialTotal) : '—';
+  const recurringTotal = ctx.agreement?.recurringTotal != null ? `${money(ctx.agreement.recurringTotal)}/service` : '—';
+  const customerType = ctx.customerType ? `${ctx.customerType.slice(0, 1).toUpperCase()}${ctx.customerType.slice(1)} Account` : 'Account';
+
+  return `
+  <div style="border:1px solid #D5EDE9;border-radius:12px;padding:20px;background:#FFFFFF;">
+    <h3 style="margin:0 0 4px 0;color:#0D0D0D;">SERVICE AGREEMENT</h3>
+    ${ctx.alreadySigned ? '<p style="margin:0 0 14px 0;color:#2E7D32;font-weight:600;">Already signed</p>' : '<p style="margin:0 0 14px 0;color:#C62828;font-weight:600;">Pending customer signature</p>'}
+
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:12px;">
+      <div style="background:#F8FCFB;border:1px solid #E3F3EF;border-radius:8px;padding:10px;">
+        <p style="margin:0 0 6px 0;font-size:12px;color:#607D78;font-weight:700;">Service Address</p>
+        <p style="margin:0;color:#0D0D0D;">${ctx.serviceAddress ? htmlEscape(ctx.serviceAddress) : 'Not provided'}</p>
+      </div>
+      <div style="background:#F8FCFB;border:1px solid #E3F3EF;border-radius:8px;padding:10px;">
+        <p style="margin:0 0 6px 0;font-size:12px;color:#607D78;font-weight:700;">Customer Information</p>
+        <p style="margin:0;color:#0D0D0D;">${ctx.customerEmail ? htmlEscape(ctx.customerEmail) : 'No email on file'}</p>
+        <p style="margin:4px 0 0 0;color:#0D0D0D;">${ctx.customerPhone ? htmlEscape(ctx.customerPhone) : 'No phone on file'}</p>
+        <p style="margin:4px 0 0 0;color:#0D0D0D;">${htmlEscape(customerType)}</p>
+      </div>
+    </div>
+
+    <h4 style="margin:16px 0 8px 0;color:#0D0D0D;">Services & Pricing</h4>
+    <table style="width:100%;border-collapse:collapse;border:1px solid #E5EEEC;border-radius:8px;overflow:hidden;">
+      <thead>
+        <tr style="background:#F3F9F7;">
+          <th style="text-align:left;padding:10px;color:#30433F;">Service</th>
+          <th style="text-align:right;padding:10px;color:#30433F;">Initial</th>
+          <th style="text-align:right;padding:10px;color:#30433F;">Regular</th>
+        </tr>
+      </thead>
+      <tbody>${serviceRows}</tbody>
+      <tfoot>
+        <tr style="background:#F9FCFB;">
+          <td style="padding:10px;color:#30433F;font-weight:700;">TOTAL</td>
+          <td style="padding:10px;color:#30433F;text-align:right;font-weight:700;">${initialTotal}</td>
+          <td style="padding:10px;color:#30433F;text-align:right;font-weight:700;">${recurringTotal}</td>
+        </tr>
+      </tfoot>
+    </table>
+
+    <h4 style="margin:16px 0 8px 0;color:#0D0D0D;">Covered Pests</h4>
+    <div>${pests}</div>
+
+    <h4 style="margin:16px 0 8px 0;color:#0D0D0D;">Terms & Conditions</h4>
+    <p style="margin:0 0 8px 0;color:#30433F;line-height:1.5;">
+      This agreement is for an initial period of ${termMonths} month(s). You, the customer, may cancel this transaction any time prior to midnight of the third business day after the date of this transaction by giving written notice of cancellation to Boxer Solutions Pest Control. Upon completion of the initial service, the customer agrees to pay the full initial service charge. Recurring treatments continue at the agreed frequency until canceled by the customer. Boxer Solutions Pest Control will re-treat at no additional charge between scheduled visits if covered pest activity persists.
+    </p>
+    <p style="margin:0;color:#30433F;line-height:1.5;">
+      I have read and agree to the terms and conditions of this agreement, including any additional disclosures listed above. I confirm my contact information is entered correctly and agree to receive account notifications electronically.
+    </p>
+  </div>`;
+}
+
 router.get(
   '/sign',
   asyncHandler(async (req, res) => {
@@ -22,11 +96,12 @@ router.get(
     const title = ctx.alreadySigned ? 'Agreement Already Signed' : 'Review and Sign Agreement';
     const body = ctx.alreadySigned
       ? `The agreement for ${htmlEscape(ctx.customerName)} is already signed.`
-      : `Please confirm to sign the agreement for ${htmlEscape(ctx.customerName)}.`;
+      : `Please review the full agreement below before signing for ${htmlEscape(ctx.customerName)}.`;
     const action = ctx.alreadySigned
       ? ''
       : `
-      <form id="sign-form" style="margin-top:16px;">
+      <form id="sign-form" style="margin-top:16px;border:1px solid #D5EDE9;border-radius:12px;padding:16px;background:#fff;">
+        <h4 style="margin:0 0 12px 0;color:#0D0D0D;">Customer Signature</h4>
         <label style="display:block;margin-bottom:8px;color:#0D0D0D;font-weight:600;">Full Name</label>
         <input id="signerName" type="text" maxlength="120" style="width:100%;padding:10px;border:1px solid #CBD7D4;border-radius:8px;margin-bottom:12px;" />
         <label style="display:block;margin-bottom:8px;color:#0D0D0D;font-weight:600;">Initials (1-4 letters)</label>
@@ -146,6 +221,7 @@ router.get(
     <div style="max-width:520px;margin:0 auto;background:#fff;border:1px solid #D5EDE9;border-radius:12px;padding:20px;">
       <h2 style="margin-top:0;color:#0D0D0D;">${title}</h2>
       <p style="color:#30433F;line-height:1.5;">${body}</p>
+      ${renderAgreementDocument(ctx)}
       ${action}
     </div>
   </body>
