@@ -133,18 +133,21 @@ router.get(
           const signerInput = document.getElementById('signerName');
           const initialsInput = document.getElementById('initials');
           const acceptEl = document.getElementById('acceptTerms');
+          if (!canvas || !form || !clearBtn || !errorEl || !signerInput || !initialsInput || !acceptEl) return;
           const ctx2d = canvas.getContext('2d');
-          if (!canvas || !ctx2d || !form || !clearBtn || !errorEl || !signerInput || !initialsInput || !acceptEl) return;
+          if (!ctx2d) return;
           let drawing = false;
           let hasStroke = false;
           let activePointerId = null;
+          let dpr = 1;
 
           function sizeCanvas() {
             const rect = canvas.getBoundingClientRect();
-            const dpr = window.devicePixelRatio || 1;
+            dpr = window.devicePixelRatio || 1;
             canvas.width = Math.max(1, Math.floor(rect.width * dpr));
             canvas.height = Math.max(1, Math.floor(rect.height * dpr));
-            ctx2d.setTransform(dpr, 0, 0, dpr, 0, 0);
+            ctx2d.setTransform(1, 0, 0, 1, 0, 0);
+            ctx2d.scale(dpr, dpr);
             ctx2d.lineWidth = 2;
             ctx2d.lineCap = 'round';
             ctx2d.lineJoin = 'round';
@@ -154,47 +157,94 @@ router.get(
           sizeCanvas();
           window.addEventListener('resize', sizeCanvas);
 
-          function point(e) {
+          function point(clientX, clientY) {
             const rect = canvas.getBoundingClientRect();
-            const x = (e.clientX - rect.left);
-            const y = (e.clientY - rect.top);
+            const x = clientX - rect.left;
+            const y = clientY - rect.top;
             return { x, y };
+          }
+
+          function startAt(clientX, clientY) {
+            drawing = true;
+            const p = point(clientX, clientY);
+            ctx2d.beginPath();
+            ctx2d.moveTo(p.x, p.y);
+          }
+
+          function moveAt(clientX, clientY) {
+            if (!drawing) return;
+            const p = point(clientX, clientY);
+            ctx2d.lineTo(p.x, p.y);
+            ctx2d.stroke();
+            hasStroke = true;
+          }
+
+          function endStroke() {
+            drawing = false;
           }
 
           function startPointer(e) {
             if (activePointerId !== null && activePointerId !== e.pointerId) return;
             activePointerId = e.pointerId;
-            drawing = true;
-            const p = point(e);
-            ctx2d.beginPath();
-            ctx2d.moveTo(p.x, p.y);
+            e.preventDefault();
+            startAt(e.clientX, e.clientY);
             if (canvas.setPointerCapture) canvas.setPointerCapture(e.pointerId);
           }
           function movePointer(e) {
             if (activePointerId !== e.pointerId) return;
-            if (!drawing) return;
-            const p = point(e);
-            ctx2d.lineTo(p.x, p.y);
-            ctx2d.stroke();
-            hasStroke = true;
+            e.preventDefault();
+            moveAt(e.clientX, e.clientY);
           }
           function endPointer(e) {
             if (activePointerId !== e.pointerId) return;
-            drawing = false;
+            e.preventDefault();
+            endStroke();
             activePointerId = null;
             if (canvas.releasePointerCapture) {
               try { canvas.releasePointerCapture(e.pointerId); } catch (_) {}
             }
           }
 
-          canvas.addEventListener('pointerdown', startPointer);
-          canvas.addEventListener('pointermove', movePointer);
-          canvas.addEventListener('pointerup', endPointer);
-          canvas.addEventListener('pointercancel', endPointer);
-          canvas.addEventListener('pointerleave', endPointer);
+          if (window.PointerEvent) {
+            canvas.addEventListener('pointerdown', startPointer);
+            canvas.addEventListener('pointermove', movePointer);
+            canvas.addEventListener('pointerup', endPointer);
+            canvas.addEventListener('pointercancel', endPointer);
+          } else {
+            canvas.addEventListener('mousedown', function(e) {
+              e.preventDefault();
+              startAt(e.clientX, e.clientY);
+            });
+            canvas.addEventListener('mousemove', function(e) {
+              e.preventDefault();
+              moveAt(e.clientX, e.clientY);
+            });
+            window.addEventListener('mouseup', function() {
+              endStroke();
+            });
+
+            canvas.addEventListener('touchstart', function(e) {
+              e.preventDefault();
+              if (!e.touches || !e.touches[0]) return;
+              startAt(e.touches[0].clientX, e.touches[0].clientY);
+            }, { passive: false });
+            canvas.addEventListener('touchmove', function(e) {
+              e.preventDefault();
+              if (!e.touches || !e.touches[0]) return;
+              moveAt(e.touches[0].clientX, e.touches[0].clientY);
+            }, { passive: false });
+            canvas.addEventListener('touchend', function(e) {
+              e.preventDefault();
+              endStroke();
+            }, { passive: false });
+            canvas.addEventListener('touchcancel', function(e) {
+              e.preventDefault();
+              endStroke();
+            }, { passive: false });
+          }
 
           clearBtn.addEventListener('click', function() {
-            ctx2d.clearRect(0, 0, canvas.clientWidth, canvas.clientHeight);
+            ctx2d.clearRect(0, 0, canvas.width / dpr, canvas.height / dpr);
             hasStroke = false;
           });
 
