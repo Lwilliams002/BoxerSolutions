@@ -208,11 +208,6 @@ export default function AgreementScreen() {
     setPriceOverrides((prev) => {
       const existing = prev[lineKey] ?? {};
       const nextEntry: PriceOverride = { ...existing, [field]: normalized };
-      const hasValue = (nextEntry.initial && nextEntry.initial.trim().length > 0) || (nextEntry.regular && nextEntry.regular.trim().length > 0);
-      if (!hasValue) {
-        const { [lineKey]: _removed, ...rest } = prev;
-        return rest;
-      }
       return { ...prev, [lineKey]: nextEntry };
     });
   };
