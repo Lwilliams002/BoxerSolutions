@@ -67,7 +67,7 @@ function signedAgreementPdf(data: {
     doc.text(`Initials: ${data.initials}`);
     doc.moveDown(1);
     doc.text('Signature:');
-    doc.image(data.signaturePng, { fit: [320, 120], align: 'left', valign: 'top' });
+    doc.image(data.signaturePng, { fit: [320, 120] });
     doc.moveDown(7);
     doc.text('This document confirms the customer reviewed and signed the agreement via secure email link.');
     doc.end();
