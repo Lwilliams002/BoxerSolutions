@@ -1,8 +1,17 @@
 import Constants from 'expo-constants';
 
 // Preferred override for every environment.
-const explicit = process.env.EXPO_PUBLIC_API_URL;
+const explicitRaw = process.env.EXPO_PUBLIC_API_URL;
 const PROD_API_BASE_URL = 'https://api.boxersolutionspestcontrol.com';
+
+function normalizeBaseUrl(value: string) {
+  let base = value.trim().replace(/\/+$/, '');
+  base = base.replace(/\/api\/v1$/i, '');
+  base = base.replace(/\/api$/i, '');
+  return base;
+}
+
+const explicit = explicitRaw ? normalizeBaseUrl(explicitRaw) : null;
 
 function inferHost(): string {
   // Expo dev server host — lets simulators/devices reach the API on the same machine.
