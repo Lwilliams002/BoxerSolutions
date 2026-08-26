@@ -178,6 +178,113 @@ function randomPassword() {
   return `${crypto.randomBytes(8).toString('base64url')}Aa1!`;
 }
 
+function isCognitoFlowConfigError(err: unknown) {
+  if (!(err instanceof CognitoServiceError)) return false;
+  return (
+    err.code === 'InvalidParameterException' &&
+    (err.message.includes('flow not enabled') ||
+      err.message.includes('Missing required parameter') ||
+      err.message.includes('Invalid auth flow'))
+  );
+}
+
+function errorMessage(err: unknown) {
+  return err instanceof Error ? err.message : String(err);
+}
+
+async function verifyWithUserPasswordAuth(
+  username: string,
+  password: string,
+  authParameters: Record<string, string>,
+) {
+  const result = await cognitoCall<InitiateAuthResponse>('InitiateAuth', {
+    AuthFlow: 'USER_PASSWORD_AUTH',
+    ClientId: config.cognito.userPoolClientId,
+    AuthParameters: authParameters,
+  });
+
+  if (!result.AuthenticationResult) throw ApiError.unauthorized('Invalid email or password');
+}
+
+async function verifyWithUserAuth(username: string, password: string, secret?: string) {
+  const authParameters: Record<string, string> = {
+    USERNAME: username,
+    PREFERRED_CHALLENGE: 'PASSWORD',
+    PASSWORD: password,
+  };
+  if (secret) authParameters.SECRET_HASH = secret;
+
+  const start = await cognitoCall<StartAuthResponse>('InitiateAuth', {
+    AuthFlow: 'USER_AUTH',
+    ClientId: config.cognito.userPoolClientId,
+    AuthParameters: authParameters,
+  });
+
+  let session = start.Session;
+  let challengeName = start.ChallengeName;
+  let authResult = start.AuthenticationResult;
+
+  if (challengeName === 'SELECT_CHALLENGE' && session) {
+    const challengeResponses: Record<string, string> = {
+      USERNAME: username,
+      ANSWER: 'PASSWORD',
+      PASSWORD: password,
+    };
+    if (secret) challengeResponses.SECRET_HASH = secret;
+
+    const selected = await cognitoCall<RespondChallengeResponse>('RespondToAuthChallenge', {
+      ClientId: config.cognito.userPoolClientId,
+      ChallengeName: 'SELECT_CHALLENGE',
+      Session: session,
+      ChallengeResponses: challengeResponses,
+    });
+    session = selected.Session;
+    challengeName = selected.ChallengeName;
+    authResult = selected.AuthenticationResult;
+  }
+
+  if (!authResult && challengeName === 'PASSWORD' && session) {
+    const challengeResponses: Record<string, string> = {
+      USERNAME: username,
+      PASSWORD: password,
+    };
+    if (secret) challengeResponses.SECRET_HASH = secret;
+
+    const challenged = await cognitoCall<RespondChallengeResponse>('RespondToAuthChallenge', {
+      ClientId: config.cognito.userPoolClientId,
+      ChallengeName: 'PASSWORD',
+      Session: session,
+      ChallengeResponses: challengeResponses,
+    });
+    authResult = challenged.AuthenticationResult;
+  }
+
+  if (!authResult) throw ApiError.unauthorized('Invalid email or password');
+}
+
+async function verifyWithAdminPasswordAuth(username: string, password: string, secret?: string) {
+  if (!config.cognito.userPoolId) {
+    throw new ApiError(502, 'Cognito employee login is missing COGNITO_USER_POOL_ID.');
+  }
+
+  const authParameters: Record<string, string> = {
+    USERNAME: username,
+    PASSWORD: password,
+  };
+  if (secret) authParameters.SECRET_HASH = secret;
+
+  const result = await adminClient.send(
+    new AdminInitiateAuthCommand({
+      UserPoolId: config.cognito.userPoolId,
+      ClientId: config.cognito.userPoolClientId,
+      AuthFlow: 'ADMIN_USER_PASSWORD_AUTH',
+      AuthParameters: authParameters,
+    }),
+  );
+
+  if (!result.AuthenticationResult) throw ApiError.unauthorized('Invalid email or password');
+}
+
 export const cognitoAuth = {
   async verifyUserPassword(username: string, password: string) {
     assertConfigured();
@@ -185,86 +292,33 @@ export const cognitoAuth = {
     const authParameters: Record<string, string> = { USERNAME: username, PASSWORD: password };
     if (secret) authParameters.SECRET_HASH = secret;
 
+    const flowErrors: string[] = [];
     try {
-      const result = await cognitoCall<InitiateAuthResponse>('InitiateAuth', {
-        AuthFlow: 'USER_PASSWORD_AUTH',
-        ClientId: config.cognito.userPoolClientId,
-        AuthParameters: authParameters,
-      });
-
-      if (!result.AuthenticationResult) throw ApiError.unauthorized('Invalid email or password');
+      await verifyWithUserPasswordAuth(username, password, authParameters);
+      return;
     } catch (err) {
-      if (
-        err instanceof CognitoServiceError &&
-        err.code === 'InvalidParameterException' &&
-        err.message.includes('USER_PASSWORD_AUTH flow not enabled')
-      ) {
-        const start = await cognitoCall<StartAuthResponse>('InitiateAuth', {
-          AuthFlow: 'USER_AUTH',
-          ClientId: config.cognito.userPoolClientId,
-          AuthParameters: {
-            USERNAME: username,
-            PREFERRED_CHALLENGE: 'PASSWORD',
-            PASSWORD: password,
-            ...(secret ? { SECRET_HASH: secret } : {}),
-          },
-        });
+      if (!isCognitoFlowConfigError(err)) throw toUnauthorized(err);
+      flowErrors.push(errorMessage(err));
+    }
 
-        let session = start.Session;
-        let challengeName = start.ChallengeName;
-        let authResult = start.AuthenticationResult;
+    try {
+      await verifyWithUserAuth(username, password, secret);
+      return;
+    } catch (err) {
+      if (!isCognitoFlowConfigError(err)) throw toUnauthorized(err);
+      flowErrors.push(errorMessage(err));
+    }
 
-        if (challengeName === 'SELECT_CHALLENGE' && session) {
-          const selected = await cognitoCall<RespondChallengeResponse>('RespondToAuthChallenge', {
-            ClientId: config.cognito.userPoolClientId,
-            ChallengeName: 'SELECT_CHALLENGE',
-            Session: session,
-            ChallengeResponses: {
-              USERNAME: username,
-              ANSWER: 'PASSWORD',
-              PASSWORD: password,
-              ...(secret ? { SECRET_HASH: secret } : {}),
-            },
-          });
-          session = selected.Session;
-          challengeName = selected.ChallengeName;
-          authResult = selected.AuthenticationResult;
-        }
-
-        if (!authResult && challengeName === 'PASSWORD' && session) {
-          const challenged = await cognitoCall<RespondChallengeResponse>('RespondToAuthChallenge', {
-            ClientId: config.cognito.userPoolClientId,
-            ChallengeName: 'PASSWORD',
-            Session: session,
-            ChallengeResponses: {
-              USERNAME: username,
-              PASSWORD: password,
-              ...(secret ? { SECRET_HASH: secret } : {}),
-            },
-          });
-          authResult = challenged.AuthenticationResult;
-        }
-
-        if (!authResult && config.cognito.userPoolId) {
-          const adminResult = await adminClient.send(
-            new AdminInitiateAuthCommand({
-              UserPoolId: config.cognito.userPoolId,
-              ClientId: config.cognito.userPoolClientId,
-              AuthFlow: 'ADMIN_USER_PASSWORD_AUTH',
-              AuthParameters: {
-                USERNAME: username,
-                PASSWORD: password,
-                ...(secret ? { SECRET_HASH: secret } : {}),
-              },
-            }),
-          );
-          authResult = adminResult.AuthenticationResult;
-        }
-
-        if (!authResult) throw ApiError.unauthorized('Invalid email or password');
-        return;
-      }
-      throw toUnauthorized(err);
+    try {
+      await verifyWithAdminPasswordAuth(username, password, secret);
+    } catch (err) {
+      if (err instanceof ApiError) throw err;
+      if (!isCognitoFlowConfigError(err)) throw toUnauthorized(err);
+      flowErrors.push(errorMessage(err));
+      throw new ApiError(
+        502,
+        `Cognito employee login is misconfigured. Enable password auth on the app client or set COGNITO_USER_POOL_ID. Errors: ${flowErrors.join(' | ')}`,
+      );
     }
   },
 
