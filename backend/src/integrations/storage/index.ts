@@ -11,6 +11,7 @@ export interface StorageProvider {
   getUploadUrl(objectKey: string, mimeType: string, ttlSeconds?: number): Promise<string>;
   getDownloadUrl(objectKey: string, ttlSeconds?: number): Promise<string>;
   putObject(objectKey: string, body: Buffer, mimeType: string): Promise<void>;
+  getObject(objectKey: string): Promise<Buffer>;
   objectExists(objectKey: string): Promise<boolean>;
   deleteObject(objectKey: string): Promise<void>;
   bucket: string;
@@ -47,6 +48,13 @@ class S3CompatibleStorage implements StorageProvider {
     await this.client.send(
       new PutObjectCommand({ Bucket: this.bucket, Key: objectKey, Body: body, ContentType: mimeType }),
     );
+  }
+
+  async getObject(objectKey: string) {
+    const result = await this.client.send(new GetObjectCommand({ Bucket: this.bucket, Key: objectKey }));
+    if (!result.Body) return Buffer.alloc(0);
+    const bytes = await result.Body.transformToByteArray();
+    return Buffer.from(bytes);
   }
 
   async objectExists(objectKey: string) {

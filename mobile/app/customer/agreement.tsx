@@ -280,17 +280,31 @@ export default function AgreementScreen() {
 
       if (sendForSignature) {
         try {
-          await api('/files/upload-request', {
-            method: 'POST',
-            body: {
-              fileType: 'document',
-              fileName: `service-agreement-unsigned-${Date.now()}.pdf`,
-              mimeType: 'application/pdf',
-              customerId: targetCustomerId,
-            },
+          const docUri = await captureView(docRef);
+          const fileName = `service-agreement-unsigned-${Date.now()}.png`;
+          const localUri = await persistLocally(docUri, fileName);
+          await uploadPendingPhoto({
+            localUri,
+            fileType: 'document',
+            fileName,
+            mimeType: 'image/png',
+            customerId: targetCustomerId,
           });
         } catch {
-          // Keep customer creation success even if document placeholder creation fails.
+          // Fallback placeholder record so email signing can still proceed when capture is unavailable.
+          try {
+            await api('/files/upload-request', {
+              method: 'POST',
+              body: {
+                fileType: 'document',
+                fileName: `service-agreement-unsigned-${Date.now()}.pdf`,
+                mimeType: 'application/pdf',
+                customerId: targetCustomerId,
+              },
+            });
+          } catch {
+            // Keep customer creation success even if document placeholder creation fails.
+          }
         }
         try {
           await api('/communications/agreement-review-request', {
