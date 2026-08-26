@@ -94,6 +94,30 @@ function customerTypeLabel(raw: string | null | undefined) {
   return `${raw.slice(0, 1).toUpperCase()}${raw.slice(1)} Account`;
 }
 
+function parseClientSignedAt(raw: string | undefined) {
+  if (!raw) return null;
+  const parsed = new Date(raw);
+  if (Number.isNaN(parsed.getTime())) return null;
+  return parsed;
+}
+
+function formatSignedAtForAgreement(signedAt: Date, signerTimeZone: string | undefined) {
+  try {
+    return new Intl.DateTimeFormat('en-US', {
+      dateStyle: 'medium',
+      timeStyle: 'short',
+      timeZoneName: 'short',
+      ...(signerTimeZone ? { timeZone: signerTimeZone } : {}),
+    }).format(signedAt);
+  } catch {
+    return new Intl.DateTimeFormat('en-US', {
+      dateStyle: 'medium',
+      timeStyle: 'short',
+      timeZoneName: 'short',
+    }).format(signedAt);
+  }
+}
+
 async function buildSignedAgreementPdf(input: {
   customerName: string;
   customerEmail: string | null;
@@ -103,7 +127,7 @@ async function buildSignedAgreementPdf(input: {
   agreement: AgreementSnapshot | null;
   signerName: string;
   initials: string;
-  signedAt: Date;
+  signedAtLabel: string;
   signaturePng: Buffer;
 }) {
   const termMonths = input.agreement?.termMonths ?? AGREEMENT_TERM_MONTHS_DEFAULT;
@@ -171,7 +195,7 @@ async function buildSignedAgreementPdf(input: {
     doc.moveDown(0.9);
     doc.font('Helvetica-Bold').fontSize(11).fillColor('#0D0D0D').text('Customer Signature');
     doc.font('Helvetica').fontSize(10)
-      .text(`Signed at: ${input.signedAt.toLocaleString('en-US')}`)
+      .text(`Signed at: ${input.signedAtLabel}`)
       .text(`Signer Name: ${input.signerName}`)
       .text(`Initials: ${input.initials}`);
     doc.moveDown(0.5);
@@ -185,7 +209,7 @@ async function buildSignedAgreementPdfFromOriginalImage(input: {
   originalImage: Buffer;
   signerName: string;
   initials: string;
-  signedAt: Date;
+  signedAtLabel: string;
   signaturePng: Buffer;
   customerName: string;
 }) {
@@ -208,7 +232,7 @@ async function buildSignedAgreementPdfFromOriginalImage(input: {
     doc.moveDown(0.7);
     doc.font('Helvetica').fontSize(11).fillColor('#0D0D0D')
       .text(`Customer: ${input.customerName}`)
-      .text(`Signed at: ${input.signedAt.toLocaleString('en-US')}`)
+      .text(`Signed at: ${input.signedAtLabel}`)
       .text(`Signer Name: ${input.signerName}`)
       .text(`Initials: ${input.initials}`)
       .text('Agreement status: Signed electronically');
@@ -381,6 +405,8 @@ export const agreementSigningService = {
     initials: string;
     signatureDataUrl: string;
     acceptedTerms: boolean;
+    signedAtIso?: string;
+    signerTimeZone?: string;
   }) {
     if (!data.acceptedTerms) throw ApiError.badRequest('You must accept the agreement terms before signing.');
     const signerName = data.signerName.trim();
@@ -419,6 +445,8 @@ export const agreementSigningService = {
     if (sourceMime && !sourceIsPdf && !sourceIsImage) {
       throw ApiError.badRequest('Agreement file must be a PDF or PNG/JPEG image.');
     }
+    const signedAt = parseClientSignedAt(data.signedAtIso) ?? new Date();
+    const signedAtLabel = formatSignedAtForAgreement(signedAt, data.signerTimeZone);
     const signedAtMs = Date.now();
     const signerSlug = signerName
       .toLowerCase()
@@ -469,7 +497,7 @@ export const agreementSigningService = {
         originalImage,
         signerName,
         initials,
-        signedAt: new Date(signedAtMs),
+        signedAtLabel,
         signaturePng,
         customerName,
       });
@@ -483,7 +511,7 @@ export const agreementSigningService = {
         agreement,
         signerName,
         initials,
-        signedAt: new Date(signedAtMs),
+        signedAtLabel,
         signaturePng,
       });
     }

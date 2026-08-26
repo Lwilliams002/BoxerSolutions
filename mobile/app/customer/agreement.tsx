@@ -260,6 +260,7 @@ export default function AgreementScreen() {
         existingCustomerId ??
         (await api<{ id: string }>('/customers', { method: 'POST', body: data })).id;
       let signatureRequestSent = !sendForSignature;
+      let initialInvoiceId: string | null = null;
 
       const summary = [
         'SERVICE AGREEMENT',
@@ -328,6 +329,44 @@ export default function AgreementScreen() {
         } catch {
           // Continue without image attachment when capture is unavailable.
         }
+
+        // For new customers only, prepare an initial-service invoice so adding a
+        // payment method can immediately collect the one-time initial amount.
+        if (!existingCustomerId && initialTotal > 0.009) {
+          try {
+            const initialChargeItems = lineItems
+              .filter((item) => item.initial > 0)
+              .map((item) => ({
+                description: `${item.label} (Initial Service)`,
+                quantity: 1,
+                unitPrice: Number(item.initial.toFixed(2)),
+                discount: 0,
+                taxable: false,
+              }));
+            if (initialChargeItems.length > 0) {
+              let remainingDiscount = Number(initialDiscount.toFixed(2));
+              for (const item of initialChargeItems) {
+                if (remainingDiscount <= 0) break;
+                const applied = Math.min(item.unitPrice, remainingDiscount);
+                item.discount = Number(applied.toFixed(2));
+                remainingDiscount = Number((remainingDiscount - applied).toFixed(2));
+              }
+              const invoice = await api<{ id: string }>('/invoices', {
+                method: 'POST',
+                body: {
+                  customerId: targetCustomerId,
+                  dueDate: new Date().toISOString().slice(0, 10),
+                  taxRate: 0,
+                  notes: 'Initial agreement charge',
+                  items: initialChargeItems,
+                },
+              });
+              initialInvoiceId = invoice.id;
+            }
+          } catch {
+            // Keep signed-agreement flow successful even if invoice generation fails.
+          }
+        }
       }
 
       void qc.invalidateQueries({ queryKey: ['customers'] });
@@ -352,7 +391,7 @@ export default function AgreementScreen() {
           'Agreement Signed',
           existingCustomerId
             ? `${name}'s updated signed agreement was saved.`
-            : `${name} has been added and the signed agreement was saved.\n\nAdd a payment method now so billing and AutoPay are ready.`,
+            : `${name} has been added and the signed agreement was saved.\n\nAdd a payment method now to save it on file${initialInvoiceId ? ' and collect the initial service charge' : ''}.`,
           existingCustomerId
             ? [{ text: 'OK', onPress: () => router.replace(`/customer/${targetCustomerId}?tab=Documents`) }]
             : [
@@ -362,7 +401,15 @@ export default function AgreementScreen() {
                   onPress: () =>
                     router.replace({
                       pathname: '/customer/[id]',
-                      params: { id: targetCustomerId, tab: 'Payment Methods', promptPayment: '1' },
+                      params: initialInvoiceId
+                        ? {
+                          id: targetCustomerId,
+                          tab: 'Payment Methods',
+                          promptPayment: '1',
+                          promptInitialCharge: '1',
+                          initialInvoiceId,
+                        }
+                        : { id: targetCustomerId, tab: 'Payment Methods', promptPayment: '1' },
                     }),
                 },
               ],

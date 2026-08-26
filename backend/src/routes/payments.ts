@@ -1,7 +1,9 @@
 import { Router } from 'express';
+import crypto from 'crypto';
 import fs from 'fs/promises';
 import path from 'path';
 import { z } from 'zod';
+import { config } from '../config';
 import { authenticate, authorize } from '../middleware/auth';
 import { technicianScope, assertInvoiceAccess, assertCustomerAccess } from '../middleware/scope';
 import { asyncHandler } from '../utils/asyncHandler';
@@ -16,6 +18,81 @@ import { logger } from '../utils/logger';
 
 const router = Router();
 
+function timingSafeEqualText(a: string, b: string) {
+  const left = Buffer.from(a, 'utf8');
+  const right = Buffer.from(b, 'utf8');
+  if (left.length !== right.length) return false;
+  return crypto.timingSafeEqual(left, right);
+}
+
+function verifyNorthWebhookSignature(rawBody: string, headerValue: string | undefined): boolean {
+  const secret = config.north.webhookSecret;
+  if (!secret || !headerValue) return false;
+  const signed = headerValue.trim();
+  // "t=<timestamp>,v1=<hex>" format
+  if (signed.includes('t=') && signed.includes('v1=')) {
+    const parts = signed
+      .split(',')
+      .map((p) => p.trim())
+      .filter(Boolean);
+    const t = parts.find((p) => p.startsWith('t='))?.slice(2);
+    const v1 = parts.find((p) => p.startsWith('v1='))?.slice(3);
+    if (!t || !v1) return false;
+    const expected = crypto.createHmac('sha256', secret).update(`${t}.${rawBody}`).digest('hex');
+    return timingSafeEqualText(expected, v1);
+  }
+  // Raw hex signature format
+  const expected = crypto.createHmac('sha256', secret).update(rawBody).digest('hex');
+  return timingSafeEqualText(expected, signed);
+}
+
+function asRecord(value: unknown): Record<string, unknown> | null {
+  return value && typeof value === 'object' ? (value as Record<string, unknown>) : null;
+}
+
+function parseNorthAmount(value: unknown): number | null {
+  if (typeof value === 'number' && Number.isFinite(value)) return Number(value.toFixed(2));
+  if (typeof value === 'string') {
+    const normalized = value.replace(/[$,]/g, '').trim();
+    const parsed = Number.parseFloat(normalized);
+    if (Number.isFinite(parsed)) return Number(parsed.toFixed(2));
+  }
+  return null;
+}
+
+function pickNorthTransactionId(statusPayload: Record<string, unknown>, bodyPayload: Record<string, unknown> | null): string | null {
+  const fromTop = [statusPayload.transactionId, statusPayload.transaction_id, statusPayload.referenceNumber]
+    .find((v) => typeof v === 'string' && v.length > 3) as string | undefined;
+  if (fromTop) return fromTop;
+  if (!bodyPayload) return null;
+  const fullResponse = asRecord(bodyPayload.fullResponse);
+  const candidate = [
+    bodyPayload.transactionId,
+    bodyPayload.transaction_id,
+    bodyPayload.tranId,
+    bodyPayload.referenceNumber,
+    bodyPayload.authCode,
+    fullResponse?.transaction_id,
+    fullResponse?.trans_id,
+    fullResponse?.reference_number,
+    fullResponse?.auth_code,
+  ].find((v) => typeof v === 'string' && v.length > 1);
+  return (candidate as string | undefined) ?? null;
+}
+
+function pickNorthApprovedAmount(bodyPayload: Record<string, unknown> | null): number | null {
+  if (!bodyPayload) return null;
+  const fullResponse = asRecord(bodyPayload.fullResponse);
+  return (
+    parseNorthAmount(bodyPayload.amount)
+    ?? parseNorthAmount(bodyPayload.approvedAmount)
+    ?? parseNorthAmount(bodyPayload.tranAmount)
+    ?? parseNorthAmount(bodyPayload.total)
+    ?? parseNorthAmount(fullResponse?.amount)
+    ?? parseNorthAmount(fullResponse?.approved_amount)
+  );
+}
+
 router.get(
   '/north/logo',
   asyncHandler(async (_req, res) => {
@@ -29,11 +106,21 @@ router.get(
 router.post(
   '/north/webhook',
   asyncHandler(async (req, res) => {
+    const rawBody = String((req as any).rawBody ?? '');
+    const signatureHeader = (req.header('x-webhook-signature')
+      || req.header('x-yourapp-signature-256')
+      || req.header('x-signature')
+      || req.header('north-signature')
+      || undefined);
+    const validSignature = verifyNorthWebhookSignature(rawBody, signatureHeader);
+    if (!validSignature) {
+      throw ApiError.unauthorized('Invalid North webhook signature');
+    }
     logger.info(
       {
         eventType: (req.body as { eventType?: string } | undefined)?.eventType ?? null,
         hasBody: !!req.body,
-        signature: req.headers['x-signature'] ?? req.headers['north-signature'] ?? null,
+        signatureVerified: true,
       },
       'north webhook received',
     );
@@ -49,6 +136,101 @@ router.get(
 );
 
 router.use(authenticate);
+
+router.post(
+  '/north/embedded/session',
+  authorize('invoices:read', 'payments:collect', 'payments:write'),
+  asyncHandler(async (req, res) => {
+    const body = z.object({ invoiceId: z.string().uuid() }).parse(req.body);
+    const scope = technicianScope(req, 'invoices:read');
+    await assertInvoiceAccess(scope, body.invoiceId);
+    const invoiceRes = await pool.query(
+      `SELECT i.id, i.invoice_number, i.total, i.amount_paid, c.email AS customer_email
+       FROM invoices i
+       JOIN customers c ON c.id = i.customer_id
+       WHERE i.id = $1
+         AND i.deleted_at IS NULL`,
+      [body.invoiceId],
+    );
+    if (!invoiceRes.rows[0]) throw ApiError.notFound('Invoice not found');
+    const invoice = invoiceRes.rows[0] as {
+      invoice_number: string;
+      total: string;
+      amount_paid: string;
+      customer_email: string | null;
+    };
+    const itemRows = await pool.query(
+      `SELECT description, quantity, unit_price
+       FROM invoice_items
+       WHERE invoice_id = $1
+       ORDER BY created_at ASC`,
+      [body.invoiceId],
+    );
+    const amount = Math.max(0, Number(invoice.total) - Number(invoice.amount_paid));
+    if (amount <= 0) throw ApiError.badRequest('Invoice has no outstanding balance.');
+    const sessionToken = await northGatewayService.createEmbeddedSession({
+      amount,
+      orderId: invoice.invoice_number,
+      customerEmail: invoice.customer_email,
+      products: itemRows.rows.map((row) => ({
+        name: row.description,
+        quantity: Number(row.quantity),
+        unitPrice: Number(row.unit_price),
+      })),
+    });
+    ok(res, {
+      sessionToken,
+      checkoutId: config.north.embeddedCheckoutId,
+      scriptUrl: `${config.north.embeddedBaseUrl}/checkout.js`,
+      amount,
+      invoiceId: body.invoiceId,
+    }, 'North embedded session created', 201);
+  }),
+);
+
+router.post(
+  '/north/embedded/confirm',
+  authorize('invoices:read', 'payments:collect', 'payments:write'),
+  asyncHandler(async (req, res) => {
+    const body = z.object({
+      invoiceId: z.string().uuid(),
+      sessionToken: z.string().min(10),
+    }).parse(req.body);
+    const scope = technicianScope(req, 'invoices:read');
+    await assertInvoiceAccess(scope, body.invoiceId);
+
+    const sessionStatus = await northGatewayService.getEmbeddedSessionStatus(body.sessionToken);
+    const statusData = asRecord(sessionStatus.data) ?? sessionStatus;
+    const status = String(statusData.status ?? '').toLowerCase();
+    if (status !== 'approved') {
+      throw new ApiError(409, `North checkout session is ${status || 'not approved'}.`);
+    }
+    const responseBody = asRecord(statusData.body) ?? asRecord(sessionStatus.body);
+    const approvedAmount = pickNorthApprovedAmount(responseBody);
+    const transactionId = pickNorthTransactionId(statusData, responseBody);
+    if (!transactionId) {
+      throw new ApiError(502, 'North approval response did not include a transaction identifier.');
+    }
+    if (approvedAmount == null || approvedAmount <= 0) {
+      throw new ApiError(502, 'North approval response did not include a valid amount.');
+    }
+    const recorded = await paymentService.recordExternalInvoicePayment(
+      body.invoiceId,
+      approvedAmount,
+      'north_embedded',
+      transactionId,
+      req.user!.id,
+      req.user!.employeeId,
+    );
+    ok(res, {
+      status: 'approved',
+      transactionId,
+      amount: approvedAmount,
+      payment: recorded.payment,
+      duplicate: recorded.duplicate,
+    }, recorded.duplicate ? 'North payment already recorded' : 'North payment recorded', 201);
+  }),
+);
 
 router.get(
   '/',

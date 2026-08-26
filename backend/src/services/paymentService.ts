@@ -280,6 +280,112 @@ export const paymentService = {
     return resultData;
   },
 
+  async recordExternalInvoicePayment(
+    invoiceId: string,
+    amount: number,
+    providerName: string,
+    providerTransactionId: string,
+    userId: string,
+    employeeId: string | null,
+  ) {
+    const invRes = await pool.query(
+      `SELECT i.*, c.id AS cust_id
+       FROM invoices i
+       JOIN customers c ON c.id = i.customer_id
+       WHERE i.id = $1
+         AND i.deleted_at IS NULL`,
+      [invoiceId],
+    );
+    const invoice = invRes.rows[0];
+    if (!invoice) throw ApiError.notFound('Invoice not found');
+    if (['paid', 'void'].includes(invoice.status)) throw ApiError.badRequest(`Invoice is already ${invoice.status}`);
+
+    const chargeAmount = Number(amount.toFixed(2));
+    const balanceDue = Number(invoice.total) - Number(invoice.amount_paid);
+    if (!Number.isFinite(chargeAmount) || chargeAmount <= 0 || chargeAmount > balanceDue + 0.001) {
+      throw ApiError.badRequest(`Payment amount must be between $0.01 and $${balanceDue.toFixed(2)}`);
+    }
+
+    const duplicate = await pool.query(
+      `SELECT id
+       FROM payments
+       WHERE invoice_id = $1
+         AND payment_provider = $2
+         AND provider_transaction_id = $3
+       LIMIT 1`,
+      [invoiceId, providerName, providerTransactionId],
+    );
+    if (duplicate.rows[0]) {
+      const existing = await pool.query('SELECT * FROM payments WHERE id = $1', [duplicate.rows[0].id]);
+      return {
+        payment: toCamel(existing.rows[0]),
+        receipt: null,
+        duplicate: true,
+      };
+    }
+
+    const resultData = await withTransaction(async (tx) => {
+      const receiptRes = await tx.query("SELECT 'RCPT-' || nextval('receipt_number_seq') AS num");
+      const receiptNumber = receiptRes.rows[0].num;
+      const payRes = await tx.query(
+        `INSERT INTO payments (
+           customer_id, invoice_id, payment_method_id, amount, status, payment_provider,
+           provider_transaction_id, collected_by, receipt_number, processed_at, payment_source
+         )
+         VALUES ($1,$2,NULL,$3,'succeeded',$4,$5,$6,$7,now(),'manual')
+         RETURNING *`,
+        [invoice.customer_id, invoiceId, chargeAmount, providerName, providerTransactionId, employeeId, receiptNumber],
+      );
+
+      const newPaid = Number(invoice.amount_paid) + chargeAmount;
+      const fullyPaid = newPaid >= Number(invoice.total) - 0.001;
+      await tx.query(
+        `UPDATE invoices
+         SET amount_paid = $1,
+             status = $2,
+             paid_at = CASE WHEN $3 THEN now() ELSE paid_at END,
+             updated_at = now()
+         WHERE id = $4`,
+        [newPaid, fullyPaid ? 'paid' : 'partially_paid', fullyPaid, invoiceId],
+      );
+      await tx.query(
+        'UPDATE customers SET balance = balance - $1, updated_at = now() WHERE id = $2',
+        [chargeAmount, invoice.customer_id],
+      );
+      await tx.query(
+        'UPDATE autopay_settings SET failure_count = 0, last_failure_at = NULL, updated_at = now() WHERE customer_id = $1',
+        [invoice.customer_id],
+      );
+
+      const receiptFile = await generateReceiptPdf(tx, payRes.rows[0].id, userId);
+      const finalPayment = await tx.query('SELECT * FROM payments WHERE id = $1', [payRes.rows[0].id]);
+      await recordAudit({
+        userId,
+        action: 'payment.external_recorded',
+        entityType: 'payment',
+        entityId: payRes.rows[0].id,
+        newValue: { invoiceId, amount: chargeAmount, providerName, providerTransactionId, receiptNumber },
+      }, tx);
+
+      return {
+        payment: toCamel(finalPayment.rows[0]),
+        receipt: {
+          receiptNumber,
+          amount: chargeAmount,
+          transactionId: providerTransactionId,
+          invoiceNumber: invoice.invoice_number,
+          brand: null,
+          last4: null,
+          paidInFull: fullyPaid,
+          fileId: receiptFile.fileId,
+        },
+        duplicate: false,
+      };
+    });
+    safelyQueueCommunication(() => communicationService.sendInvoiceTemplate(invoiceId, 'payment_received', null, { amount: chargeAmount }));
+    return resultData;
+  },
+
   async refundPayment(paymentId: string, amount: number | null, userId: string, employeeId: string | null) {
     const paymentRes = await pool.query(
       `SELECT p.*, i.total AS invoice_total, i.amount_paid, i.status AS invoice_status, i.due_date

@@ -39,11 +39,16 @@ export const config = {
   north: {
     functionsBaseUrl: process.env.NORTH_FUNCTIONS_BASE_URL ?? 'https://proxy.payanywhere.com',
     billingBaseUrl: process.env.NORTH_BILLING_BASE_URL ?? 'https://billing.epxuap.com',
+    embeddedBaseUrl: process.env.NORTH_EMBEDDED_BASE_URL ?? 'https://checkout.north.com',
     mid: process.env.NORTH_MID ?? '',
     developerKey: process.env.NORTH_DEVELOPER_KEY ?? '',
     password: process.env.NORTH_PASSWORD ?? '',
     appSource: process.env.NORTH_APPSOURCE ?? '',
     signatureSecret: process.env.NORTH_SIGNATURE_SECRET ?? '',
+    embeddedCheckoutId: process.env.NORTH_EMBEDDED_CHECKOUT_ID ?? '',
+    embeddedProfileId: process.env.NORTH_EMBEDDED_PROFILE_ID ?? '',
+    embeddedPrivateApiKey: process.env.NORTH_EMBEDDED_PRIVATE_API_KEY ?? '',
+    webhookSecret: process.env.NORTH_WEBHOOK_SECRET ?? process.env.NORTH_SIGNATURE_SECRET ?? '',
   },
   cognito: {
     employeeAuthEnabled: (process.env.COGNITO_EMPLOYEE_AUTH_ENABLED ?? 'false') === 'true',

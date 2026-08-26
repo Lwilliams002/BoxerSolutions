@@ -70,12 +70,36 @@ interface NorthCreateSubscriptionInput {
   subscriptionData: NorthSubscriptionData;
 }
 
+interface NorthEmbeddedProduct {
+  name: string;
+  quantity: number;
+  unitPrice: number;
+}
+
+interface CreateEmbeddedSessionInput {
+  amount: number;
+  products?: NorthEmbeddedProduct[];
+  orderId?: string;
+  transactionType?: 'Sale';
+  customerEmail?: string | null;
+}
+
 function assertNorthConfig() {
   const { mid, developerKey, password, appSource, signatureSecret } = config.north;
   if (!mid || !developerKey || !password || !appSource || !signatureSecret) {
     throw new ApiError(
       424,
       'North Developer credentials are not configured. Set NORTH_MID, NORTH_DEVELOPER_KEY, NORTH_PASSWORD, NORTH_APPSOURCE, and NORTH_SIGNATURE_SECRET.',
+    );
+  }
+}
+
+function assertNorthEmbeddedConfig() {
+  const { embeddedCheckoutId, embeddedProfileId, embeddedPrivateApiKey } = config.north;
+  if (!embeddedCheckoutId || !embeddedProfileId || !embeddedPrivateApiKey) {
+    throw new ApiError(
+      424,
+      'North Embedded Checkout is not configured. Set NORTH_EMBEDDED_CHECKOUT_ID, NORTH_EMBEDDED_PROFILE_ID, and NORTH_EMBEDDED_PRIVATE_API_KEY.',
     );
   }
 }
@@ -200,6 +224,66 @@ class NorthGatewayService {
     return this.northFetch('/paybill', {
       billID,
     });
+  }
+
+  async createEmbeddedSession(input: CreateEmbeddedSessionInput): Promise<string> {
+    assertNorthEmbeddedConfig();
+    const amount = Number(input.amount.toFixed(2));
+    if (!Number.isFinite(amount) || amount <= 0) {
+      throw ApiError.badRequest('Embedded checkout amount must be greater than 0.');
+    }
+    const payload: Record<string, unknown> = {
+      checkoutId: config.north.embeddedCheckoutId,
+      profileId: config.north.embeddedProfileId,
+      transactionType: input.transactionType ?? 'Sale',
+      amount,
+    };
+    if (input.products?.length) payload.products = input.products;
+    if (input.orderId) payload.orderId = input.orderId;
+    if (input.customerEmail) payload.email = input.customerEmail;
+    const res = await fetch(`${config.north.embeddedBaseUrl}/api/sessions`, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${config.north.embeddedPrivateApiKey}`,
+        'Content-Type': 'application/json',
+        'User-Agent': 'ServiceFinance Embedded Checkout',
+      },
+      body: jsonBody(payload),
+    });
+    const data = (await res.json().catch(() => null)) as Record<string, unknown> | null;
+    if (!res.ok || !data) {
+      throw new ApiError(502, `North embedded session failed: ${(data as { message?: string } | null)?.message ?? res.statusText}`);
+    }
+    const tokenCandidate = [
+      data.sessionToken,
+      data.session_token,
+      data.token,
+      (data.data as Record<string, unknown> | undefined)?.sessionToken,
+      (data.data as Record<string, unknown> | undefined)?.token,
+    ].find((value) => typeof value === 'string' && value.length > 10) as string | undefined;
+    if (!tokenCandidate) {
+      throw new ApiError(502, 'North embedded session response did not include a session token.');
+    }
+    return tokenCandidate;
+  }
+
+  async getEmbeddedSessionStatus(sessionToken: string) {
+    assertNorthEmbeddedConfig();
+    const res = await fetch(`${config.north.embeddedBaseUrl}/api/sessions/status`, {
+      method: 'GET',
+      headers: {
+        Authorization: `Bearer ${config.north.embeddedPrivateApiKey}`,
+        'Content-Type': 'application/json',
+        SessionToken: sessionToken,
+        checkoutId: config.north.embeddedCheckoutId,
+        'User-Agent': 'ServiceFinance Embedded Checkout',
+      },
+    });
+    const data = (await res.json().catch(() => null)) as Record<string, unknown> | null;
+    if (!res.ok || !data) {
+      throw new ApiError(502, `North embedded session status failed: ${(data as { message?: string } | null)?.message ?? res.statusText}`);
+    }
+    return data;
   }
 }
 

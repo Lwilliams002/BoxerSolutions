@@ -39,7 +39,12 @@ export function createApp() {
 
   app.use(helmet());
   app.use(cors());
-  app.use(express.json({ limit: '2mb' }));
+  app.use(express.json({
+    limit: '2mb',
+    verify: (req, _res, buf) => {
+      (req as any).rawBody = buf.toString('utf8');
+    },
+  }));
   app.use(pinoHttp({ logger, autoLogging: config.env !== 'development' }));
   app.use(
     rateLimit({

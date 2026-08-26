@@ -18,7 +18,13 @@ function maskedLast4(value: unknown) {
 }
 
 export default function CustomerScreen() {
-  const { id, tab: tabParam, promptPayment } = useLocalSearchParams<{ id: string; tab?: string; promptPayment?: string }>();
+  const { id, tab: tabParam, promptPayment, promptInitialCharge, initialInvoiceId } = useLocalSearchParams<{
+    id: string;
+    tab?: string;
+    promptPayment?: string;
+    promptInitialCharge?: string;
+    initialInvoiceId?: string;
+  }>();
   const router = useRouter();
   const qc = useQueryClient();
   const hasPermission = useAuth((s) => s.hasPermission);
@@ -156,9 +162,34 @@ export default function CustomerScreen() {
   const addCard = async (token: string) => {
     setBusy(true);
     try {
-      await api('/payment-methods', { method: 'POST', body: { customerId: id, token, setDefault: true } });
+      const method = await api<{ id: string }>('/payment-methods', {
+        method: 'POST',
+        body: { customerId: id, token, setDefault: true },
+      });
       setShowAddCard(false);
       void qc.invalidateQueries({ queryKey: ['paymentMethods', id] });
+      if (promptInitialCharge === '1' && initialInvoiceId) {
+        try {
+          await api('/payments/charge', {
+            method: 'POST',
+            body: { invoiceId: initialInvoiceId, paymentMethodId: method.id },
+          });
+          void qc.invalidateQueries({ queryKey: ['customer', id] });
+          void qc.invalidateQueries({ queryKey: ['customerInvoices', id] });
+          void qc.invalidateQueries({ queryKey: ['customerPayments', id] });
+          Alert.alert(
+            'Payment method saved and charged',
+            'Initial service payment was collected successfully and this payment method is now on file.',
+            [{ text: 'OK', onPress: () => router.replace({ pathname: '/customer/[id]', params: { id, tab: 'Payments' } }) }],
+          );
+          return;
+        } catch (e) {
+          Alert.alert(
+            'Payment method saved',
+            `The payment method was saved, but the initial charge could not be completed: ${(e as Error).message}`,
+          );
+        }
+      }
     } catch (e) {
       Alert.alert('Error', (e as Error).message);
     } finally {
@@ -538,7 +569,9 @@ export default function CustomerScreen() {
               <View style={styles.setupBanner}>
                 <Text style={styles.setupBannerTitle}>Set up billing</Text>
                 <Text style={styles.setupBannerText}>
-                  This customer has no payment method on file. Add a card or bank account below to enable payment collection and AutoPay.
+                  {promptInitialCharge === '1' && initialInvoiceId
+                    ? 'Add a card or bank account now to save it on file and immediately collect the initial service charge.'
+                    : 'This customer has no payment method on file. Add a card or bank account below to enable payment collection and AutoPay.'}
                 </Text>
               </View>
             )}

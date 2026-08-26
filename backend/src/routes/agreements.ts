@@ -394,7 +394,15 @@ function signingClientScript() {
       var response = await fetch('/api/v1/agreements/sign/confirm', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ token: token, signerName: signerName, initials: initials, signatureDataUrl: signatureDataUrl, acceptedTerms: acceptedTerms })
+        body: JSON.stringify({
+          token: token,
+          signerName: signerName,
+          initials: initials,
+          signatureDataUrl: signatureDataUrl,
+          acceptedTerms: acceptedTerms,
+          signedAtIso: new Date().toISOString(),
+          signerTimeZone: (Intl.DateTimeFormat().resolvedOptions() || {}).timeZone || undefined
+        })
       });
       var contentType = String(response.headers.get('content-type') || '');
       if (!response.ok && contentType.includes('application/json')) {
@@ -482,7 +490,7 @@ router.get(
       ${renderAgreementDocument(ctx)}
       ${action}
     </div>
-    ${ctx.alreadySigned ? '' : '<script src="/api/v1/agreements/sign/client.js?v=3"></script>'}
+    ${ctx.alreadySigned ? '' : '<script src="/api/v1/agreements/sign/client.js?v=4"></script>'}
   </body>
 </html>`);
   }),
@@ -497,6 +505,8 @@ router.post(
       initials: z.string().min(1).max(4),
       signatureDataUrl: z.string().min(30),
       acceptedTerms: z.boolean(),
+      signedAtIso: z.string().datetime().optional(),
+      signerTimeZone: z.string().min(1).max(100).optional(),
     }).parse(req.body);
     const result = await agreementSigningService.signFromToken(payload);
     const title = result.alreadySigned ? 'Agreement Already Signed' : 'Agreement Signed';
