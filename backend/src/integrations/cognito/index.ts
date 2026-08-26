@@ -2,6 +2,7 @@ import crypto from 'crypto';
 import {
   CognitoIdentityProviderClient,
   AdminCreateUserCommand,
+  AdminInitiateAuthCommand,
   AdminSetUserPasswordCommand,
 } from '@aws-sdk/client-cognito-identity-provider';
 import { config } from '../../config';
@@ -161,6 +162,15 @@ function toUnauthorized(err: unknown) {
       return ApiError.unauthorized('Invalid email or password');
     }
   }
+  if (
+    typeof err === 'object' &&
+    err !== null &&
+    'name' in err &&
+    ((err as { name?: string }).name === 'NotAuthorizedException' ||
+      (err as { name?: string }).name === 'UserNotFoundException')
+  ) {
+    return ApiError.unauthorized('Invalid email or password');
+  }
   return err;
 }
 
@@ -233,6 +243,22 @@ export const cognitoAuth = {
             },
           });
           authResult = challenged.AuthenticationResult;
+        }
+
+        if (!authResult && config.cognito.userPoolId) {
+          const adminResult = await adminClient.send(
+            new AdminInitiateAuthCommand({
+              UserPoolId: config.cognito.userPoolId,
+              ClientId: config.cognito.userPoolClientId,
+              AuthFlow: 'ADMIN_USER_PASSWORD_AUTH',
+              AuthParameters: {
+                USERNAME: username,
+                PASSWORD: password,
+                ...(secret ? { SECRET_HASH: secret } : {}),
+              },
+            }),
+          );
+          authResult = adminResult.AuthenticationResult;
         }
 
         if (!authResult) throw ApiError.unauthorized('Invalid email or password');
