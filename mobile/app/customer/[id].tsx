@@ -222,16 +222,17 @@ export default function CustomerScreen() {
   const allDocs = docs?.items ?? [];
   const isServiceAgreement = (fileName: string | null | undefined) => fileName?.startsWith('service-agreement');
   const isUnsignedAgreementName = (fileName: string | null | undefined) => fileName?.startsWith('service-agreement-unsigned-');
+  const isSignedAgreementName = (fileName: string | null | undefined) => fileName?.startsWith('service-agreement-signed-');
   const agreementStatus = (doc: any) => {
     if (!isServiceAgreement(doc.fileName)) return doc.uploadStatus;
-    if (doc.uploadStatus === 'uploaded') return 'Signed';
-    return isUnsignedAgreementName(doc.fileName) ? 'Unsigned' : 'Signed';
+    if (isUnsignedAgreementName(doc.fileName)) return 'Unsigned';
+    if (isSignedAgreementName(doc.fileName)) return doc.uploadStatus === 'uploaded' ? 'Signed' : 'Pending upload';
+    return doc.uploadStatus === 'uploaded' ? 'Signed' : 'Pending upload';
   };
   const agreementDocs = allDocs.filter((d) => isServiceAgreement(d.fileName));
   const activeAgreement = agreementDocs[0] ?? null;
   const canResendAgreementRequest = Boolean(
     activeAgreement &&
-    activeAgreement.uploadStatus !== 'uploaded' &&
     isUnsignedAgreementName(activeAgreement.fileName),
   );
   const visibleDocs = allDocs;

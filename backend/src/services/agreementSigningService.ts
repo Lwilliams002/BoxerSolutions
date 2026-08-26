@@ -69,6 +69,10 @@ function isUnsignedAgreementFileName(fileName: string | null | undefined) {
   return Boolean(fileName && fileName.startsWith(UNSIGNED_AGREEMENT_PREFIX));
 }
 
+function isSignedAgreementFileName(fileName: string | null | undefined) {
+  return Boolean(fileName && fileName.startsWith(SIGNED_AGREEMENT_PREFIX));
+}
+
 function parseSignatureDataUrl(dataUrl: string) {
   const match = dataUrl.match(/^data:image\/png;base64,([A-Za-z0-9+/=]+)$/);
   if (!match) throw ApiError.badRequest('Signature must be a PNG image.');
@@ -171,7 +175,7 @@ async function buildSignedAgreementPdf(input: {
       .text(`Signer Name: ${input.signerName}`)
       .text(`Initials: ${input.initials}`);
     doc.moveDown(0.5);
-    doc.image(input.signaturePng, { fit: [220, 90], align: 'left' });
+    doc.image(input.signaturePng, { fit: [220, 90] });
 
     doc.end();
   });
@@ -211,7 +215,7 @@ async function buildSignedAgreementPdfFromOriginalImage(input: {
     doc.moveDown(1);
     doc.font('Helvetica-Bold').fontSize(11).text('Drawn Signature');
     doc.moveDown(0.4);
-    doc.image(input.signaturePng, { fit: [240, 100], align: 'left' });
+    doc.image(input.signaturePng, { fit: [240, 100] });
 
     doc.end();
   });
@@ -367,7 +371,7 @@ export const agreementSigningService = {
       serviceAddress: addressParts.length ? addressParts.join(', ') : null,
       fileName: row.file_name,
       agreement,
-      alreadySigned: row.upload_status === 'uploaded' && !isUnsignedAgreementFileName(row.file_name),
+      alreadySigned: row.upload_status === 'uploaded' && isSignedAgreementFileName(row.file_name),
     };
   },
 
@@ -406,7 +410,7 @@ export const agreementSigningService = {
       upload_status: string;
       mime_type: string | null;
     };
-    if (row.upload_status === 'uploaded' && !isUnsignedAgreementFileName(row.file_name)) {
+    if (row.upload_status === 'uploaded' && isSignedAgreementFileName(row.file_name)) {
       return { alreadySigned: true, customerId: row.customer_id };
     }
     const sourceMime = row.mime_type?.toLowerCase() ?? null;
