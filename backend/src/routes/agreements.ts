@@ -139,8 +139,37 @@ function renderAgreementDocument(ctx: Awaited<ReturnType<typeof agreementSigning
     : '<p style="color:#607D78;margin:0;">No covered pests were listed.</p>';
 
   const termMonths = ctx.agreement?.termMonths ?? 12;
+  const initialDiscount =
+    ctx.agreement?.initialDiscount != null ? Math.max(0, ctx.agreement.initialDiscount) : 0;
   const initialTotal = ctx.agreement?.initialTotal != null ? money(ctx.agreement.initialTotal) : '—';
   const recurringTotal = ctx.agreement?.recurringTotal != null ? `${money(ctx.agreement.recurringTotal)}/service` : '—';
+  const initialSubtotal =
+    ctx.agreement?.initialTotal != null ? money(ctx.agreement.initialTotal + initialDiscount) : '—';
+  const pricingFoot = initialDiscount > 0
+    ? `
+        <tr style="border-top:2px solid #0D0D0D;">
+          <td style="padding:8px 4px;color:#0D0D0D;font-weight:900;">SUBTOTAL</td>
+          <td style="padding:8px 4px;color:#0D0D0D;text-align:right;font-weight:900;">${initialSubtotal}</td>
+          <td style="padding:8px 4px;color:#0D0D0D;text-align:right;font-weight:900;">${recurringTotal}</td>
+        </tr>
+        <tr>
+          <td style="padding:8px 4px;color:#B3261E;font-weight:800;">Initial Discount</td>
+          <td style="padding:8px 4px;color:#B3261E;text-align:right;font-weight:800;">-${money(initialDiscount)}</td>
+          <td style="padding:8px 4px;color:#607D78;text-align:right;font-weight:700;">—</td>
+        </tr>
+        <tr style="border-top:2px solid #0D0D0D;">
+          <td style="padding:8px 4px;color:#0D0D0D;font-weight:900;">TOTAL</td>
+          <td style="padding:8px 4px;color:#0D0D0D;text-align:right;font-weight:900;">${initialTotal}</td>
+          <td style="padding:8px 4px;color:#0D0D0D;text-align:right;font-weight:900;">${recurringTotal}</td>
+        </tr>
+      `
+    : `
+        <tr style="border-top:2px solid #0D0D0D;">
+          <td style="padding:8px 4px;color:#0D0D0D;font-weight:900;">TOTAL</td>
+          <td style="padding:8px 4px;color:#0D0D0D;text-align:right;font-weight:900;">${initialTotal}</td>
+          <td style="padding:8px 4px;color:#0D0D0D;text-align:right;font-weight:900;">${recurringTotal}</td>
+        </tr>
+      `;
   const customerType = ctx.customerType ? `${ctx.customerType.slice(0, 1).toUpperCase()}${ctx.customerType.slice(1)} Account` : 'Account';
 
   return `
@@ -177,13 +206,7 @@ function renderAgreementDocument(ctx: Awaited<ReturnType<typeof agreementSigning
         </tr>
       </thead>
       <tbody>${serviceRows}</tbody>
-      <tfoot>
-        <tr style="border-top:2px solid #0D0D0D;">
-          <td style="padding:8px 4px;color:#0D0D0D;font-weight:900;">TOTAL</td>
-          <td style="padding:8px 4px;color:#0D0D0D;text-align:right;font-weight:900;">${initialTotal}</td>
-          <td style="padding:8px 4px;color:#0D0D0D;text-align:right;font-weight:900;">${recurringTotal}</td>
-        </tr>
-      </tfoot>
+      <tfoot>${pricingFoot}</tfoot>
     </table>
     </div>
 
@@ -192,7 +215,7 @@ function renderAgreementDocument(ctx: Awaited<ReturnType<typeof agreementSigning
 
     <h4 style="background:#2DC4A2;color:#0D0D0D;font-weight:800;font-size:12px;text-align:center;padding:4px;border-radius:4px;margin:14px 0 8px 0;">Terms & Conditions</h4>
     <p style="margin:0 0 8px 0;font-size:10.5px;color:#607D78;line-height:1.45;">
-      This agreement is for an initial period of ${termMonths} month(s). You, the customer, may cancel this transaction any time prior to midnight of the third business day after the date of this transaction by giving written notice of cancellation to Boxer Solutions Pest Control. Upon completion of the initial service, the customer agrees to pay the full initial service charge. Recurring treatments continue at the agreed frequency until canceled by the customer. Boxer Solutions Pest Control will re-treat at no additional charge between scheduled visits if covered pest activity persists.
+      This agreement is for an initial period of ${termMonths} month(s). You, the customer, may cancel this transaction any time prior to midnight of the third business day after the date of this transaction by giving written notice of cancellation to Boxer Solutions Pest Control. Upon completion of the initial service, the customer agrees to pay the full initial service charge. Recurring treatments continue at the agreed frequency until canceled by the customer. Boxer Solutions Pest Control will re-treat at no additional charge between scheduled visits if covered pest activity persists. If this agreement is terminated before the end of the ${termMonths}-month term, the customer agrees to repay any initial service discount applied under this agreement.
     </p>
     <p style="margin:0;font-size:10.5px;color:#607D78;line-height:1.45;">
       I have read and agree to the terms and conditions of this agreement, including any additional disclosures listed above. I confirm my contact information is entered correctly and agree to receive account notifications electronically.

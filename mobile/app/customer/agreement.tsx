@@ -103,6 +103,7 @@ export default function AgreementScreen() {
   const [webSqft, setWebSqft] = useState('');
   const [oddKeys, setOddKeys] = useState<string[]>([]);
   const [priceOverrides, setPriceOverrides] = useState<Record<string, PriceOverride>>({});
+  const [initialDiscountInput, setInitialDiscountInput] = useState('');
 
   const data = useMemo<CustomerPayload | null>(() => {
     try {
@@ -178,8 +179,20 @@ export default function AgreementScreen() {
     [baseLineItems, isOwner, priceOverrides],
   );
 
-  const initialTotal = useMemo(() => lineItems.reduce((s, i) => s + i.initial, 0), [lineItems]);
+  const initialSubtotal = useMemo(() => lineItems.reduce((s, i) => s + i.initial, 0), [lineItems]);
   const regularTotal = useMemo(() => lineItems.reduce((s, i) => s + i.regular, 0), [lineItems]);
+  const initialDiscount = useMemo(
+    () => Math.min(parseOverride(initialDiscountInput) ?? 0, initialSubtotal),
+    [initialDiscountInput, initialSubtotal],
+  );
+  const discountWasCapped = useMemo(() => {
+    const requested = parseOverride(initialDiscountInput);
+    return requested != null && requested > initialSubtotal;
+  }, [initialDiscountInput, initialSubtotal]);
+  const initialTotal = useMemo(
+    () => Math.max(0, initialSubtotal - initialDiscount),
+    [initialSubtotal, initialDiscount],
+  );
 
   if (!data) {
     return (
@@ -252,6 +265,8 @@ export default function AgreementScreen() {
         'SERVICE AGREEMENT',
         sendForSignature ? 'Status: UNSIGNED (sent by email for review/signature)' : 'Status: SIGNED',
         ...lineItems.map((i) => `• ${i.label} — Initial ${money(i.initial)} / Regular ${money(i.regular)}`),
+        `Initial Subtotal: ${money(initialSubtotal)}`,
+        `Initial Discount: -${money(initialDiscount)}`,
         `Initial Total: ${money(initialTotal)}`,
         `Recurring Total: ${money(regularTotal)}/service`,
         `Term: ${TERM_MONTHS} months`,
@@ -491,10 +506,31 @@ export default function AgreementScreen() {
           </View>
         ) : null}
 
+        <View style={styles.discountCard}>
+          <Text style={styles.discountTitle}>Initial Service Discount</Text>
+          <Text style={styles.discountHint}>
+            Enter the one-time discount to apply to the initial total.
+          </Text>
+          <TextInput
+            style={styles.discountInput}
+            keyboardType="decimal-pad"
+            value={initialDiscountInput}
+            onChangeText={(value) => setInitialDiscountInput(normalizePriceInput(value))}
+            placeholder="0.00"
+            placeholderTextColor={colors.textMuted}
+          />
+          {discountWasCapped ? (
+            <Text style={styles.discountClampNote}>
+              Discount capped at initial subtotal ({money(initialSubtotal)}).
+            </Text>
+          ) : null}
+        </View>
+
         <View style={styles.totalsBar}>
           <View style={styles.totalCol}>
             <Text style={styles.totalLabel}>INITIAL</Text>
             <Text style={styles.totalValue}>{money(initialTotal)}</Text>
+            {initialDiscount > 0 ? <Text style={styles.totalDiscount}>includes discount -{money(initialDiscount)}</Text> : null}
           </View>
           <View style={styles.totalDivider} />
           <View style={styles.totalCol}>
@@ -556,6 +592,18 @@ export default function AgreementScreen() {
             ))
           )}
           <View style={styles.tblTotal}>
+            <Text style={[styles.tblCell, styles.tblItem, styles.tblTotalText]}>SUBTOTAL</Text>
+            <Text style={[styles.tblCell, styles.tblNum, styles.tblTotalText]}>{money(initialSubtotal)}</Text>
+            <Text style={[styles.tblCell, styles.tblNum, styles.tblTotalText]}>{money(regularTotal)}</Text>
+          </View>
+          {initialDiscount > 0 ? (
+            <View style={styles.tblRow}>
+              <Text style={[styles.tblCell, styles.tblItem, styles.discountRowText]}>Initial Discount</Text>
+              <Text style={[styles.tblCell, styles.tblNum, styles.discountRowText]}>-{money(initialDiscount)}</Text>
+              <Text style={[styles.tblCell, styles.tblNum]}>—</Text>
+            </View>
+          ) : null}
+          <View style={styles.tblTotal}>
             <Text style={[styles.tblCell, styles.tblItem, styles.tblTotalText]}>TOTAL</Text>
             <Text style={[styles.tblCell, styles.tblNum, styles.tblTotalText]}>{money(initialTotal)}</Text>
             <Text style={[styles.tblCell, styles.tblNum, styles.tblTotalText]}>{money(regularTotal)}</Text>
@@ -584,7 +632,9 @@ export default function AgreementScreen() {
             giving written notice of cancellation to {company.name}. Upon completion of the initial service, the
             customer agrees to pay the full initial service charge. Recurring treatments continue at the agreed
             frequency until canceled by the customer. {company.name} will re-treat at no additional charge between
-            scheduled visits if covered pest activity persists.
+            scheduled visits if covered pest activity persists. If this agreement is terminated before the end of
+            the {TERM_MONTHS}-month term, the customer agrees to repay any initial service discount applied under
+            this agreement.
           </Text>
           <Text style={styles.terms}>
             I have read and agree to the terms and conditions of this agreement, including any additional
@@ -808,6 +858,28 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: colors.text,
   },
+  discountCard: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: colors.border,
+    padding: 12,
+    marginTop: 12,
+  },
+  discountTitle: { fontSize: 14, fontWeight: '900', color: colors.text },
+  discountHint: { fontSize: 12, color: colors.textMuted, marginTop: 2, marginBottom: 8 },
+  discountInput: {
+    backgroundColor: '#fff',
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: colors.border,
+    paddingVertical: 8,
+    paddingHorizontal: 10,
+    fontSize: 14,
+    color: colors.text,
+    maxWidth: 160,
+  },
+  discountClampNote: { fontSize: 11, color: '#B26B00', marginTop: 6 },
   totalsBar: {
     flexDirection: 'row',
     backgroundColor: '#0D0D0D',
@@ -819,6 +891,7 @@ const styles = StyleSheet.create({
   totalDivider: { width: 1, backgroundColor: '#2A2A2A' },
   totalLabel: { color: '#6B7C78', fontSize: 11, fontWeight: '800', letterSpacing: 1 },
   totalValue: { color: '#2DC4A2', fontSize: 22, fontWeight: '900', marginTop: 2 },
+  totalDiscount: { color: '#6B7C78', fontSize: 10, fontWeight: '700', marginTop: 3 },
   totalPer: { color: '#6B7C78', fontSize: 12, fontWeight: '700' },
   doc: {
     backgroundColor: '#fff',
@@ -860,6 +933,7 @@ const styles = StyleSheet.create({
   tblNum: { width: 66, textAlign: 'right', fontWeight: '700' },
   tblHeadText: { fontWeight: '800', fontSize: 11, color: colors.textMuted },
   tblTotalText: { fontWeight: '900', fontSize: 12.5 },
+  discountRowText: { color: '#B3261E', fontWeight: '800' },
   termsMuted: { fontSize: 11, color: colors.textMuted, fontStyle: 'italic', marginBottom: 4 },
   pestListWrap: { flexDirection: 'row', flexWrap: 'wrap' },
   pestTag: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#E9FBF6', borderRadius: 6, paddingVertical: 3, paddingHorizontal: 8, marginRight: 6, marginBottom: 6, borderWidth: 1, borderColor: colors.border },

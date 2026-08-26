@@ -21,6 +21,7 @@ interface AgreementLineItem {
 
 interface AgreementSnapshot {
   lineItems: AgreementLineItem[];
+  initialDiscount: number | null;
   initialTotal: number | null;
   recurringTotal: number | null;
   termMonths: number;
@@ -77,6 +78,7 @@ function parseAgreementSnapshot(noteBody: string): AgreementSnapshot | null {
   if (!lines[0] || lines[0].toUpperCase() !== 'SERVICE AGREEMENT') return null;
 
   const lineItems: AgreementLineItem[] = [];
+  let initialDiscount: number | null = null;
   let initialTotal: number | null = null;
   let recurringTotal: number | null = null;
   let termMonths = AGREEMENT_TERM_MONTHS_DEFAULT;
@@ -96,6 +98,11 @@ function parseAgreementSnapshot(noteBody: string): AgreementSnapshot | null {
       initialTotal = parseAmount(line.replace('Initial Total:', ''));
       continue;
     }
+    if (line.startsWith('Initial Discount:')) {
+      const parsed = parseAmount(line.replace('Initial Discount:', ''));
+      initialDiscount = parsed == null ? null : Math.abs(parsed);
+      continue;
+    }
     if (line.startsWith('Recurring Total:')) {
       recurringTotal = parseAmount(line.replace('Recurring Total:', '').replace('/service', ''));
       continue;
@@ -113,7 +120,7 @@ function parseAgreementSnapshot(noteBody: string): AgreementSnapshot | null {
     }
   }
 
-  return { lineItems, initialTotal, recurringTotal, termMonths, coveredPests };
+  return { lineItems, initialDiscount, initialTotal, recurringTotal, termMonths, coveredPests };
 }
 
 async function loadAgreementSnapshot(customerId: string) {
@@ -176,6 +183,9 @@ function signedAgreementPdf(data: {
     } else {
       doc.fontSize(11).text('No service pricing details were provided in the saved agreement summary.');
     }
+    if (data.agreement?.initialDiscount != null && data.agreement.initialDiscount > 0) {
+      doc.fontSize(11).text(`Initial Discount: -${money(data.agreement.initialDiscount)}`);
+    }
     if (data.agreement?.initialTotal != null) doc.fontSize(11).text(`Initial Total: ${money(data.agreement.initialTotal)}`);
     if (data.agreement?.recurringTotal != null) doc.fontSize(11).text(`Recurring Total: ${money(data.agreement.recurringTotal)}/service`);
     doc.moveDown(1);
@@ -193,7 +203,7 @@ function signedAgreementPdf(data: {
     doc.fontSize(13).text('Terms & Conditions');
     doc.moveDown(0.4);
     doc.fontSize(10.5).text(
-      `This agreement is for an initial period of ${termMonths} month(s). You, the customer, may cancel this transaction any time prior to midnight of the third business day after the date of this transaction by giving written notice of cancellation to ${COMPANY_NAME}. Upon completion of the initial service, the customer agrees to pay the full initial service charge. Recurring treatments continue at the agreed frequency until canceled by the customer. ${COMPANY_NAME} will re-treat at no additional charge between scheduled visits if covered pest activity persists.`,
+      `This agreement is for an initial period of ${termMonths} month(s). You, the customer, may cancel this transaction any time prior to midnight of the third business day after the date of this transaction by giving written notice of cancellation to ${COMPANY_NAME}. Upon completion of the initial service, the customer agrees to pay the full initial service charge. Recurring treatments continue at the agreed frequency until canceled by the customer. ${COMPANY_NAME} will re-treat at no additional charge between scheduled visits if covered pest activity persists. If this agreement is terminated before the end of the ${termMonths}-month term, the customer agrees to repay any initial service discount applied under this agreement.`,
       { lineGap: 2 },
     );
     doc.moveDown(0.4);
