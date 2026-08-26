@@ -211,6 +211,7 @@ export const cognitoAuth = {
             ChallengeResponses: {
               USERNAME: username,
               ANSWER: 'PASSWORD',
+              PASSWORD: password,
               ...(secret ? { SECRET_HASH: secret } : {}),
             },
           });
