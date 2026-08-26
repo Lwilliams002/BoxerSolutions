@@ -171,11 +171,11 @@ function randomPassword() {
 export const cognitoAuth = {
   async verifyUserPassword(username: string, password: string) {
     assertConfigured();
-    try {
-      const secret = secretHash(username);
-      const authParameters: Record<string, string> = { USERNAME: username, PASSWORD: password };
-      if (secret) authParameters.SECRET_HASH = secret;
+    const secret = secretHash(username);
+    const authParameters: Record<string, string> = { USERNAME: username, PASSWORD: password };
+    if (secret) authParameters.SECRET_HASH = secret;
 
+    try {
       const result = await cognitoCall<InitiateAuthResponse>('InitiateAuth', {
         AuthFlow: 'USER_PASSWORD_AUTH',
         ClientId: config.cognito.userPoolClientId,
@@ -184,6 +184,58 @@ export const cognitoAuth = {
 
       if (!result.AuthenticationResult) throw ApiError.unauthorized('Invalid email or password');
     } catch (err) {
+      if (
+        err instanceof CognitoServiceError &&
+        err.code === 'InvalidParameterException' &&
+        err.message.includes('USER_PASSWORD_AUTH flow not enabled')
+      ) {
+        const start = await cognitoCall<StartAuthResponse>('InitiateAuth', {
+          AuthFlow: 'USER_AUTH',
+          ClientId: config.cognito.userPoolClientId,
+          AuthParameters: {
+            USERNAME: username,
+            PREFERRED_CHALLENGE: 'PASSWORD',
+            ...(secret ? { SECRET_HASH: secret } : {}),
+          },
+        });
+
+        let session = start.Session;
+        let challengeName = start.ChallengeName;
+        let authResult = start.AuthenticationResult;
+
+        if (challengeName === 'SELECT_CHALLENGE' && session) {
+          const selected = await cognitoCall<RespondChallengeResponse>('RespondToAuthChallenge', {
+            ClientId: config.cognito.userPoolClientId,
+            ChallengeName: 'SELECT_CHALLENGE',
+            Session: session,
+            ChallengeResponses: {
+              USERNAME: username,
+              ANSWER: 'PASSWORD',
+              ...(secret ? { SECRET_HASH: secret } : {}),
+            },
+          });
+          session = selected.Session;
+          challengeName = selected.ChallengeName;
+          authResult = selected.AuthenticationResult;
+        }
+
+        if (!authResult && challengeName === 'PASSWORD' && session) {
+          const challenged = await cognitoCall<RespondChallengeResponse>('RespondToAuthChallenge', {
+            ClientId: config.cognito.userPoolClientId,
+            ChallengeName: 'PASSWORD',
+            Session: session,
+            ChallengeResponses: {
+              USERNAME: username,
+              PASSWORD: password,
+              ...(secret ? { SECRET_HASH: secret } : {}),
+            },
+          });
+          authResult = challenged.AuthenticationResult;
+        }
+
+        if (!authResult) throw ApiError.unauthorized('Invalid email or password');
+        return;
+      }
       throw toUnauthorized(err);
     }
   },
