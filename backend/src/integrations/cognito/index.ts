@@ -195,6 +195,7 @@ export const cognitoAuth = {
           AuthParameters: {
             USERNAME: username,
             PREFERRED_CHALLENGE: 'PASSWORD',
+            PASSWORD: password,
             ...(secret ? { SECRET_HASH: secret } : {}),
           },
         });
