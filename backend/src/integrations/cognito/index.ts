@@ -192,6 +192,25 @@ function errorMessage(err: unknown) {
   return err instanceof Error ? err.message : String(err);
 }
 
+function isNewPasswordRequired(challengeName?: string) {
+  return challengeName === 'NEW_PASSWORD_REQUIRED';
+}
+
+async function markVerifiedTempPasswordPermanent(username: string, password: string) {
+  if (!config.cognito.userPoolId) {
+    throw new ApiError(409, 'Cognito requires a password change before login.');
+  }
+
+  await adminClient.send(
+    new AdminSetUserPasswordCommand({
+      UserPoolId: config.cognito.userPoolId,
+      Username: username,
+      Password: password,
+      Permanent: true,
+    }),
+  );
+}
+
 async function verifyWithUserPasswordAuth(
   username: string,
   password: string,
@@ -202,6 +221,11 @@ async function verifyWithUserPasswordAuth(
     ClientId: config.cognito.userPoolClientId,
     AuthParameters: authParameters,
   });
+
+  if (isNewPasswordRequired(result.ChallengeName)) {
+    await markVerifiedTempPasswordPermanent(username, password);
+    return;
+  }
 
   if (!result.AuthenticationResult) throw ApiError.unauthorized('Invalid email or password');
 }
@@ -243,6 +267,11 @@ async function verifyWithUserAuth(username: string, password: string, secret?: s
     authResult = selected.AuthenticationResult;
   }
 
+  if (!authResult && isNewPasswordRequired(challengeName)) {
+    await markVerifiedTempPasswordPermanent(username, password);
+    return;
+  }
+
   if (!authResult && challengeName === 'PASSWORD' && session) {
     const challengeResponses: Record<string, string> = {
       USERNAME: username,
@@ -281,6 +310,11 @@ async function verifyWithAdminPasswordAuth(username: string, password: string, s
       AuthParameters: authParameters,
     }),
   );
+
+  if (isNewPasswordRequired(result.ChallengeName)) {
+    await markVerifiedTempPasswordPermanent(username, password);
+    return;
+  }
 
   if (!result.AuthenticationResult) throw ApiError.unauthorized('Invalid email or password');
 }
