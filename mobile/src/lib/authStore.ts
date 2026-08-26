@@ -1,7 +1,7 @@
 import { create } from 'zustand';
-import * as SecureStore from 'expo-secure-store';
 import { SessionUser } from './types';
 import { API_URL } from './config';
+import { secureStorage } from './secureStorage';
 
 const ACCESS_KEY = 'sfa_access_token';
 const REFRESH_KEY = 'sfa_refresh_token';
@@ -27,8 +27,8 @@ export const useAuth = create<AuthState>((set, get) => ({
   hydrate: async () => {
     try {
       const [access, userJson] = await Promise.all([
-        SecureStore.getItemAsync(ACCESS_KEY),
-        SecureStore.getItemAsync(USER_KEY),
+        secureStorage.getItem(ACCESS_KEY),
+        secureStorage.getItem(USER_KEY),
       ]);
       set({
         accessToken: access,
@@ -50,15 +50,15 @@ export const useAuth = create<AuthState>((set, get) => ({
     if (!res.ok || !json.success) throw new Error(json.message ?? 'Login failed');
     const { accessToken, refreshToken, user } = json.data;
     await Promise.all([
-      SecureStore.setItemAsync(ACCESS_KEY, accessToken),
-      SecureStore.setItemAsync(REFRESH_KEY, refreshToken),
-      SecureStore.setItemAsync(USER_KEY, JSON.stringify(user)),
+      secureStorage.setItem(ACCESS_KEY, accessToken),
+      secureStorage.setItem(REFRESH_KEY, refreshToken),
+      secureStorage.setItem(USER_KEY, JSON.stringify(user)),
     ]);
     set({ accessToken, user });
   },
 
   logout: async () => {
-    const refresh = await SecureStore.getItemAsync(REFRESH_KEY);
+    const refresh = await secureStorage.getItem(REFRESH_KEY);
     const access = get().accessToken;
     try {
       if (refresh) {
@@ -75,22 +75,22 @@ export const useAuth = create<AuthState>((set, get) => ({
       // best-effort server-side revocation
     }
     await Promise.all([
-      SecureStore.deleteItemAsync(ACCESS_KEY),
-      SecureStore.deleteItemAsync(REFRESH_KEY),
-      SecureStore.deleteItemAsync(USER_KEY),
+      secureStorage.deleteItem(ACCESS_KEY),
+      secureStorage.deleteItem(REFRESH_KEY),
+      secureStorage.deleteItem(USER_KEY),
     ]);
     set({ accessToken: null, user: null });
   },
 
   setTokens: async (access, refresh) => {
     await Promise.all([
-      SecureStore.setItemAsync(ACCESS_KEY, access),
-      SecureStore.setItemAsync(REFRESH_KEY, refresh),
+      secureStorage.setItem(ACCESS_KEY, access),
+      secureStorage.setItem(REFRESH_KEY, refresh),
     ]);
     set({ accessToken: access });
   },
 
-  getRefreshToken: () => SecureStore.getItemAsync(REFRESH_KEY),
+  getRefreshToken: () => secureStorage.getItem(REFRESH_KEY),
 
   hasPermission: (...perms) => {
     const user = get().user;

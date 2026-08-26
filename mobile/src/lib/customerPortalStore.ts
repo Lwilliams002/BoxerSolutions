@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import * as SecureStore from 'expo-secure-store';
+import { secureStorage } from './secureStorage';
 
 const PORTAL_TOKEN_KEY = 'sfa_customer_portal_token';
 
@@ -21,17 +21,17 @@ export const useCustomerPortal = create<CustomerPortalState>((set) => ({
   hydrated: false,
 
   hydrate: async () => {
-    const token = await SecureStore.getItemAsync(PORTAL_TOKEN_KEY);
+    const token = await secureStorage.getItem(PORTAL_TOKEN_KEY);
     set({ portalSessionToken: token, hydrated: true });
   },
 
   setSession: async (session) => {
-    await SecureStore.setItemAsync(PORTAL_TOKEN_KEY, session.portalSessionToken);
+    await secureStorage.setItem(PORTAL_TOKEN_KEY, session.portalSessionToken);
     set({ portalSessionToken: session.portalSessionToken });
   },
 
   clearSession: async () => {
-    await SecureStore.deleteItemAsync(PORTAL_TOKEN_KEY);
+    await secureStorage.deleteItem(PORTAL_TOKEN_KEY);
     set({ portalSessionToken: null });
   },
 }));
