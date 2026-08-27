@@ -352,25 +352,29 @@ async function chargeSignedAgreementInitial(customerId: string, agreement: Agree
        taxable: false,
      }],
     }, ownerUserId);
+    const invoiceId = String((invoice as { id?: unknown })?.id ?? '');
+    if (!invoiceId) {
+      return { charged: false, invoiceId: null, reason: 'Initial agreement invoice was created without an id.' };
+    }
 
-    const methods = await paymentService.listMethods(customerId);
-    const method = methods.find((item: any) => item.isDefault) ?? methods[0];
+    const methods = (await paymentService.listMethods(customerId)) as Array<{ id: string; isDefault?: boolean }>;
+    const method = methods.find((item) => item.isDefault) ?? methods[0];
     if (!method) {
-     return { charged: false, invoiceId: (invoice as any).id, reason: 'No saved payment method is available to charge the initial agreement.' };
+     return { charged: false, invoiceId, reason: 'No saved payment method is available to charge the initial agreement.' };
     }
 
     try {
-     const result = await paymentService.chargeInvoice((invoice as any).id, method.id, null, ownerUserId, null);
+     const result = await paymentService.chargeInvoice(invoiceId, method.id, null, ownerUserId, null);
      return {
        charged: true,
-       invoiceId: (invoice as any).id,
+       invoiceId,
        paymentMethodId: method.id,
        receipt: result.receipt,
      };
     } catch (error) {
      return {
        charged: false,
-       invoiceId: (invoice as any).id,
+       invoiceId,
        reason: error instanceof Error ? error.message : 'Initial agreement charge failed.',
      };
     }
