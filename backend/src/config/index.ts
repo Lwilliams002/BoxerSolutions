@@ -6,6 +6,11 @@ function required(name: string): string {
   return v;
 }
 
+function normalizedOptional(name: string, fallback = ''): string {
+  const value = process.env[name] ?? fallback;
+  return value.trim().replace(/^[<>"']+|[<>"']+$/g, '');
+}
+
 export const config = {
   env: process.env.NODE_ENV ?? 'development',
   port: parseInt(process.env.PORT ?? '4000', 10),
@@ -37,18 +42,18 @@ export const config = {
     sesSecretAccessKey: process.env.EMAIL_SES_SECRET_ACCESS_KEY ?? process.env.AWS_SECRET_ACCESS_KEY ?? '',
   },
   north: {
-    functionsBaseUrl: process.env.NORTH_FUNCTIONS_BASE_URL ?? 'https://proxy.payanywhere.com',
-    billingBaseUrl: process.env.NORTH_BILLING_BASE_URL ?? 'https://billing.epxuap.com',
-    embeddedBaseUrl: process.env.NORTH_EMBEDDED_BASE_URL ?? 'https://checkout.north.com',
-    mid: process.env.NORTH_MID ?? '',
-    developerKey: process.env.NORTH_DEVELOPER_KEY ?? '',
-    password: process.env.NORTH_PASSWORD ?? '',
-    appSource: process.env.NORTH_APPSOURCE ?? '',
-    signatureSecret: process.env.NORTH_SIGNATURE_SECRET ?? '',
-    embeddedCheckoutId: process.env.NORTH_EMBEDDED_CHECKOUT_ID ?? '',
-    embeddedProfileId: process.env.NORTH_EMBEDDED_PROFILE_ID ?? '',
-    embeddedPrivateApiKey: process.env.NORTH_EMBEDDED_PRIVATE_API_KEY ?? '',
-    webhookSecret: process.env.NORTH_WEBHOOK_SECRET ?? process.env.NORTH_SIGNATURE_SECRET ?? '',
+    functionsBaseUrl: normalizedOptional('NORTH_FUNCTIONS_BASE_URL', 'https://proxy.payanywhere.com'),
+    billingBaseUrl: normalizedOptional('NORTH_BILLING_BASE_URL', 'https://billing.epxuap.com'),
+    embeddedBaseUrl: normalizedOptional('NORTH_EMBEDDED_BASE_URL', 'https://checkout.north.com'),
+    mid: normalizedOptional('NORTH_MID'),
+    developerKey: normalizedOptional('NORTH_DEVELOPER_KEY'),
+    password: normalizedOptional('NORTH_PASSWORD'),
+    appSource: normalizedOptional('NORTH_APPSOURCE'),
+    signatureSecret: normalizedOptional('NORTH_SIGNATURE_SECRET'),
+    embeddedCheckoutId: normalizedOptional('NORTH_EMBEDDED_CHECKOUT_ID'),
+    embeddedProfileId: normalizedOptional('NORTH_EMBEDDED_PROFILE_ID'),
+    embeddedPrivateApiKey: normalizedOptional('NORTH_EMBEDDED_PRIVATE_API_KEY'),
+    webhookSecret: normalizedOptional('NORTH_WEBHOOK_SECRET', process.env.NORTH_SIGNATURE_SECRET ?? ''),
   },
   cognito: {
     employeeAuthEnabled: (process.env.COGNITO_EMPLOYEE_AUTH_ENABLED ?? 'false') === 'true',

@@ -108,6 +108,31 @@ function jsonBody(payload: unknown) {
   return JSON.stringify(payload);
 }
 
+function embeddedConfigDiagnostics() {
+  const { embeddedBaseUrl, embeddedCheckoutId, embeddedProfileId, embeddedPrivateApiKey } = config.north;
+  return {
+    embeddedBaseUrl,
+    embeddedCheckoutIdLength: embeddedCheckoutId.length,
+    embeddedProfileIdLength: embeddedProfileId.length,
+    embeddedPrivateApiKeyLength: embeddedPrivateApiKey.length,
+    embeddedCheckoutIdLooksUuid: /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(embeddedCheckoutId),
+    embeddedProfileIdLooksUuid: /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(embeddedProfileId),
+    embeddedPrivateApiKeyLooksHex: /^[0-9a-f]+$/i.test(embeddedPrivateApiKey),
+  };
+}
+
+function embeddedPayloadDiagnostics(payload: Record<string, unknown>) {
+  const products = Array.isArray(payload.products) ? payload.products : [];
+  return {
+    amount: payload.amount,
+    transactionType: payload.transactionType,
+    hasEmail: typeof payload.email === 'string' && payload.email.length > 0,
+    hasOrderId: typeof payload.orderId === 'string' && payload.orderId.length > 0,
+    productCount: products.length,
+    payloadKeys: Object.keys(payload).sort(),
+  };
+}
+
 function describeNorthError(data: Record<string, unknown> | null, fallback: string) {
   if (!data) return fallback;
   const details = data.details;
@@ -166,7 +191,11 @@ class NorthGatewayService {
     });
     if (!res.ok) {
       const err = await readNorthErrorResponse(res, `North embedded session failed: ${res.statusText || `HTTP ${res.status}`}`);
-      throw new ApiError(502, err.message, err.details);
+      throw new ApiError(502, err.message, {
+        upstream: err.details,
+        config: embeddedConfigDiagnostics(),
+        request: embeddedPayloadDiagnostics(payload),
+      });
     }
     const data = (await res.json().catch(() => null)) as Record<string, unknown> | null;
     if (!data) {
@@ -174,7 +203,11 @@ class NorthGatewayService {
       throw new ApiError(
         502,
         `North embedded session failed: North returned an empty response${requestId ? ` (North request id: ${requestId})` : ''}`,
-        { status: res.status, statusText: res.statusText, requestId },
+        {
+          upstream: { status: res.status, statusText: res.statusText, requestId },
+          config: embeddedConfigDiagnostics(),
+          request: embeddedPayloadDiagnostics(payload),
+        },
       );
     }
     return data;
