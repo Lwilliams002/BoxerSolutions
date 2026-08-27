@@ -176,35 +176,26 @@ export default function CustomerScreen() {
 
     setCreatingCustomInvoice(true);
     try {
-      const methods = await api<any[]>(`/payment-methods?customerId=${id}`);
-      const method = methods.find((m: any) => m.isDefault) ?? methods[0];
-      if (!method) {
-        Alert.alert('No payment method on file', 'Add a saved payment method before creating a manual invoice.');
-        return;
-      }
-
       const invoice = await api<{ id: string }>('/invoices', {
         method: 'POST',
         body: {
           customerId: id,
-          dueDate: new Date().toISOString().slice(0, 10),
           taxRate: 0,
           notes: 'Manual custom invoice',
           items: [{ description, quantity: 1, unitPrice: Number(amount.toFixed(2)), taxable: false }],
         },
       });
 
-      await api('/payments/charge', {
-        method: 'POST',
-        body: { invoiceId: invoice.id, paymentMethodId: method.id },
-      });
-
       setCustomInvoiceDescription('Additional service');
       setCustomInvoiceAmount('');
       void qc.invalidateQueries({ queryKey: ['customerInvoices', id] });
-      void qc.invalidateQueries({ queryKey: ['customerPayments', id] });
       void qc.invalidateQueries({ queryKey: ['customer', id] });
-      Alert.alert('Invoice created and charged', `${money(amount)} was charged to ${method.brand} •••• ${method.last4}.`);
+      void qc.invalidateQueries({ queryKey: ['invoices'] });
+      Alert.alert(
+        'Invoice created',
+        `${money(amount)} was added as a new invoice.${cust?.autopayEnabled ? ' AutoPay will only charge it when the invoice becomes due.' : ''}`,
+        [{ text: 'View Invoice', onPress: () => router.push(`/invoice/${invoice.id}`) }],
+      );
     } catch (e) {
       Alert.alert('Error', (e as Error).message);
     } finally {
@@ -528,7 +519,7 @@ export default function CustomerScreen() {
                   onChangeText={setCustomInvoiceAmount}
                 />
                 <Button
-                  title="Create Invoice & Charge"
+                  title="Create Invoice"
                   variant="success"
                   onPress={createCustomInvoice}
                   loading={creatingCustomInvoice}
