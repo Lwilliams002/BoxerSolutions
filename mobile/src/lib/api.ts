@@ -21,7 +21,10 @@ async function tryRefresh(): Promise<boolean> {
     refreshPromise = (async () => {
       const { getRefreshToken, setTokens, logout } = useAuth.getState();
       const refresh = await getRefreshToken();
-      if (!refresh) return false;
+      if (!refresh) {
+        await logout();
+        return false;
+      }
       try {
         const res = await fetch(`${API_URL}/auth/refresh`, {
           method: 'POST',

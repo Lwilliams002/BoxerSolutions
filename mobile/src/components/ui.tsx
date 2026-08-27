@@ -1,5 +1,6 @@
 import React from 'react';
 import {
+  Platform,
   View,
   Text,
   StyleSheet,
@@ -9,6 +10,30 @@ import {
   TextStyle,
 } from 'react-native';
 import { colors, statusColors, statusLabel } from '../lib/theme';
+
+const cardShadow: ViewStyle = Platform.OS === 'web'
+  ? ({ boxShadow: '0px 2px 8px rgba(13, 13, 13, 0.06)' } as ViewStyle)
+  : {
+      shadowColor: '#0D0D0D',
+      shadowOffset: { width: 0, height: 2 },
+      shadowOpacity: 0.06,
+      shadowRadius: 8,
+      elevation: 2,
+    };
+
+const buttonShadow: ViewStyle = Platform.OS === 'web'
+  ? ({ boxShadow: '0px 3px 6px rgba(13, 13, 13, 0.12)' } as ViewStyle)
+  : {
+      shadowColor: '#0D0D0D',
+      shadowOffset: { width: 0, height: 3 },
+      shadowOpacity: 0.12,
+      shadowRadius: 6,
+      elevation: 3,
+    };
+
+const noShadow: ViewStyle = Platform.OS === 'web'
+  ? ({ boxShadow: 'none' } as ViewStyle)
+  : { shadowOpacity: 0, elevation: 0 };
 
 export function Card({ children, style }: { children: React.ReactNode; style?: ViewStyle }) {
   return <View style={[styles.card, style]}>{children}</View>;
@@ -46,7 +71,7 @@ export function Button({
       style={[
         styles.button,
         { backgroundColor: bg },
-        variant === 'outline' && { borderWidth: 1.5, borderColor: colors.primary, shadowOpacity: 0, elevation: 0 },
+        variant === 'outline' && { borderWidth: 1.5, borderColor: colors.primary, ...noShadow },
         (disabled || loading) && { opacity: 0.5 },
         style,
       ]}
@@ -112,11 +137,7 @@ const styles = StyleSheet.create({
     borderRadius: 16,
     padding: 16,
     marginBottom: 12,
-    shadowColor: '#0D0D0D',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.06,
-    shadowRadius: 8,
-    elevation: 2,
+    ...cardShadow,
   },
   button: {
     borderRadius: 14,
@@ -125,11 +146,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     marginVertical: 5,
-    shadowColor: '#0D0D0D',
-    shadowOffset: { width: 0, height: 3 },
-    shadowOpacity: 0.12,
-    shadowRadius: 6,
-    elevation: 3,
+    ...buttonShadow,
   },
   buttonText: { fontSize: 16, fontWeight: '800', letterSpacing: 0.3 },
   badge: {

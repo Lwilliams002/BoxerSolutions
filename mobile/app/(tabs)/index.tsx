@@ -1,5 +1,5 @@
 import React from 'react';
-import { View, Text, ScrollView, StyleSheet, RefreshControl, Image, TouchableOpacity } from 'react-native';
+import { View, Text, ScrollView, StyleSheet, RefreshControl, Image, TouchableOpacity, Platform } from 'react-native';
 import { useQuery } from '@tanstack/react-query';
 import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
@@ -27,6 +27,26 @@ interface Dashboard {
   technicianActivity: { technicianName: string; completed: number; remaining: number }[];
 }
 
+const tileShadow = Platform.OS === 'web'
+  ? { boxShadow: '0px 2px 6px rgba(13, 13, 13, 0.05)' }
+  : {
+      shadowColor: '#0D0D0D',
+      shadowOffset: { width: 0, height: 2 },
+      shadowOpacity: 0.05,
+      shadowRadius: 6,
+      elevation: 2,
+    };
+
+const actionShadow = Platform.OS === 'web'
+  ? { boxShadow: '0px 3px 6px rgba(13, 13, 13, 0.12)' }
+  : {
+      shadowColor: '#0D0D0D',
+      shadowOffset: { width: 0, height: 3 },
+      shadowOpacity: 0.12,
+      shadowRadius: 6,
+      elevation: 3,
+    };
+
 function StatTile({
   icon,
   label,
@@ -50,19 +70,23 @@ function StatTile({
 }
 
 export default function DashboardScreen() {
-  const user = useAuth((s) => s.user);
+  const { user, hasPermission } = useAuth((s) => ({ user: s.user, hasPermission: s.hasPermission }));
   const router = useRouter();
   const insets = useSafeAreaInsets();
+  const isSignedIn = Boolean(user);
+  const canReviewServiceRequests = hasPermission('users:write', 'appointments:write');
   const { data, isLoading, refetch, isRefetching } = useQuery({
     queryKey: ['dashboard'],
     queryFn: () => api<Dashboard>('/dashboard'),
+    enabled: isSignedIn,
   });
   const approvals = useQuery({
     queryKey: ['dashboard-service-requests'],
     queryFn: () => api<Paginated<OwnerServiceRequest>>('/service-requests?status=submitted&page=1&pageSize=4'),
+    enabled: isSignedIn && canReviewServiceRequests,
   });
 
-  if (isLoading) return <Loading />;
+  if (!isSignedIn || isLoading) return <Loading />;
   const d = data?.today;
   const done = d?.completedStops ?? 0;
   const total = (d?.completedStops ?? 0) + (d?.remainingStops ?? 0);
@@ -121,7 +145,7 @@ export default function DashboardScreen() {
           </View>
         ) : null}
 
-        {approvals.data?.items?.length ? (
+        {canReviewServiceRequests && approvals.data?.items?.length ? (
           <>
             <SectionTitle>Needs Approval</SectionTitle>
             <Card>
@@ -146,14 +170,14 @@ export default function DashboardScreen() {
               </TouchableOpacity>
             </Card>
           </>
-        ) : approvals.isLoading ? (
+        ) : canReviewServiceRequests && approvals.isLoading ? (
           <>
             <SectionTitle>Needs Approval</SectionTitle>
             <Card>
               <Text style={styles.techStats}>Loading approvals...</Text>
             </Card>
           </>
-        ) : (
+        ) : canReviewServiceRequests ? (
           <>
             <SectionTitle>Needs Approval</SectionTitle>
             <Card>
@@ -164,7 +188,7 @@ export default function DashboardScreen() {
               </TouchableOpacity>
             </Card>
           </>
-        )}
+        ) : null}
 
         <SectionTitle>Quick Actions</SectionTitle>
         <View style={styles.actionsRow}>
@@ -213,11 +237,7 @@ const styles = StyleSheet.create({
     borderRadius: 16,
     padding: 14,
     marginBottom: 10,
-    shadowColor: '#0D0D0D',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.05,
-    shadowRadius: 6,
-    elevation: 2,
+    ...tileShadow,
   },
   tileIcon: {
     width: 34,
@@ -262,11 +282,7 @@ const styles = StyleSheet.create({
     borderRadius: 16,
     paddingVertical: 18,
     alignItems: 'center',
-    shadowColor: '#0D0D0D',
-    shadowOffset: { width: 0, height: 3 },
-    shadowOpacity: 0.12,
-    shadowRadius: 6,
-    elevation: 3,
+    ...actionShadow,
   },
   actionDark: { backgroundColor: '#0D0D0D' },
   actionText: { fontSize: 14, fontWeight: '800', color: '#0D0D0D', marginTop: 6 },

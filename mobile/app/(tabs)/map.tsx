@@ -181,7 +181,7 @@ export default function TerritoryMapScreen() {
         ))}
       </MapView>
 
-      <View style={styles.overlay} pointerEvents="box-none">
+      <View style={[styles.overlay, styles.overlayPointerEvents]}>
         <View style={styles.toolbar}>
           {canManage && (
             <>
@@ -240,6 +240,7 @@ const styles = StyleSheet.create({
   screen: { flex: 1, backgroundColor: colors.bg },
   map: { flex: 1 },
   overlay: { position: 'absolute', left: 10, right: 10, top: 10, gap: 8 },
+  overlayPointerEvents: { pointerEvents: 'box-none' },
   toolbar: {
     flexDirection: 'row',
     alignItems: 'center',

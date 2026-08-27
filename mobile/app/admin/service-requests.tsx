@@ -2,6 +2,7 @@ import React, { useMemo, useState } from 'react';
 import { Alert, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api } from '../../src/lib/api';
+import { useAuth } from '../../src/lib/authStore';
 import { Button, Card, StatusBadge } from '../../src/components/ui';
 import { colors, fmtDate, money } from '../../src/lib/theme';
 import { OwnerServiceRequest, Paginated } from '../../src/lib/types';
@@ -14,6 +15,7 @@ interface Tech {
 
 export default function ServiceRequestsAdminScreen() {
   const qc = useQueryClient();
+  const canManage = useAuth((s) => s.hasPermission('users:write', 'appointments:write'));
   const [quotedById, setQuotedById] = useState<Record<string, string>>({});
   const [notesById, setNotesById] = useState<Record<string, string>>({});
   const [techById, setTechById] = useState<Record<string, string | null>>({});
@@ -21,10 +23,12 @@ export default function ServiceRequestsAdminScreen() {
   const requests = useQuery({
     queryKey: ['owner-service-requests'],
     queryFn: () => api<Paginated<OwnerServiceRequest>>('/service-requests?page=1&pageSize=50'),
+    enabled: canManage,
   });
   const technicians = useQuery({
     queryKey: ['owner-techs'],
     queryFn: () => api<Tech[]>('/users/technicians'),
+    enabled: canManage,
   });
 
   const update = useMutation({
@@ -66,6 +70,17 @@ export default function ServiceRequestsAdminScreen() {
   };
 
   const rows = useMemo(() => requests.data?.items ?? [], [requests.data?.items]);
+
+  if (!canManage) {
+    return (
+      <ScrollView style={styles.screen} contentContainerStyle={styles.content}>
+        <Card>
+          <Text style={styles.customer}>Access restricted</Text>
+          <Text style={styles.meta}>You do not have permission to review service requests.</Text>
+        </Card>
+      </ScrollView>
+    );
+  }
 
   return (
     <ScrollView style={styles.screen} contentContainerStyle={styles.content}>
