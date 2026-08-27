@@ -127,9 +127,58 @@ function describeNorthError(data: Record<string, unknown> | null, fallback: stri
   return fallback;
 }
 
+async function readNorthErrorResponse(res: Response, prefix: string) {
+  const requestId = res.headers.get('x-request-id');
+  const text = await res.text().catch(() => '');
+  let data: Record<string, unknown> | null = null;
+  if (text) {
+    try {
+      data = JSON.parse(text) as Record<string, unknown>;
+    } catch {
+      data = null;
+    }
+  }
+  let message = prefix;
+  if (data) {
+    message = describeNorthError(data, prefix);
+  } else if (text.trim()) {
+    message = `${prefix}: ${text.trim()}`;
+  }
+  if (requestId) {
+    message = `${message} (North request id: ${requestId})`;
+  }
+  return { message, details: data ?? { status: res.status, statusText: res.statusText, requestId, body: text || null } };
+}
+
 class NorthGatewayService {
   private auth?: NorthAuthResponse;
   private authAt = 0;
+
+  private async postEmbeddedSession(payload: Record<string, unknown>) {
+    const res = await fetch(`${config.north.embeddedBaseUrl}/api/sessions`, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${config.north.embeddedPrivateApiKey}`,
+        'Content-Type': 'application/json',
+        'User-Agent': 'ServiceFinance Embedded Checkout',
+      },
+      body: jsonBody(payload),
+    });
+    if (!res.ok) {
+      const err = await readNorthErrorResponse(res, `North embedded session failed: ${res.statusText || `HTTP ${res.status}`}`);
+      throw new ApiError(502, err.message, err.details);
+    }
+    const data = (await res.json().catch(() => null)) as Record<string, unknown> | null;
+    if (!data) {
+      const requestId = res.headers.get('x-request-id');
+      throw new ApiError(
+        502,
+        `North embedded session failed: North returned an empty response${requestId ? ` (North request id: ${requestId})` : ''}`,
+        { status: res.status, statusText: res.statusText, requestId },
+      );
+    }
+    return data;
+  }
 
   private async requestAuth(): Promise<NorthAuthResponse> {
     assertNorthConfig();
@@ -260,19 +309,18 @@ class NorthGatewayService {
     if (input.products?.length) payload.products = input.products;
     if (input.orderId) payload.orderId = input.orderId;
     if (input.customerEmail) payload.email = input.customerEmail;
-    const res = await fetch(`${config.north.embeddedBaseUrl}/api/sessions`, {
-      method: 'POST',
-      headers: {
-        Authorization: `Bearer ${config.north.embeddedPrivateApiKey}`,
-        'Content-Type': 'application/json',
-        'User-Agent': 'ServiceFinance Embedded Checkout',
-      },
-      body: jsonBody(payload),
-    });
-    const data = (await res.json().catch(() => null)) as Record<string, unknown> | null;
-    if (!res.ok || !data) {
-      const base = `North embedded session failed: ${(data as { message?: string } | null)?.message ?? res.statusText}`;
-      throw new ApiError(502, describeNorthError(data, base), data);
+    let data: Record<string, unknown> | null = null;
+    try {
+      data = await this.postEmbeddedSession(payload);
+    } catch (error) {
+      const hasOptionalFields = Boolean(payload.products || payload.orderId || payload.email);
+      if (!hasOptionalFields) throw error;
+      data = await this.postEmbeddedSession({
+        checkoutId: config.north.embeddedCheckoutId,
+        profileId: config.north.embeddedProfileId,
+        transactionType: input.transactionType ?? 'Sale',
+        amount,
+      });
     }
     const tokenCandidate = [
       data.sessionToken,
@@ -299,10 +347,18 @@ class NorthGatewayService {
         'User-Agent': 'ServiceFinance Embedded Checkout',
       },
     });
+    if (!res.ok) {
+      const err = await readNorthErrorResponse(res, `North embedded session status failed: ${res.statusText || `HTTP ${res.status}`}`);
+      throw new ApiError(502, err.message, err.details);
+    }
     const data = (await res.json().catch(() => null)) as Record<string, unknown> | null;
-    if (!res.ok || !data) {
-      const base = `North embedded session status failed: ${(data as { message?: string } | null)?.message ?? res.statusText}`;
-      throw new ApiError(502, describeNorthError(data, base), data);
+    if (!data) {
+      const requestId = res.headers.get('x-request-id');
+      throw new ApiError(
+        502,
+        `North embedded session status failed: North returned an empty response${requestId ? ` (North request id: ${requestId})` : ''}`,
+        { status: res.status, statusText: res.statusText, requestId },
+      );
     }
     return data;
   }
