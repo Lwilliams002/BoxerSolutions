@@ -70,7 +70,8 @@ function StatTile({
 }
 
 export default function DashboardScreen() {
-  const { user, hasPermission } = useAuth((s) => ({ user: s.user, hasPermission: s.hasPermission }));
+  const user = useAuth((s) => s.user);
+  const hasPermission = useAuth((s) => s.hasPermission);
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const isSignedIn = Boolean(user);
