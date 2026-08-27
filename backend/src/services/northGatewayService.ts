@@ -108,6 +108,25 @@ function jsonBody(payload: unknown) {
   return JSON.stringify(payload);
 }
 
+function describeNorthError(data: Record<string, unknown> | null, fallback: string) {
+  if (!data) return fallback;
+  const details = data.details;
+  const errors = data.errors;
+  if (Array.isArray(details) && details.length) {
+    return `${fallback}: ${details.map((item) => typeof item === 'string' ? item : JSON.stringify(item)).join('; ')}`;
+  }
+  if (Array.isArray(errors) && errors.length) {
+    return `${fallback}: ${errors.map((item) => typeof item === 'string' ? item : JSON.stringify(item)).join('; ')}`;
+  }
+  if (details && typeof details === 'object') {
+    return `${fallback}: ${JSON.stringify(details)}`;
+  }
+  if (errors && typeof errors === 'object') {
+    return `${fallback}: ${JSON.stringify(errors)}`;
+  }
+  return fallback;
+}
+
 class NorthGatewayService {
   private auth?: NorthAuthResponse;
   private authAt = 0;
@@ -252,7 +271,8 @@ class NorthGatewayService {
     });
     const data = (await res.json().catch(() => null)) as Record<string, unknown> | null;
     if (!res.ok || !data) {
-      throw new ApiError(502, `North embedded session failed: ${(data as { message?: string } | null)?.message ?? res.statusText}`);
+      const base = `North embedded session failed: ${(data as { message?: string } | null)?.message ?? res.statusText}`;
+      throw new ApiError(502, describeNorthError(data, base), data);
     }
     const tokenCandidate = [
       data.sessionToken,
@@ -281,7 +301,8 @@ class NorthGatewayService {
     });
     const data = (await res.json().catch(() => null)) as Record<string, unknown> | null;
     if (!res.ok || !data) {
-      throw new ApiError(502, `North embedded session status failed: ${(data as { message?: string } | null)?.message ?? res.statusText}`);
+      const base = `North embedded session status failed: ${(data as { message?: string } | null)?.message ?? res.statusText}`;
+      throw new ApiError(502, describeNorthError(data, base), data);
     }
     return data;
   }
