@@ -1,7 +1,7 @@
 import React, { useMemo, useState } from 'react';
 import { View, Text, ScrollView, StyleSheet, Alert, Linking, TextInput } from 'react-native';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { useLocalSearchParams } from 'expo-router';
+import { useLocalSearchParams, useRouter } from 'expo-router';
 import { api, newIdempotencyKey } from '../../src/lib/api';
 import { useAuth } from '../../src/lib/authStore';
 import { colors, money, fmtDate } from '../../src/lib/theme';
@@ -58,6 +58,7 @@ function maskedLast4(value: unknown) {
 
 export default function InvoiceScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
+  const router = useRouter();
   const qc = useQueryClient();
   const hasPermission = useAuth((s) => s.hasPermission);
   const [busy, setBusy] = useState<string | null>(null);
@@ -180,6 +181,10 @@ export default function InvoiceScreen() {
     }
   };
 
+  const openNorthEmbeddedCheckout = () => {
+    router.push({ pathname: '/invoice/embedded-checkout', params: { invoiceId: id } });
+  };
+
   const refund = (payment: PaymentRow) => {
     const amountText = refundAmountByPayment[payment.id] ?? String(Number(payment.remainingRefundableAmount ?? payment.amount).toFixed(2));
     const amount = Number(amountText);
@@ -281,6 +286,9 @@ export default function InvoiceScreen() {
       </Card>
 
       <Button title={inv.pdfFileId ? 'View PDF' : 'Generate PDF'} variant="outline" onPress={openPdf} loading={busy === 'pdf'} />
+      {unpaid && (canCollect || hasPermission('payments:write')) ? (
+        <Button title="Pay with North Embedded Checkout" variant="success" onPress={openNorthEmbeddedCheckout} />
+      ) : null}
       {canCollect || hasPermission('payments:write') ? (
         <Button title="Create North Payment Link" variant="secondary" onPress={createNorthInvoiceLink} loading={busy === 'north-link'} />
       ) : null}

@@ -330,8 +330,8 @@ export default function AgreementScreen() {
           // Continue without image attachment when capture is unavailable.
         }
 
-        // For new customers only, prepare an initial-service invoice so adding a
-        // payment method can immediately collect the one-time initial amount.
+        // For new customers only, prepare an initial-service invoice and charge it
+        // immediately if a payment method is already on file.
         if (!existingCustomerId && initialTotal > 0.009) {
           try {
             const initialChargeItems = lineItems
@@ -362,6 +362,19 @@ export default function AgreementScreen() {
                 },
               });
               initialInvoiceId = invoice.id;
+
+              try {
+                const methods = await api<any[]>(`/payment-methods?customerId=${targetCustomerId}`);
+                const defaultMethod = methods.find((method: any) => method.isDefault) ?? methods[0];
+                if (defaultMethod) {
+                  await api('/payments/charge', {
+                    method: 'POST',
+                    body: { invoiceId: invoice.id, paymentMethodId: defaultMethod.id },
+                  });
+                }
+              } catch {
+                // Keep the agreement flow successful and let the customer complete the card setup later.
+              }
             }
           } catch {
             // Keep signed-agreement flow successful even if invoice generation fails.

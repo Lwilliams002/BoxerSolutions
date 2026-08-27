@@ -32,6 +32,9 @@ export default function CustomerScreen() {
   const [noteText, setNoteText] = useState('');
   const [showAddCard, setShowAddCard] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [customInvoiceDescription, setCustomInvoiceDescription] = useState('Additional service');
+  const [customInvoiceAmount, setCustomInvoiceAmount] = useState('');
+  const [creatingCustomInvoice, setCreatingCustomInvoice] = useState(false);
 
   const { data: cust, isLoading } = useQuery({
     queryKey: ['customer', id],
@@ -156,6 +159,56 @@ export default function CustomerScreen() {
       Alert.alert('Error', (e as Error).message);
     } finally {
       setBusy(false);
+    }
+  };
+
+  const createCustomInvoice = async () => {
+    const description = customInvoiceDescription.trim();
+    const amount = Number(customInvoiceAmount);
+    if (!description) {
+      Alert.alert('Description required', 'Add a description for this invoice.');
+      return;
+    }
+    if (!Number.isFinite(amount) || amount <= 0) {
+      Alert.alert('Invalid amount', 'Enter a valid invoice amount greater than zero.');
+      return;
+    }
+
+    setCreatingCustomInvoice(true);
+    try {
+      const methods = await api<any[]>(`/payment-methods?customerId=${id}`);
+      const method = methods.find((m: any) => m.isDefault) ?? methods[0];
+      if (!method) {
+        Alert.alert('No payment method on file', 'Add a saved payment method before creating a manual invoice.');
+        return;
+      }
+
+      const invoice = await api<{ id: string }>('/invoices', {
+        method: 'POST',
+        body: {
+          customerId: id,
+          dueDate: new Date().toISOString().slice(0, 10),
+          taxRate: 0,
+          notes: 'Manual custom invoice',
+          items: [{ description, quantity: 1, unitPrice: Number(amount.toFixed(2)), taxable: false }],
+        },
+      });
+
+      await api('/payments/charge', {
+        method: 'POST',
+        body: { invoiceId: invoice.id, paymentMethodId: method.id },
+      });
+
+      setCustomInvoiceDescription('Additional service');
+      setCustomInvoiceAmount('');
+      void qc.invalidateQueries({ queryKey: ['customerInvoices', id] });
+      void qc.invalidateQueries({ queryKey: ['customerPayments', id] });
+      void qc.invalidateQueries({ queryKey: ['customer', id] });
+      Alert.alert('Invoice created and charged', `${money(amount)} was charged to ${method.brand} •••• ${method.last4}.`);
+    } catch (e) {
+      Alert.alert('Error', (e as Error).message);
+    } finally {
+      setCreatingCustomInvoice(false);
     }
   };
 
@@ -454,25 +507,56 @@ export default function CustomerScreen() {
             ))
           ))}
 
-        {tab === 'Invoices' &&
-          ((invoices?.items?.length ?? 0) === 0 ? (
-            <EmptyState title="No invoices" />
-          ) : (
-            invoices!.items.map((inv) => (
-              <TouchableOpacity key={inv.id} onPress={() => router.push(`/invoice/${inv.id}`)}>
-                <Card>
-                  <Row>
-                    <Value style={{ fontWeight: '700' }}>{inv.invoiceNumber}</Value>
-                    <StatusBadge status={inv.status} />
-                  </Row>
-                  <Row style={{ marginTop: 4 }}>
-                    <Text style={styles.metaText}>{fmtDate(inv.invoiceDate)}</Text>
-                    <Value style={{ fontWeight: '700' }}>{money(inv.total)}</Value>
-                  </Row>
-                </Card>
-              </TouchableOpacity>
-            ))
-          ))}
+        {tab === 'Invoices' && (
+          <>
+            {hasPermission('invoices:write', 'invoices:write_assigned') && (
+              <Card>
+                <Text style={styles.metaText}>Create a manual invoice and charge it to the card on file.</Text>
+                <TextInput
+                  style={[styles.noteInput, { marginTop: 8 }]}
+                  placeholder="Description"
+                  placeholderTextColor={colors.textMuted}
+                  value={customInvoiceDescription}
+                  onChangeText={setCustomInvoiceDescription}
+                />
+                <TextInput
+                  style={styles.noteInput}
+                  placeholder="Amount"
+                  placeholderTextColor={colors.textMuted}
+                  keyboardType="decimal-pad"
+                  value={customInvoiceAmount}
+                  onChangeText={setCustomInvoiceAmount}
+                />
+                <Button
+                  title="Create Invoice & Charge"
+                  variant="success"
+                  onPress={createCustomInvoice}
+                  loading={creatingCustomInvoice}
+                  disabled={!customInvoiceAmount.trim()}
+                />
+              </Card>
+            )}
+
+            {((invoices?.items?.length ?? 0) === 0 ? (
+              <EmptyState title="No invoices" />
+            ) : (
+              invoices!.items.map((inv) => (
+                <TouchableOpacity key={inv.id} onPress={() => router.push(`/invoice/${inv.id}`)}>
+                  <Card>
+                    <Row>
+                      <Value style={{ fontWeight: '700' }}>{inv.invoiceNumber}</Value>
+                      <StatusBadge status={inv.status} />
+                    </Row>
+                    <Row style={{ marginTop: 4 }}>
+                      <Text style={styles.metaText}>{fmtDate(inv.invoiceDate)}</Text>
+                      <Value style={{ fontWeight: '700' }}>{money(inv.total)}</Value>
+                    </Row>
+                  </Card>
+                </TouchableOpacity>
+              ))
+            ))}
+          </>
+        )}
 
         {tab === 'Payments' &&
           ((payments?.items?.length ?? 0) === 0 ? (

@@ -4,6 +4,8 @@ import { pool } from '../config/db';
 import { config } from '../config';
 import { ApiError } from '../utils/errors';
 import { storage } from '../integrations/storage';
+import { invoiceService } from './invoiceService';
+import { paymentService } from './paymentService';
 
 const SIGNING_TOKEN_TTL_SECONDS = 60 * 60 * 24 * 7;
 const UNSIGNED_AGREEMENT_PREFIX = 'service-agreement-unsigned-';
@@ -314,6 +316,73 @@ async function loadAgreementSnapshot(customerId: string) {
   return parseAgreementSnapshot(String(rows[0].body));
 }
 
+async function getOwnerUserId() {
+  const { rows } = await pool.query(
+    `SELECT u.id
+     FROM users u
+     JOIN user_roles ur ON ur.user_id = u.id
+     JOIN roles r ON r.id = ur.role_id
+     WHERE r.code = 'OWNER'
+     ORDER BY u.created_at ASC
+     LIMIT 1`,
+  );
+  return rows[0]?.id as string | undefined;
+}
+
+async function chargeSignedAgreementInitial(customerId: string, agreement: AgreementSnapshot | null) {
+  if (!agreement || agreement.initialTotal == null || agreement.initialTotal <= 0) {
+    return { charged: false, invoiceId: null };
+  }
+
+  const ownerUserId = await getOwnerUserId();
+  if (!ownerUserId) {
+    return { charged: false, invoiceId: null, reason: 'Owner account not available to record the initial charge.' };
+  }
+
+  try {
+    const invoice = await invoiceService.create({
+     customerId,
+     dueDate: new Date().toISOString().slice(0, 10),
+     taxRate: 0,
+     notes: 'Initial agreement charge',
+     items: [{
+       description: 'Initial service agreement charge',
+       quantity: 1,
+       unitPrice: Number(agreement.initialTotal.toFixed(2)),
+       taxable: false,
+     }],
+    }, ownerUserId);
+
+    const methods = await paymentService.listMethods(customerId);
+    const method = methods.find((item: any) => item.isDefault) ?? methods[0];
+    if (!method) {
+     return { charged: false, invoiceId: (invoice as any).id, reason: 'No saved payment method is available to charge the initial agreement.' };
+    }
+
+    try {
+     const result = await paymentService.chargeInvoice((invoice as any).id, method.id, null, ownerUserId, null);
+     return {
+       charged: true,
+       invoiceId: (invoice as any).id,
+       paymentMethodId: method.id,
+       receipt: result.receipt,
+     };
+    } catch (error) {
+     return {
+       charged: false,
+       invoiceId: (invoice as any).id,
+       reason: error instanceof Error ? error.message : 'Initial agreement charge failed.',
+     };
+    }
+  } catch (error) {
+    return {
+     charged: false,
+     invoiceId: null,
+     reason: error instanceof Error ? error.message : 'Initial agreement invoice could not be created.',
+    };
+  }
+}
+
 export const agreementSigningService = {
   async getLatestUnsignedAgreement(customerId: string) {
     const { rows } = await pool.query(
@@ -540,6 +609,14 @@ export const agreementSigningService = {
        WHERE id = $1`,
       [row.id, agreementSignedFileName(row.file_name), signedPdf.length],
     );
-    return { alreadySigned: false, customerId: row.customer_id };
+
+    const initialCharge = await chargeSignedAgreementInitial(row.customer_id, agreement);
+    return {
+      alreadySigned: false,
+      customerId: row.customer_id,
+      initialInvoiceId: initialCharge.invoiceId,
+      initialInvoiceCharged: initialCharge.charged,
+      initialInvoiceChargeError: initialCharge.reason ?? null,
+    };
   },
 };

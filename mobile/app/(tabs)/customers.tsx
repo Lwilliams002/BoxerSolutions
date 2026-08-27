@@ -9,7 +9,7 @@ import {
 } from 'react-native';
 import { useQuery } from '@tanstack/react-query';
 import { useRouter } from 'expo-router';
-import { api } from '../../src/lib/api';
+import { api, ApiRequestError } from '../../src/lib/api';
 import { useAuth } from '../../src/lib/authStore';
 import { colors, money } from '../../src/lib/theme';
 import { Loading, EmptyState, StatusBadge, Button } from '../../src/components/ui';
@@ -37,6 +37,18 @@ const FILTERS = [
   { key: 'autopay=true', label: 'AutoPay' },
 ];
 
+function getCustomerErrorMessage(error: unknown) {
+  if (error instanceof ApiRequestError) {
+    if (error.status === 401) return 'Your session expired. Please sign in again.';
+    if (error.status === 403) return 'You do not have permission to view customers.';
+    if (error.status === 0) return 'The server is unreachable right now. Please try again shortly.';
+    if (error.status >= 500) return 'The server returned an error while loading customers.';
+    return error.message;
+  }
+  if (error instanceof Error && error.message) return error.message;
+  return 'Something went wrong while loading customers.';
+}
+
 export default function CustomersScreen() {
   const router = useRouter();
   const hasPermission = useAuth((s) => s.hasPermission);
@@ -49,13 +61,37 @@ export default function CustomersScreen() {
     return () => clearTimeout(t);
   }, [search]);
 
-  const { data, isLoading } = useQuery({
+  const { data, error, isError, isLoading, isRefetching, refetch } = useQuery({
     queryKey: ['customers', debounced, filter],
     queryFn: () =>
       api<{ items: CustomerRow[]; total: number }>(
         `/customers?pageSize=50${debounced ? `&search=${encodeURIComponent(debounced)}` : ''}${filter ? `&${filter}` : ''}`,
       ),
   });
+
+  if (isLoading) {
+    return (
+      <View style={{ flex: 1 }}>
+        <SyncBanner />
+        <Loading />
+      </View>
+    );
+  }
+
+  if (isError) {
+    return (
+      <View style={{ flex: 1 }}>
+        <SyncBanner />
+        <EmptyState
+          title="Unable to load customers"
+          subtitle={getCustomerErrorMessage(error)}
+        />
+        <View style={styles.retryWrap}>
+          <Button title="Retry" onPress={() => void refetch()} loading={isRefetching} />
+        </View>
+      </View>
+    );
+  }
 
   return (
     <View style={{ flex: 1 }}>
@@ -87,34 +123,32 @@ export default function CustomersScreen() {
         )}
       />
 
-      {isLoading ? (
-        <Loading />
-      ) : (
-        <FlatList
-          data={data?.items ?? []}
-          keyExtractor={(c) => c.id}
-          contentContainerStyle={{ padding: 16, paddingTop: 8 }}
-          ListEmptyComponent={<EmptyState title="No customers found" />}
-          renderItem={({ item }) => (
-            <TouchableOpacity style={styles.card} onPress={() => router.push(`/customer/${item.id}`)}>
-              <View style={styles.rowTop}>
-                <Text style={styles.name}>
-                  {item.company ?? `${item.firstName} ${item.lastName}`}
-                </Text>
-                <StatusBadge status={item.status} />
-              </View>
-              {item.primaryAddress ? <Text style={styles.sub}>{item.primaryAddress}</Text> : null}
-              <View style={styles.rowBottom}>
-                <Text style={styles.sub}>{item.phone ?? item.email ?? `#${item.customerNumber}`}</Text>
-                <Text style={[styles.balance, parseFloat(item.balance) > 0 && { color: colors.danger }]}>
-                  {money(item.balance)}
-                  {item.autopayEnabled ? '  ⟳' : ''}
-                </Text>
-              </View>
-            </TouchableOpacity>
-          )}
-        />
-      )}
+      <FlatList
+        data={data?.items ?? []}
+        keyExtractor={(c) => c.id}
+        contentContainerStyle={{ padding: 16, paddingTop: 8 }}
+        ListEmptyComponent={<EmptyState title="No customers found" />}
+        refreshing={isRefetching}
+        onRefresh={() => void refetch()}
+        renderItem={({ item }) => (
+          <TouchableOpacity style={styles.card} onPress={() => router.push(`/customer/${item.id}`)}>
+            <View style={styles.rowTop}>
+              <Text style={styles.name}>
+                {item.company ?? `${item.firstName} ${item.lastName}`}
+              </Text>
+              <StatusBadge status={item.status} />
+            </View>
+            {item.primaryAddress ? <Text style={styles.sub}>{item.primaryAddress}</Text> : null}
+            <View style={styles.rowBottom}>
+              <Text style={styles.sub}>{item.phone ?? item.email ?? `#${item.customerNumber}`}</Text>
+              <Text style={[styles.balance, parseFloat(item.balance) > 0 && { color: colors.danger }]}>
+                {money(item.balance)}
+                {item.autopayEnabled ? '  ⟳' : ''}
+              </Text>
+            </View>
+          </TouchableOpacity>
+        )}
+      />
 
       {hasPermission('customers:write') && (
         <View style={styles.fabWrap}>
@@ -151,6 +185,7 @@ const styles = StyleSheet.create({
   chipActive: { backgroundColor: colors.primary, borderColor: colors.primary },
   chipText: { fontSize: 13, lineHeight: 18, color: colors.text, fontWeight: '600' },
   chipTextActive: { color: '#0D0D0D', fontWeight: '800' },
+  retryWrap: { paddingHorizontal: 16 },
   card: {
     backgroundColor: colors.card,
     borderRadius: 16,
