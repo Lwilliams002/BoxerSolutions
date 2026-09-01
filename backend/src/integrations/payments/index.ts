@@ -39,6 +39,43 @@ class MockPaymentProvider implements PaymentProvider {
   name = 'mock';
 
   async attachPaymentMethod(token: string): Promise<TokenizedPaymentMethod> {
+    // Accepts the JSON payload shape used by the North provider so the same
+    // mobile card form works against the mock in development.
+    if (token.trim().startsWith('{')) {
+      try {
+        const data = JSON.parse(token) as {
+          type?: string; number?: string; expMonth?: number; expYear?: number; accountNumber?: string;
+        };
+        const now = new Date();
+        if (data.type === 'card' && data.number) {
+          const digits = String(data.number).replace(/\D/g, '');
+          const brandKey = /^4/.test(digits) ? 'Visa'
+            : /^5[1-5]/.test(digits) || /^2[2-7]/.test(digits) ? 'Mastercard'
+            : /^3[47]/.test(digits) ? 'American Express'
+            : /^6(?:011|5)/.test(digits) ? 'Discover' : 'Card';
+          return {
+            providerPaymentMethodId: `pm_mock_json_${digits.slice(-4)}_${crypto.randomBytes(6).toString('hex')}`,
+            brand: brandKey,
+            last4: digits.slice(-4),
+            expirationMonth: Number(data.expMonth) || 12,
+            expirationYear: Number(data.expYear) || now.getFullYear() + 3,
+          };
+        }
+        if (data.type === 'ach' && data.accountNumber) {
+          const digits = String(data.accountNumber).replace(/\D/g, '');
+          return {
+            providerPaymentMethodId: `pm_mock_ach_${digits.slice(-4)}_${crypto.randomBytes(6).toString('hex')}`,
+            brand: 'Bank Account',
+            last4: digits.slice(-4),
+            expirationMonth: 12,
+            expirationYear: now.getFullYear() + 20,
+          };
+        }
+        throw new Error('Invalid payment token');
+      } catch {
+        throw new Error('Invalid payment token');
+      }
+    }
     // Accepts the legacy `tok_<brand>_<last4>` shape and the richer
     // `tok_<brand>_<last4>_<mm>_<yyyy>` shape produced by the mobile card form.
     const match = /^tok_([a-z]+)_(\d{4})(?:_(\d{1,2})_(\d{2,4}))?$/.exec(token);
@@ -88,6 +125,11 @@ function createProvider(): PaymentProvider {
   switch (config.payments.provider) {
     case 'mock':
       return new MockPaymentProvider();
+    case 'north': {
+      // Lazy require avoids a circular import (northGatewayService → config).
+      const { NorthPaymentProvider } = require('./northProvider') as typeof import('./northProvider');
+      return new NorthPaymentProvider();
+    }
     default:
       throw new Error(`Unknown payment provider: ${config.payments.provider}`);
   }

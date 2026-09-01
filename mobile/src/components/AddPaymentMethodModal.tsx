@@ -107,10 +107,22 @@ export function AddPaymentMethodModal({
     if (cvv.replace(/\D/g, '').length !== brand.cvvLen) return setError(`Enter the ${brand.cvvLen}-digit security code.`);
     if (!name.trim()) return setError('Enter the name on the card.');
 
-    // Client-side "tokenization": only a token derived from brand + last4 +
-    // expiry is sent to the backend — never the full PAN or CVV.
-    const last4 = digits.slice(-4);
-    await onSubmit(`tok_${brand.key}_${last4}_${mm}_${yy}`);
+    // Card details are sent over TLS to our backend, which forwards them
+    // directly to the payment processor for vaulting. Only the processor's
+    // token plus brand/last4/expiry are ever stored.
+    const nameParts = name.trim().split(/\s+/);
+    const firstName = nameParts[0];
+    const lastName = nameParts.slice(1).join(' ') || nameParts[0];
+    await onSubmit(JSON.stringify({
+      type: 'card',
+      number: digits,
+      expMonth: mm,
+      expYear: fullYear,
+      cvv: cvv.replace(/\D/g, ''),
+      firstName,
+      lastName,
+      postalCode: zip || undefined,
+    }));
     reset();
   };
 
@@ -120,8 +132,15 @@ export function AddPaymentMethodModal({
     if (!holder.trim()) return setError('Enter the account holder name.');
     if (r.length !== 9) return setError('Routing number must be 9 digits.');
     if (a.length < 4) return setError('Enter a valid account number.');
-    // Only the account type and last 4 of the account reach the backend.
-    await onSubmit(`tok_ach_${a.slice(-4)}`);
+    const holderParts = holder.trim().split(/\s+/);
+    await onSubmit(JSON.stringify({
+      type: 'ach',
+      accountNumber: a,
+      routingNumber: r,
+      accountType: acctType,
+      firstName: holderParts[0],
+      lastName: holderParts.slice(1).join(' ') || holderParts[0],
+    }));
     reset();
   };
 
@@ -284,8 +303,8 @@ export function AddPaymentMethodModal({
 
               <Text style={styles.secure}>
                 {method === 'card'
-                  ? '🔒 Card details are tokenized on-device. Only the card brand, last 4 digits and expiry are stored.'
-                  : '🔒 Bank details are tokenized on-device. Only the account type and last 4 digits are stored.'}
+                  ? '🔒 Card details are sent securely to the payment processor for vaulting. Only the card brand, last 4 digits and expiry are stored in this app.'
+                  : '🔒 Bank details are sent securely to the payment processor for vaulting. Only the account type and last 4 digits are stored in this app.'}
               </Text>
             </ScrollView>
 

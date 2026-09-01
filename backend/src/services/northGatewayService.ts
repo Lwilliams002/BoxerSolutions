@@ -24,14 +24,14 @@ interface InvoicePaymentInput {
   description?: string | null;
 }
 
-interface NorthCustomerData {
+export interface NorthCustomerData {
   FirstName: string;
   LastName: string;
   Phone?: string;
   Email?: string;
 }
 
-interface NorthCreditCardData {
+export interface NorthCreditCardData {
   AccountNumber: string;
   ExpirationDate: string;
   CVV: string;
@@ -41,7 +41,7 @@ interface NorthCreditCardData {
   StreetAddress?: string;
 }
 
-interface NorthBankAccountData {
+export interface NorthBankAccountData {
   AccountNumber: string;
   RoutingNumber: string;
   FirstName: string;
@@ -59,7 +59,7 @@ interface NorthSubscriptionData {
   Description?: string;
 }
 
-interface NorthSubscriptionPaymentMethod {
+export interface NorthSubscriptionPaymentMethod {
   CreditCardData?: NorthCreditCardData;
   BankAccountData?: NorthBankAccountData;
 }
@@ -310,6 +310,51 @@ class NorthGatewayService {
       paymentMethod: input.paymentMethod,
       subscriptionData: input.subscriptionData,
     });
+  }
+
+  async pauseSubscription(subscriptionID: number) {
+    return this.northFetch('/subscription/pause', { subscriptionID });
+  }
+
+  /**
+   * Vaults a payment method with North for card-on-file charging.
+   *
+   * North's Recurring Billing API only creates payment methods inside a
+   * subscription, so we create one with a billing date a year out and pause it
+   * immediately — nothing is ever charged by the subscription itself. The
+   * returned paymentMethodId can then be charged on demand via
+   * `/chargepaymentmethod` (see chargePaymentMethod).
+   */
+  async vaultPaymentMethod(customerData: NorthCustomerData, paymentMethod: NorthSubscriptionPaymentMethod) {
+    const billingDate = new Date();
+    billingDate.setFullYear(billingDate.getFullYear() + 1);
+    const created = (await this.createSubscription({
+      customerData,
+      paymentMethod,
+      subscriptionData: {
+        Amount: 1,
+        Frequency: 'Monthly',
+        BillingDate: billingDate.toISOString().slice(0, 10),
+        FailureOption: 'Pause',
+        NumberOfPayments: 1,
+        Description: 'Card on file (vault only — paused, never charged)',
+      },
+    })) as { id?: number; paymentmethodId?: number; verifyResult?: { code?: string; text?: string } } | null;
+
+    const subscriptionId = Number(created?.id);
+    const paymentMethodId = Number(created?.paymentmethodId);
+    if (!Number.isFinite(paymentMethodId) || paymentMethodId <= 0) {
+      throw new ApiError(502, `North did not return a payment method id${created?.verifyResult?.text ? `: ${created.verifyResult.text}` : ''}`);
+    }
+    if (Number.isFinite(subscriptionId) && subscriptionId > 0) {
+      try {
+        await this.pauseSubscription(subscriptionId);
+      } catch {
+        // Non-fatal: the subscription only has 1 payment a year out. Log-free
+        // best effort — the payment method itself is already usable.
+      }
+    }
+    return { paymentMethodId, subscriptionId: Number.isFinite(subscriptionId) ? subscriptionId : null, verifyResult: created?.verifyResult ?? null };
   }
 
   async chargePaymentMethod(paymentMethodID: number, amount: number) {

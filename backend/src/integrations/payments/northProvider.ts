@@ -1,0 +1,200 @@
+import { northGatewayService } from '../../services/northGatewayService';
+import type { ChargeResult, PaymentProvider, TokenizedPaymentMethod } from './index';
+
+/**
+ * North (Payments Hub) card-on-file provider.
+ *
+ * Vaulting: the mobile card form sends card/bank details as a JSON token over
+ * TLS. They are forwarded straight to North's Recurring Billing API and never
+ * stored or logged by this application — only North's numeric payment method
+ * id plus display metadata (brand/last4/expiry) are persisted.
+ *
+ * Charging: `/chargepaymentmethod` (one-time payment, independent of any
+ * subscription).
+ *
+ * Requires NORTH_MID, NORTH_DEVELOPER_KEY, NORTH_PASSWORD, NORTH_APPSOURCE and
+ * NORTH_SIGNATURE_SECRET.
+ */
+
+interface CardTokenPayload {
+  type: 'card';
+  number: string;
+  expMonth: number;
+  expYear: number; // 4-digit
+  cvv: string;
+  firstName: string;
+  lastName: string;
+  postalCode?: string;
+}
+
+interface AchTokenPayload {
+  type: 'ach';
+  accountNumber: string;
+  routingNumber: string;
+  accountType: 'checking' | 'savings';
+  firstName: string;
+  lastName: string;
+}
+
+type NorthTokenPayload = CardTokenPayload | AchTokenPayload;
+
+function detectBrand(digits: string): string {
+  if (/^4/.test(digits)) return 'Visa';
+  if (/^5[1-5]/.test(digits) || /^2[2-7]/.test(digits)) return 'Mastercard';
+  if (/^3[47]/.test(digits)) return 'American Express';
+  if (/^6(?:011|5)/.test(digits)) return 'Discover';
+  return 'Card';
+}
+
+function parseToken(token: string): NorthTokenPayload {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(token);
+  } catch {
+    throw new Error('Invalid payment token: expected card or bank details payload.');
+  }
+  const data = parsed as {
+    type?: string;
+    number?: string | number;
+    expMonth?: number | string;
+    expYear?: number | string;
+    cvv?: string | number;
+    firstName?: string;
+    lastName?: string;
+    postalCode?: string | number;
+    accountNumber?: string | number;
+    routingNumber?: string | number;
+    accountType?: string;
+  };
+  if (data.type === 'card') {
+    const digits = String(data.number ?? '').replace(/\D/g, '');
+    const expMonth = Number(data.expMonth);
+    const expYear = Number(data.expYear);
+    if (digits.length < 13 || digits.length > 19) throw new Error('Invalid card number.');
+    if (!Number.isInteger(expMonth) || expMonth < 1 || expMonth > 12) throw new Error('Invalid expiration month.');
+    if (!Number.isInteger(expYear) || expYear < 2000 || expYear > 2100) throw new Error('Invalid expiration year.');
+    if (!/^\d{3,4}$/.test(String(data.cvv ?? ''))) throw new Error('Invalid CVV.');
+    if (!data.firstName || !data.lastName) throw new Error('Cardholder first and last name are required.');
+    return {
+      type: 'card',
+      number: digits,
+      expMonth,
+      expYear,
+      cvv: String(data.cvv),
+      firstName: String(data.firstName),
+      lastName: String(data.lastName),
+      postalCode: data.postalCode ? String(data.postalCode) : undefined,
+    };
+  }
+  if (data.type === 'ach') {
+    const account = String(data.accountNumber ?? '').replace(/\D/g, '');
+    const routing = String(data.routingNumber ?? '').replace(/\D/g, '');
+    if (account.length < 4 || account.length > 17) throw new Error('Invalid bank account number.');
+    if (routing.length !== 9) throw new Error('Routing number must be 9 digits.');
+    if (data.accountType !== 'checking' && data.accountType !== 'savings') throw new Error('Account type must be checking or savings.');
+    if (!data.firstName || !data.lastName) throw new Error('Account holder first and last name are required.');
+    return {
+      type: 'ach',
+      accountNumber: account,
+      routingNumber: routing,
+      accountType: data.accountType,
+      firstName: String(data.firstName),
+      lastName: String(data.lastName),
+    };
+  }
+  throw new Error('Invalid payment token: unknown payment method type.');
+}
+
+export class NorthPaymentProvider implements PaymentProvider {
+  name = 'north';
+
+  async attachPaymentMethod(token: string): Promise<TokenizedPaymentMethod> {
+    const payload = parseToken(token);
+    const customerData = {
+      FirstName: payload.firstName,
+      LastName: payload.lastName,
+    };
+
+    if (payload.type === 'card') {
+      // North expects YYMM
+      const expirationDate = `${String(payload.expYear % 100).padStart(2, '0')}${String(payload.expMonth).padStart(2, '0')}`;
+      const result = await northGatewayService.vaultPaymentMethod(customerData, {
+        CreditCardData: {
+          AccountNumber: payload.number,
+          ExpirationDate: expirationDate,
+          CVV: payload.cvv,
+          FirstName: payload.firstName,
+          LastName: payload.lastName,
+          PostalCode: payload.postalCode,
+        },
+      });
+      return {
+        providerPaymentMethodId: String(result.paymentMethodId),
+        brand: detectBrand(payload.number),
+        last4: payload.number.slice(-4),
+        expirationMonth: payload.expMonth,
+        expirationYear: payload.expYear,
+      };
+    }
+
+    const result = await northGatewayService.vaultPaymentMethod(customerData, {
+      BankAccountData: {
+        AccountNumber: payload.accountNumber,
+        RoutingNumber: payload.routingNumber,
+        FirstName: payload.firstName,
+        LastName: payload.lastName,
+        BankAccountType: payload.accountType === 'savings' ? 'Savings' : 'Checking',
+      },
+    });
+    const now = new Date();
+    return {
+      providerPaymentMethodId: String(result.paymentMethodId),
+      brand: 'Bank Account',
+      last4: payload.accountNumber.slice(-4),
+      expirationMonth: 12,
+      expirationYear: now.getFullYear() + 20,
+    };
+  }
+
+  async charge(providerPaymentMethodId: string, amountCents: number): Promise<ChargeResult> {
+    const paymentMethodID = Number(providerPaymentMethodId);
+    if (!Number.isInteger(paymentMethodID) || paymentMethodID <= 0) {
+      return { success: false, transactionId: null, failureReason: 'This payment method was not vaulted with North and cannot be charged.' };
+    }
+    if (amountCents <= 0) {
+      return { success: false, transactionId: null, failureReason: 'Invalid amount' };
+    }
+    const amount = Number((amountCents / 100).toFixed(2));
+    interface NorthChargeResponse { successful?: boolean; code?: string; text?: string; GUID?: string }
+    let response: NorthChargeResponse | null = null;
+    try {
+      response = (await northGatewayService.chargePaymentMethod(paymentMethodID, amount)) as NorthChargeResponse | null;
+    } catch (error) {
+      return { success: false, transactionId: null, failureReason: (error as Error).message || 'North charge request failed.' };
+    }
+    const approved = response?.successful === true || response?.code === '00';
+    if (!approved) {
+      return {
+        success: false,
+        transactionId: typeof response?.GUID === 'string' ? response.GUID : null,
+        failureReason: response?.text || `Declined (code ${response?.code ?? 'unknown'})`,
+      };
+    }
+    return {
+      success: true,
+      transactionId: typeof response?.GUID === 'string' ? response.GUID : `north_${Date.now()}`,
+      failureReason: null,
+    };
+  }
+
+  async refund(_transactionId: string, _amountCents: number): Promise<ChargeResult> {
+    return {
+      success: false,
+      transactionId: null,
+      failureReason: 'Refunds for North card-on-file charges must be issued from the Payments Hub portal.',
+    };
+  }
+}
+
+
+
