@@ -209,9 +209,19 @@ router.post(
     const scope = technicianScope(req, 'invoices:read');
     await assertInvoiceAccess(scope, body.invoiceId);
 
-    const sessionStatus = await northGatewayService.getEmbeddedSessionStatus(body.sessionToken);
-    const statusData = asRecord(sessionStatus.data) ?? sessionStatus;
-    const status = String(statusData.status ?? '').toLowerCase();
+    // North's session status can stay "Open" for several seconds after the
+    // checkout confirmation page fires onPaymentComplete (the official sample
+    // waits 5s before verifying). Poll until it settles instead of failing.
+    const deadline = Date.now() + 30_000;
+    let sessionStatus = await northGatewayService.getEmbeddedSessionStatus(body.sessionToken);
+    let statusData = asRecord(sessionStatus.data) ?? sessionStatus;
+    let status = String(statusData.status ?? '').toLowerCase();
+    while (status !== 'approved' && !['declined', 'failed', 'error', 'expired', 'cancelled', 'canceled'].includes(status) && Date.now() < deadline) {
+      await new Promise((resolve) => setTimeout(resolve, 3_000));
+      sessionStatus = await northGatewayService.getEmbeddedSessionStatus(body.sessionToken);
+      statusData = asRecord(sessionStatus.data) ?? sessionStatus;
+      status = String(statusData.status ?? '').toLowerCase();
+    }
     if (status !== 'approved') {
       throw new ApiError(409, `North checkout session is ${status || 'not approved'}.`);
     }
