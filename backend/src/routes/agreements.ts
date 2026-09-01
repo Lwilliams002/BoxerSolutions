@@ -3,6 +3,7 @@ import fs from 'fs/promises';
 import path from 'path';
 import { z } from 'zod';
 import { asyncHandler } from '../utils/asyncHandler';
+import { ok } from '../utils/http';
 import { agreementSigningService } from '../services/agreementSigningService';
 
 const router = Router();
@@ -423,6 +424,153 @@ function signingClientScript() {
 })();`;
 }
 
+function payClientScript() {
+  return `'use strict';
+(function () {
+  var payTokenEl = document.getElementById('payToken');
+  var statusEl = document.getElementById('payStatus');
+  var errorEl = document.getElementById('payError');
+  var retryBtn = document.getElementById('payRetry');
+  var checkoutWrap = document.getElementById('checkoutWrap');
+  var successEl = document.getElementById('paySuccess');
+  var successDetailEl = document.getElementById('paySuccessDetail');
+  if (!payTokenEl || !statusEl || !errorEl || !checkoutWrap || !successEl) return;
+
+  var payToken = String(payTokenEl.value || '');
+  var activeSessionToken = null;
+  var confirming = false;
+  var scriptLoaded = false;
+
+  function setStatus(message) {
+    statusEl.textContent = message || '';
+    statusEl.style.display = message ? 'block' : 'none';
+  }
+
+  function showError(message) {
+    setStatus('');
+    errorEl.textContent = message || 'Unable to process the payment.';
+    errorEl.style.display = 'block';
+    if (retryBtn) retryBtn.style.display = 'inline-block';
+  }
+
+  function clearError() {
+    errorEl.style.display = 'none';
+    if (retryBtn) retryBtn.style.display = 'none';
+  }
+
+  function showSuccess(result) {
+    setStatus('');
+    clearError();
+    checkoutWrap.style.display = 'none';
+    successEl.style.display = 'block';
+    if (successDetailEl) {
+      var parts = [];
+      if (result && typeof result.amount === 'number') parts.push('Amount paid: $' + result.amount.toFixed(2));
+      if (result && result.receipt && result.receipt.receiptNumber) parts.push('Receipt: ' + result.receipt.receiptNumber);
+      successDetailEl.textContent = parts.join('  ·  ');
+    }
+  }
+
+  async function postJson(url, body) {
+    var response = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body)
+    });
+    var payload = null;
+    try { payload = await response.json(); } catch (_) {}
+    if (!response.ok || !payload || payload.success === false) {
+      throw new Error((payload && payload.message) || 'Request failed.');
+    }
+    return payload.data;
+  }
+
+  function loadCheckoutScript(scriptUrl) {
+    return new Promise(function (resolve, reject) {
+      if (scriptLoaded && window.checkout) { resolve(); return; }
+      var script = document.createElement('script');
+      script.src = scriptUrl;
+      script.async = true;
+      script.onload = function () { scriptLoaded = true; resolve(); };
+      script.onerror = function () { reject(new Error('Unable to load the secure payment form.')); };
+      document.head.appendChild(script);
+    });
+  }
+
+  async function confirmPayment() {
+    if (confirming || !activeSessionToken) return;
+    confirming = true;
+    clearError();
+    setStatus('Verifying your payment… This can take a few seconds.');
+    try {
+      var result = await postJson('/api/v1/agreements/sign/pay/confirm', {
+        payToken: payToken,
+        sessionToken: activeSessionToken
+      });
+      showSuccess(result);
+    } catch (err) {
+      confirming = false;
+      showError(err && err.message ? err.message : 'We could not verify the payment. Please try again.');
+    }
+  }
+
+  async function startCheckout() {
+    clearError();
+    setStatus('Loading secure payment form…');
+    try {
+      var session = await postJson('/api/v1/agreements/sign/pay/session', { payToken: payToken });
+      activeSessionToken = session.sessionToken;
+      await loadCheckoutScript(session.scriptUrl);
+      if (!window.checkout || typeof window.checkout.mount !== 'function' || typeof window.checkout.onPaymentComplete !== 'function') {
+        throw new Error('The payment form did not load correctly.');
+      }
+      window.checkout.onPaymentComplete(function () { confirmPayment(); });
+      var rootEl = document.getElementById('checkout-root');
+      if (rootEl) rootEl.innerHTML = '';
+      await Promise.resolve(window.checkout.mount(activeSessionToken, 'checkout-root'));
+      setStatus('');
+    } catch (err) {
+      showError(err && err.message ? err.message : 'Unable to start the payment.');
+    }
+  }
+
+  if (retryBtn) {
+    retryBtn.addEventListener('click', function () {
+      confirming = false;
+      startCheckout();
+    });
+  }
+
+  startCheckout();
+})();`;
+}
+
+router.get('/sign/pay/client.js', (_req, res) => {
+  res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
+  res.status(200).type('application/javascript').send(payClientScript());
+});
+
+router.post(
+  '/sign/pay/session',
+  asyncHandler(async (req, res) => {
+    const body = z.object({ payToken: z.string().min(20) }).parse(req.body);
+    const session = await agreementSigningService.createInitialPaymentSession(body.payToken);
+    ok(res, session, 'Embedded checkout session created', 201);
+  }),
+);
+
+router.post(
+  '/sign/pay/confirm',
+  asyncHandler(async (req, res) => {
+    const body = z.object({
+      payToken: z.string().min(20),
+      sessionToken: z.string().min(10),
+    }).parse(req.body);
+    const result = await agreementSigningService.confirmInitialPayment(body.payToken, body.sessionToken);
+    ok(res, result, result.duplicate ? 'Payment already recorded' : 'Payment recorded', 201);
+  }),
+);
+
 router.get('/sign/client.js', (_req, res) => {
   res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
   res.status(200).type('application/javascript').send(signingClientScript());
@@ -513,17 +661,67 @@ router.post(
     const message = result.alreadySigned
       ? 'This agreement was already signed previously.'
       : 'Thank you. Your agreement has been signed successfully.';
+
+    const paymentToken = !result.alreadySigned ? (result.initialPaymentToken ?? null) : null;
+    const amountDue = !result.alreadySigned ? (result.initialAmountDue ?? null) : null;
+    const receipt = !result.alreadySigned && result.initialInvoiceCharged
+      ? (result.initialReceipt as { receiptNumber?: string; amount?: number; brand?: string | null; last4?: string | null } | null)
+      : null;
+
+    let paymentSection = '';
+    if (receipt) {
+      const detailParts = [
+        receipt.amount != null ? `Amount paid: ${money(Number(receipt.amount))}` : null,
+        receipt.receiptNumber ? `Receipt: ${htmlEscape(receipt.receiptNumber)}` : null,
+        receipt.brand && receipt.last4 ? `${htmlEscape(String(receipt.brand))} ending in ${htmlEscape(String(receipt.last4))}` : null,
+      ].filter(Boolean).join('  ·  ');
+      paymentSection = `
+      <div style="margin-top:16px;border:1px solid #BFE8DF;background:#EAF8F5;border-radius:10px;padding:14px;">
+        <h3 style="margin:0 0 6px 0;color:#0D0D0D;font-size:15px;">Initial payment received</h3>
+        <p style="margin:0;color:#30433F;font-size:13px;">Your initial service charge was paid with your saved payment method. A copy of the invoice and receipt is available in your account.</p>
+        ${detailParts ? `<p style="margin:8px 0 0 0;color:#30433F;font-size:13px;">${detailParts}</p>` : ''}
+      </div>`;
+    } else if (paymentToken) {
+      paymentSection = `
+      <div style="margin-top:16px;border-top:1px solid #D5EDE9;padding-top:14px;">
+        <h3 style="margin:0 0 6px 0;color:#0D0D0D;font-size:16px;">Pay Your Initial Service Charge</h3>
+        <p style="margin:0 0 10px 0;color:#30433F;font-size:14px;">
+          To complete your agreement, please pay your initial service charge${amountDue != null ? ` of <strong>${money(Number(amountDue))}</strong>` : ''} using the secure payment form below. Your invoice has been added to your account.
+        </p>
+        <input id="payToken" type="hidden" value="${htmlEscape(paymentToken)}" />
+        <p id="payStatus" style="color:#607D78;font-size:14px;margin:10px 0;">Loading secure payment form…</p>
+        <p id="payError" style="color:#B3261E;font-size:14px;margin:10px 0;display:none;"></p>
+        <button type="button" id="payRetry" style="display:none;margin:0 0 12px 0;padding:8px 12px;border:1px solid #CBD7D4;border-radius:8px;background:#fff;cursor:pointer;">Try Again</button>
+        <div id="checkoutWrap" style="border:1px solid #D5EDE9;border-radius:12px;background:#fff;overflow:hidden;">
+          <div id="checkout-root" style="min-height:520px;"></div>
+        </div>
+        <div id="paySuccess" style="display:none;border:1px solid #BFE8DF;background:#EAF8F5;border-radius:10px;padding:14px;">
+          <h3 style="margin:0 0 6px 0;color:#0D0D0D;font-size:15px;">Payment received — thank you!</h3>
+          <p style="margin:0;color:#30433F;font-size:13px;">Your initial service charge has been paid. A copy of the invoice and receipt is available in your account.</p>
+          <p id="paySuccessDetail" style="margin:8px 0 0 0;color:#30433F;font-size:13px;"></p>
+        </div>
+      </div>`;
+    } else if (!result.alreadySigned && result.initialInvoiceId) {
+      paymentSection = `
+      <div style="margin-top:16px;border:1px solid #F0E3C4;background:#FDF8EC;border-radius:10px;padding:14px;">
+        <p style="margin:0;color:#7A5C00;font-size:13px;">Your initial service invoice has been created and added to your account. Our team will follow up to collect payment.</p>
+      </div>`;
+    }
+
     res
       .status(200)
+      .setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate')
       .type('html')
       .send(`<!doctype html>
 <html>
   <head><meta charset="utf-8"/><meta name="viewport" content="width=device-width, initial-scale=1"/><title>${title}</title></head>
   <body style="font-family:Arial,sans-serif;background:#F5FAF8;padding:24px;">
-    <div style="max-width:520px;margin:0 auto;background:#fff;border:1px solid #D5EDE9;border-radius:12px;padding:20px;">
+    <div style="max-width:620px;margin:0 auto;background:#fff;border:1px solid #D5EDE9;border-radius:12px;padding:20px;">
       <h2 style="margin-top:0;color:#0D0D0D;">${title}</h2>
       <p style="color:#30433F;line-height:1.5;">${message}</p>
+      ${paymentSection}
     </div>
+    ${paymentToken ? '<script src="/api/v1/agreements/sign/pay/client.js?v=1"></script>' : ''}
   </body>
 </html>`);
   }),

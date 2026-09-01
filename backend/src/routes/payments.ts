@@ -15,6 +15,7 @@ import { northGatewayService } from '../services/northGatewayService';
 import { ApiError } from '../utils/errors';
 import { notifications } from '../integrations/notifications';
 import { logger } from '../utils/logger';
+import { waitForApprovedNorthSession } from '../utils/northEmbedded';
 
 const router = Router();
 
@@ -46,84 +47,6 @@ function verifyNorthWebhookSignature(rawBody: string, headerValue: string | unde
   return timingSafeEqualText(expected, signed);
 }
 
-function asRecord(value: unknown): Record<string, unknown> | null {
-  return value && typeof value === 'object' ? (value as Record<string, unknown>) : null;
-}
-
-/**
- * Decodes (without verifying) the North embedded checkout session JWT to
- * access its claims (session id, requestId, amount). Signature verification is
- * unnecessary here: the token is only trusted after North's status endpoint —
- * queried server-to-server with our private key — reports it approved.
- */
-function decodeNorthSessionToken(token: string): { id?: string; requestId?: string; amount?: number } | null {
-  try {
-    const part = token.split('.')[1];
-    if (!part) return null;
-    const json = Buffer.from(part.replace(/-/g, '+').replace(/_/g, '/'), 'base64').toString('utf8');
-    const payload = JSON.parse(json) as Record<string, unknown>;
-    const session = asRecord(payload.session);
-    return {
-      id: typeof payload.id === 'string' ? payload.id : (typeof session?.id === 'string' ? session.id : undefined),
-      requestId: typeof payload.requestId === 'string' ? payload.requestId : (typeof session?.requestId === 'string' ? session.requestId : undefined),
-      amount: typeof payload.amount === 'number' ? payload.amount : (typeof session?.amount === 'number' ? session.amount : undefined),
-    };
-  } catch {
-    return null;
-  }
-}
-
-function parseNorthAmount(value: unknown): number | null {
-  if (typeof value === 'number' && Number.isFinite(value)) return Number(value.toFixed(2));
-  if (typeof value === 'string') {
-    const normalized = value.replace(/[$,]/g, '').trim();
-    const parsed = Number.parseFloat(normalized);
-    if (Number.isFinite(parsed)) return Number(parsed.toFixed(2));
-  }
-  return null;
-}
-
-function pickNorthTransactionId(statusPayload: Record<string, unknown>, bodyPayload: Record<string, unknown> | null): string | null {
-  const fromTop = [statusPayload.transactionId, statusPayload.transaction_id, statusPayload.referenceNumber]
-    .find((v) => typeof v === 'string' && v.length > 3) as string | undefined;
-  if (fromTop) return fromTop;
-  if (!bodyPayload) return null;
-  const fullResponse = asRecord(bodyPayload.fullResponse);
-  const candidate = [
-    // EPX (North processor) field names as observed in production
-    bodyPayload.auth_guid,
-    bodyPayload.tran_nbr,
-    bodyPayload.auth_tran_ident,
-    bodyPayload.transactionId,
-    bodyPayload.transaction_id,
-    bodyPayload.tranId,
-    bodyPayload.referenceNumber,
-    bodyPayload.authCode,
-    fullResponse?.auth_guid,
-    fullResponse?.transaction_id,
-    fullResponse?.trans_id,
-    fullResponse?.reference_number,
-    fullResponse?.auth_code,
-  ].find((v) => typeof v === 'string' && v.length > 1);
-  return (candidate as string | undefined) ?? null;
-}
-
-function pickNorthApprovedAmount(bodyPayload: Record<string, unknown> | null): number | null {
-  if (!bodyPayload) return null;
-  const fullResponse = asRecord(bodyPayload.fullResponse);
-  return (
-    // EPX (North processor) field names as observed in production
-    parseNorthAmount(bodyPayload.auth_amount)
-    ?? parseNorthAmount(bodyPayload.auth_amount_requested)
-    ?? parseNorthAmount(bodyPayload.amount)
-    ?? parseNorthAmount(bodyPayload.approvedAmount)
-    ?? parseNorthAmount(bodyPayload.tranAmount)
-    ?? parseNorthAmount(bodyPayload.total)
-    ?? parseNorthAmount(fullResponse?.auth_amount)
-    ?? parseNorthAmount(fullResponse?.amount)
-    ?? parseNorthAmount(fullResponse?.approved_amount)
-  );
-}
 
 router.get(
   '/north/logo',
@@ -241,43 +164,10 @@ router.post(
     const scope = technicianScope(req, 'invoices:read');
     await assertInvoiceAccess(scope, body.invoiceId);
 
-    // North's session status can stay "Open" for several seconds after the
-    // checkout confirmation page fires onPaymentComplete, and querying the
-    // status too early can race North's own finalization/receipt rendering.
-    // The official sample waits 5s before verifying — do the same, then poll.
-    await new Promise((resolve) => setTimeout(resolve, 5_000));
-    const deadline = Date.now() + 30_000;
-    let sessionStatus = await northGatewayService.getEmbeddedSessionStatus(body.sessionToken);
-    let statusData = asRecord(sessionStatus.data) ?? sessionStatus;
-    let status = String(statusData.status ?? '').toLowerCase();
-    while (status !== 'approved' && !['declined', 'failed', 'error', 'expired', 'cancelled', 'canceled'].includes(status) && Date.now() < deadline) {
-      await new Promise((resolve) => setTimeout(resolve, 3_000));
-      sessionStatus = await northGatewayService.getEmbeddedSessionStatus(body.sessionToken);
-      statusData = asRecord(sessionStatus.data) ?? sessionStatus;
-      status = String(statusData.status ?? '').toLowerCase();
-    }
-    if (status !== 'approved') {
-      throw new ApiError(409, `North checkout session is ${status || 'not approved'}.`);
-    }
+    const approved = await waitForApprovedNorthSession(body.sessionToken);
     // Log North's approved payload shape once so field mapping can be verified.
-    logger.info({ northSessionStatus: sessionStatus }, 'north embedded session approved payload');
-
-    const responseBody = asRecord(statusData.body) ?? asRecord(sessionStatus.body);
-    const sessionClaims = decodeNorthSessionToken(body.sessionToken);
-    const approvedAmount = pickNorthApprovedAmount(responseBody)
-      ?? parseNorthAmount(statusData.amount)
-      ?? parseNorthAmount(sessionClaims?.amount);
-    const transactionId = pickNorthTransactionId(statusData, responseBody)
-      // Fall back to North's own unique session/request identifiers — stable
-      // per checkout session, which keeps duplicate detection intact.
-      ?? (typeof sessionClaims?.requestId === 'string' && sessionClaims.requestId.length > 3 ? `north_req_${sessionClaims.requestId}` : null)
-      ?? (typeof sessionClaims?.id === 'string' && sessionClaims.id.length > 3 ? `north_session_${sessionClaims.id}` : null);
-    if (!transactionId) {
-      throw new ApiError(502, 'North approval response did not include a transaction identifier.');
-    }
-    if (approvedAmount == null || approvedAmount <= 0) {
-      throw new ApiError(502, 'North approval response did not include a valid amount.');
-    }
+    logger.info({ northSessionStatus: approved.sessionStatus }, 'north embedded session approved payload');
+    const { transactionId, amount: approvedAmount } = approved;
     const recorded = await paymentService.recordExternalInvoicePayment(
       body.invoiceId,
       approvedAmount,

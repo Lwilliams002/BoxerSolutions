@@ -6,8 +6,11 @@ import { ApiError } from '../utils/errors';
 import { storage } from '../integrations/storage';
 import { invoiceService } from './invoiceService';
 import { paymentService } from './paymentService';
+import { northGatewayService } from './northGatewayService';
+import { waitForApprovedNorthSession } from '../utils/northEmbedded';
 
 const SIGNING_TOKEN_TTL_SECONDS = 60 * 60 * 24 * 7;
+const INITIAL_PAYMENT_TOKEN_TTL_SECONDS = 60 * 60 * 24 * 3;
 const UNSIGNED_AGREEMENT_PREFIX = 'service-agreement-unsigned-';
 const SIGNED_AGREEMENT_PREFIX = 'service-agreement-signed-';
 const AGREEMENT_SIGNATURE_PREFIX = 'service-agreement-signature-';
@@ -16,6 +19,12 @@ interface SigningTokenPayload {
   type: 'agreement_sign';
   customerId: string;
   fileId: string;
+}
+
+interface InitialPaymentTokenPayload {
+  type: 'agreement_initial_payment';
+  customerId: string;
+  invoiceId: string;
 }
 
 interface AgreementLineItem {
@@ -38,6 +47,24 @@ const COMPANY_NAME = 'Boxer Solutions Pest Control';
 
 function issueSigningToken(payload: SigningTokenPayload) {
   return jwt.sign(payload, config.jwt.secret, { expiresIn: SIGNING_TOKEN_TTL_SECONDS });
+}
+
+function issueInitialPaymentToken(payload: InitialPaymentTokenPayload) {
+  return jwt.sign(payload, config.jwt.secret, { expiresIn: INITIAL_PAYMENT_TOKEN_TTL_SECONDS });
+}
+
+function parseInitialPaymentToken(token: string): InitialPaymentTokenPayload {
+  let decoded: unknown;
+  try {
+    decoded = jwt.verify(token, config.jwt.secret);
+  } catch {
+    throw ApiError.badRequest('This payment link is invalid or has expired.');
+  }
+  const parsed = decoded as Partial<InitialPaymentTokenPayload> | null;
+  if (!parsed || parsed.type !== 'agreement_initial_payment' || !parsed.customerId || !parsed.invoiceId) {
+    throw ApiError.badRequest('This payment link is invalid.');
+  }
+  return parsed as InitialPaymentTokenPayload;
 }
 
 function parseSigningToken(token: string): SigningTokenPayload {
@@ -329,7 +356,17 @@ async function getOwnerUserId() {
   return rows[0]?.id as string | undefined;
 }
 
-async function chargeSignedAgreementInitial(customerId: string, agreement: AgreementSnapshot | null) {
+interface InitialChargeResult {
+  charged: boolean;
+  invoiceId: string | null;
+  amountDue?: number;
+  paymentToken?: string;
+  paymentMethodId?: string;
+  receipt?: unknown;
+  reason?: string;
+}
+
+async function chargeSignedAgreementInitial(customerId: string, agreement: AgreementSnapshot | null): Promise<InitialChargeResult> {
   if (!agreement || agreement.initialTotal == null || agreement.initialTotal <= 0) {
     return { charged: false, invoiceId: null };
   }
@@ -339,6 +376,7 @@ async function chargeSignedAgreementInitial(customerId: string, agreement: Agree
     return { charged: false, invoiceId: null, reason: 'Owner account not available to record the initial charge.' };
   }
 
+  const amountDue = Number(agreement.initialTotal.toFixed(2));
   try {
     const invoice = await invoiceService.create({
      customerId,
@@ -348,7 +386,7 @@ async function chargeSignedAgreementInitial(customerId: string, agreement: Agree
      items: [{
        description: 'Initial service agreement charge',
        quantity: 1,
-       unitPrice: Number(agreement.initialTotal.toFixed(2)),
+       unitPrice: amountDue,
        taxable: false,
      }],
     }, ownerUserId);
@@ -356,11 +394,22 @@ async function chargeSignedAgreementInitial(customerId: string, agreement: Agree
     if (!invoiceId) {
       return { charged: false, invoiceId: null, reason: 'Initial agreement invoice was created without an id.' };
     }
+    const paymentToken = issueInitialPaymentToken({
+      type: 'agreement_initial_payment',
+      customerId,
+      invoiceId,
+    });
 
     const methods = (await paymentService.listMethods(customerId)) as Array<{ id: string; isDefault?: boolean }>;
     const method = methods.find((item) => item.isDefault) ?? methods[0];
     if (!method) {
-     return { charged: false, invoiceId, reason: 'No saved payment method is available to charge the initial agreement.' };
+     return {
+       charged: false,
+       invoiceId,
+       amountDue,
+       paymentToken,
+       reason: 'No saved payment method is available to charge the initial agreement.',
+     };
     }
 
     try {
@@ -368,6 +417,7 @@ async function chargeSignedAgreementInitial(customerId: string, agreement: Agree
      return {
        charged: true,
        invoiceId,
+       amountDue,
        paymentMethodId: method.id,
        receipt: result.receipt,
      };
@@ -375,6 +425,8 @@ async function chargeSignedAgreementInitial(customerId: string, agreement: Agree
      return {
        charged: false,
        invoiceId,
+       amountDue,
+       paymentToken,
        reason: error instanceof Error ? error.message : 'Initial agreement charge failed.',
      };
     }
@@ -621,6 +673,71 @@ export const agreementSigningService = {
       initialInvoiceId: initialCharge.invoiceId,
       initialInvoiceCharged: initialCharge.charged,
       initialInvoiceChargeError: initialCharge.reason ?? null,
+      initialAmountDue: initialCharge.amountDue ?? null,
+      initialPaymentToken: initialCharge.charged ? null : (initialCharge.paymentToken ?? null),
+      initialReceipt: initialCharge.receipt ?? null,
+    };
+  },
+
+  async createInitialPaymentSession(paymentToken: string) {
+    const payload = parseInitialPaymentToken(paymentToken);
+    const { rows } = await pool.query(
+      `SELECT i.id, i.invoice_number, i.total, i.amount_paid, i.status, c.email AS customer_email
+       FROM invoices i
+       JOIN customers c ON c.id = i.customer_id
+       WHERE i.id = $1
+         AND i.customer_id = $2
+         AND i.deleted_at IS NULL`,
+      [payload.invoiceId, payload.customerId],
+    );
+    const invoice = rows[0] as {
+      id: string;
+      invoice_number: string;
+      total: string;
+      amount_paid: string;
+      status: string;
+      customer_email: string | null;
+    } | undefined;
+    if (!invoice) throw ApiError.notFound('Initial agreement invoice not found.');
+    if (invoice.status === 'void') throw ApiError.badRequest('This invoice has been voided.');
+    const amount = Number((Number(invoice.total) - Number(invoice.amount_paid)).toFixed(2));
+    if (amount <= 0) throw ApiError.badRequest('This invoice has already been paid.');
+    const sessionToken = await northGatewayService.createEmbeddedSession({
+      amount,
+      orderId: invoice.invoice_number,
+      customerEmail: invoice.customer_email,
+      products: [{ name: 'Initial service agreement charge', quantity: 1, price: amount }],
+    });
+    return {
+      sessionToken,
+      checkoutId: config.north.embeddedCheckoutId,
+      scriptUrl: `${config.north.embeddedBaseUrl}/checkout.js`,
+      amount,
+      invoiceNumber: invoice.invoice_number,
+    };
+  },
+
+  async confirmInitialPayment(paymentToken: string, northSessionToken: string) {
+    const payload = parseInitialPaymentToken(paymentToken);
+    const ownerUserId = await getOwnerUserId();
+    if (!ownerUserId) {
+      throw ApiError.badRequest('Owner account not available to record the initial payment.');
+    }
+    const approved = await waitForApprovedNorthSession(northSessionToken);
+    const recorded = await paymentService.recordExternalInvoicePayment(
+      payload.invoiceId,
+      approved.amount,
+      'north_embedded',
+      approved.transactionId,
+      ownerUserId,
+      null,
+    );
+    return {
+      status: 'approved' as const,
+      amount: approved.amount,
+      transactionId: approved.transactionId,
+      duplicate: recorded.duplicate ?? false,
+      receipt: recorded.receipt,
     };
   },
 };
