@@ -50,6 +50,29 @@ function asRecord(value: unknown): Record<string, unknown> | null {
   return value && typeof value === 'object' ? (value as Record<string, unknown>) : null;
 }
 
+/**
+ * Decodes (without verifying) the North embedded checkout session JWT to
+ * access its claims (session id, requestId, amount). Signature verification is
+ * unnecessary here: the token is only trusted after North's status endpoint —
+ * queried server-to-server with our private key — reports it approved.
+ */
+function decodeNorthSessionToken(token: string): { id?: string; requestId?: string; amount?: number } | null {
+  try {
+    const part = token.split('.')[1];
+    if (!part) return null;
+    const json = Buffer.from(part.replace(/-/g, '+').replace(/_/g, '/'), 'base64').toString('utf8');
+    const payload = JSON.parse(json) as Record<string, unknown>;
+    const session = asRecord(payload.session);
+    return {
+      id: typeof payload.id === 'string' ? payload.id : (typeof session?.id === 'string' ? session.id : undefined),
+      requestId: typeof payload.requestId === 'string' ? payload.requestId : (typeof session?.requestId === 'string' ? session.requestId : undefined),
+      amount: typeof payload.amount === 'number' ? payload.amount : (typeof session?.amount === 'number' ? session.amount : undefined),
+    };
+  } catch {
+    return null;
+  }
+}
+
 function parseNorthAmount(value: unknown): number | null {
   if (typeof value === 'number' && Number.isFinite(value)) return Number(value.toFixed(2));
   if (typeof value === 'string') {
@@ -225,9 +248,19 @@ router.post(
     if (status !== 'approved') {
       throw new ApiError(409, `North checkout session is ${status || 'not approved'}.`);
     }
+    // Log North's approved payload shape once so field mapping can be verified.
+    logger.info({ northSessionStatus: sessionStatus }, 'north embedded session approved payload');
+
     const responseBody = asRecord(statusData.body) ?? asRecord(sessionStatus.body);
-    const approvedAmount = pickNorthApprovedAmount(responseBody);
-    const transactionId = pickNorthTransactionId(statusData, responseBody);
+    const sessionClaims = decodeNorthSessionToken(body.sessionToken);
+    const approvedAmount = pickNorthApprovedAmount(responseBody)
+      ?? parseNorthAmount(statusData.amount)
+      ?? parseNorthAmount(sessionClaims?.amount);
+    const transactionId = pickNorthTransactionId(statusData, responseBody)
+      // Fall back to North's own unique session/request identifiers — stable
+      // per checkout session, which keeps duplicate detection intact.
+      ?? (typeof sessionClaims?.requestId === 'string' && sessionClaims.requestId.length > 3 ? `north_req_${sessionClaims.requestId}` : null)
+      ?? (typeof sessionClaims?.id === 'string' && sessionClaims.id.length > 3 ? `north_session_${sessionClaims.id}` : null);
     if (!transactionId) {
       throw new ApiError(502, 'North approval response did not include a transaction identifier.');
     }
