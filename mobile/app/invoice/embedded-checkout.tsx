@@ -96,6 +96,7 @@ export default function EmbeddedCheckoutScreen() {
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [confirmed, setConfirmed] = useState<ConfirmResponse | null>(null);
   const confirmedRef = useRef(false);
 
   useEffect(() => {
@@ -145,6 +146,7 @@ export default function EmbeddedCheckoutScreen() {
           sessionToken: session.sessionToken,
         },
       });
+      setConfirmed(result);
       Alert.alert(
         result.duplicate ? 'Payment already recorded' : 'Payment approved',
         `${money(result.amount)} ${result.duplicate ? 'was already captured for this invoice.' : 'was successfully captured.'}`,
@@ -208,21 +210,42 @@ export default function EmbeddedCheckoutScreen() {
           <Text key={detail} style={styles.helpText}>{detail}</Text>
         ))}
       </Card>
-      <View style={styles.webviewWrap}>
-        <WebView
-          source={{ html, baseUrl: 'https://checkout.north.com' }}
-          originWhitelist={['*']}
-          onMessage={onMessage}
-          javaScriptEnabled
-          domStorageEnabled
-          startInLoadingState
-          renderLoading={() => <Loading />}
-          style={styles.webview}
-        />
-      </View>
+      {confirmed ? (
+        <View style={styles.receiptCard}>
+          <Value style={styles.receiptTitle}>
+            {confirmed.duplicate ? 'Payment already recorded' : 'Payment approved'}
+          </Value>
+          <Value style={styles.receiptAmount}>{money(confirmed.amount)}</Value>
+          <Text style={styles.helpText}>Transaction: {confirmed.transactionId}</Text>
+          <Text style={styles.helpText}>A receipt has been generated and attached to the invoice.</Text>
+        </View>
+      ) : (
+        <View style={styles.webviewWrap}>
+          <WebView
+            source={{ html, baseUrl: 'https://checkout.north.com' }}
+            originWhitelist={['*']}
+            onMessage={onMessage}
+            javaScriptEnabled
+            domStorageEnabled
+            startInLoadingState
+            renderLoading={() => <Loading />}
+            style={styles.webview}
+          />
+        </View>
+      )}
       <View style={styles.footer}>
-        <Button title="Cancel" variant="outline" onPress={() => router.back()} disabled={submitting} />
-        <Button title="Confirming…" onPress={() => undefined} loading={submitting} disabled={!submitting} style={styles.confirmBtn} />
+        {confirmed ? (
+          <Button
+            title="View Invoice"
+            onPress={() => router.replace(`/invoice/${session.invoiceId}`)}
+            style={styles.confirmBtn}
+          />
+        ) : (
+          <>
+            <Button title="Cancel" variant="outline" onPress={() => router.back()} disabled={submitting} />
+            <Button title="Confirming…" onPress={() => undefined} loading={submitting} disabled={!submitting} style={styles.confirmBtn} />
+          </>
+        )}
       </View>
     </View>
   );
@@ -268,6 +291,27 @@ const styles = StyleSheet.create({
     backgroundColor: '#fff',
     borderWidth: 1,
     borderColor: colors.border,
+  },
+  receiptCard: {
+    flex: 1,
+    borderRadius: 18,
+    backgroundColor: colors.card,
+    borderWidth: 1,
+    borderColor: colors.primary,
+    justifyContent: 'center',
+    alignItems: 'center',
+    gap: 6,
+    padding: 20,
+  },
+  receiptTitle: {
+    fontSize: 16,
+    fontWeight: '800',
+    color: colors.primary,
+  },
+  receiptAmount: {
+    fontSize: 32,
+    fontWeight: '800',
+    marginVertical: 8,
   },
   webview: {
     flex: 1,

@@ -220,19 +220,20 @@ export default function EmbeddedCheckoutWebScreen() {
         ))}
       </Card>
       {confirmed ? (
-        <Card style={styles.successCard}>
+        <Card style={styles.receiptCard}>
           <Value style={styles.successTitle}>
             {confirmed.duplicate ? 'Payment already recorded' : 'Payment approved'}
           </Value>
-          <Value style={styles.successText}>
-            {money(confirmed.amount)} {confirmed.duplicate ? 'was already captured for this invoice.' : 'was successfully captured.'}
-          </Value>
+          <Value style={styles.receiptAmount}>{money(confirmed.amount)}</Value>
+          <Text style={styles.helpText}>Transaction: {confirmed.transactionId}</Text>
+          <Text style={styles.helpText}>A receipt has been generated and attached to the invoice.</Text>
         </Card>
-      ) : null}
-      <View style={styles.webHostWrap}>
-        {!checkoutReady ? <Loading /> : null}
-        {host}
-      </View>
+      ) : (
+        <View style={styles.webHostWrap}>
+          {!checkoutReady ? <Loading /> : null}
+          {host}
+        </View>
+      )}
       <View style={styles.footer}>
         {confirmed ? (
           <Button
@@ -294,6 +295,20 @@ const styles = StyleSheet.create({
     marginBottom: 0,
     borderWidth: 1,
     borderColor: colors.primary,
+  },
+  receiptCard: {
+    flex: 1,
+    borderWidth: 1,
+    borderColor: colors.primary,
+    justifyContent: 'center',
+    alignItems: 'center',
+    gap: 6,
+    minHeight: 320,
+  },
+  receiptAmount: {
+    fontSize: 32,
+    fontWeight: '800',
+    marginVertical: 8,
   },
   successTitle: {
     fontSize: 15,
