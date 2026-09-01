@@ -73,6 +73,7 @@ export default function EmbeddedCheckoutWebScreen() {
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [checkoutReady, setCheckoutReady] = useState(false);
+  const [confirmed, setConfirmed] = useState<ConfirmResponse | null>(null);
   const confirmedRef = useRef(false);
 
   useEffect(() => {
@@ -117,13 +118,9 @@ export default function EmbeddedCheckoutWebScreen() {
           sessionToken: session.sessionToken,
         },
       });
-      // Alert.alert is a no-op on web — use window.alert and navigate directly.
-      if (typeof window !== 'undefined') {
-        window.alert(
-          `${result.duplicate ? 'Payment already recorded' : 'Payment approved'}: ${money(result.amount)} ${result.duplicate ? 'was already captured for this invoice.' : 'was successfully captured.'}`,
-        );
-      }
-      router.replace(`/invoice/${session.invoiceId}`);
+      // Keep North's receipt visible in the frame; surface a success banner
+      // and let the user navigate back when they're done.
+      setConfirmed(result);
     } catch (e) {
       confirmedRef.current = false;
       const message = (e as Error).message || 'Unable to verify the payment.';
@@ -222,13 +219,33 @@ export default function EmbeddedCheckoutWebScreen() {
           <Text key={detail} style={styles.helpText}>{detail}</Text>
         ))}
       </Card>
+      {confirmed ? (
+        <Card style={styles.successCard}>
+          <Value style={styles.successTitle}>
+            {confirmed.duplicate ? 'Payment already recorded' : 'Payment approved'}
+          </Value>
+          <Value style={styles.successText}>
+            {money(confirmed.amount)} {confirmed.duplicate ? 'was already captured for this invoice.' : 'was successfully captured.'}
+          </Value>
+        </Card>
+      ) : null}
       <View style={styles.webHostWrap}>
         {!checkoutReady ? <Loading /> : null}
         {host}
       </View>
       <View style={styles.footer}>
-        <Button title="Cancel" variant="outline" onPress={() => router.back()} disabled={submitting} />
-        <Button title="Confirming…" onPress={() => undefined} loading={submitting} disabled={!submitting} style={styles.confirmBtn} />
+        {confirmed ? (
+          <Button
+            title="View Invoice"
+            onPress={() => router.replace(`/invoice/${session.invoiceId}`)}
+            style={styles.confirmBtn}
+          />
+        ) : (
+          <>
+            <Button title="Cancel" variant="outline" onPress={() => router.back()} disabled={submitting} />
+            <Button title="Confirming…" onPress={() => undefined} loading={submitting} disabled={!submitting} style={styles.confirmBtn} />
+          </>
+        )}
       </View>
     </View>
   );
@@ -272,6 +289,20 @@ const styles = StyleSheet.create({
   helpText: {
     color: colors.textMuted,
     marginBottom: 4,
+  },
+  successCard: {
+    marginBottom: 0,
+    borderWidth: 1,
+    borderColor: colors.primary,
+  },
+  successTitle: {
+    fontSize: 15,
+    fontWeight: '800',
+    color: colors.primary,
+    marginBottom: 4,
+  },
+  successText: {
+    fontSize: 14,
   },
   webHostWrap: {
     flex: 1,
