@@ -242,8 +242,10 @@ router.post(
     await assertInvoiceAccess(scope, body.invoiceId);
 
     // North's session status can stay "Open" for several seconds after the
-    // checkout confirmation page fires onPaymentComplete (the official sample
-    // waits 5s before verifying). Poll until it settles instead of failing.
+    // checkout confirmation page fires onPaymentComplete, and querying the
+    // status too early can race North's own finalization/receipt rendering.
+    // The official sample waits 5s before verifying — do the same, then poll.
+    await new Promise((resolve) => setTimeout(resolve, 5_000));
     const deadline = Date.now() + 30_000;
     let sessionStatus = await northGatewayService.getEmbeddedSessionStatus(body.sessionToken);
     let statusData = asRecord(sessionStatus.data) ?? sessionStatus;

@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { Alert, StyleSheet, Text, View } from 'react-native';
+import { StyleSheet, Text, View } from 'react-native';
 import { Stack, useLocalSearchParams, useRouter } from 'expo-router';
 import { api } from '../../src/lib/api';
 import { Button, Card, Loading, Value } from '../../src/components/ui';
@@ -117,14 +117,20 @@ export default function EmbeddedCheckoutWebScreen() {
           sessionToken: session.sessionToken,
         },
       });
-      Alert.alert(
-        result.duplicate ? 'Payment already recorded' : 'Payment approved',
-        `${money(result.amount)} ${result.duplicate ? 'was already captured for this invoice.' : 'was successfully captured.'}`,
-        [{ text: 'Done', onPress: () => router.replace(`/invoice/${session.invoiceId}`) }],
-      );
+      // Alert.alert is a no-op on web — use window.alert and navigate directly.
+      if (typeof window !== 'undefined') {
+        window.alert(
+          `${result.duplicate ? 'Payment already recorded' : 'Payment approved'}: ${money(result.amount)} ${result.duplicate ? 'was already captured for this invoice.' : 'was successfully captured.'}`,
+        );
+      }
+      router.replace(`/invoice/${session.invoiceId}`);
     } catch (e) {
       confirmedRef.current = false;
-      Alert.alert('Payment confirmation failed', (e as Error).message || 'Unable to verify the payment.');
+      const message = (e as Error).message || 'Unable to verify the payment.';
+      if (typeof window !== 'undefined') {
+        window.alert(`Payment confirmation failed: ${message}`);
+      }
+      setError(message);
     } finally {
       setSubmitting(false);
     }
