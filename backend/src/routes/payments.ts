@@ -168,15 +168,25 @@ router.post(
     );
     const amount = Math.max(0, Number(invoice.total) - Number(invoice.amount_paid));
     if (amount <= 0) throw ApiError.badRequest('Invoice has no outstanding balance.');
+    const itemizedProducts = itemRows.rows.map((row) => ({
+      name: row.description,
+      quantity: Number(row.quantity),
+      price: Number(row.unit_price),
+    }));
+    const itemizedTotal = Number(
+      itemizedProducts.reduce((sum, p) => sum + p.price * p.quantity, 0).toFixed(2),
+    );
+    // North rejects sessions whose products total does not equal the amount, so
+    // fall back to a single balance line when the invoice is partially paid,
+    // discounted, or taxed.
+    const products = itemizedProducts.length && itemizedTotal === Number(amount.toFixed(2))
+      ? itemizedProducts
+      : [{ name: `Invoice ${invoice.invoice_number} balance`, quantity: 1, price: Number(amount.toFixed(2)) }];
     const sessionToken = await northGatewayService.createEmbeddedSession({
       amount,
       orderId: invoice.invoice_number,
       customerEmail: invoice.customer_email,
-      products: itemRows.rows.map((row) => ({
-        name: row.description,
-        quantity: Number(row.quantity),
-        unitPrice: Number(row.unit_price),
-      })),
+      products,
     });
     ok(res, {
       sessionToken,

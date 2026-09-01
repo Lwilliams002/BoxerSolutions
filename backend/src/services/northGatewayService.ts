@@ -73,14 +73,13 @@ interface NorthCreateSubscriptionInput {
 interface NorthEmbeddedProduct {
   name: string;
   quantity: number;
-  unitPrice: number;
+  price: number;
 }
 
 interface CreateEmbeddedSessionInput {
   amount: number;
   products?: NorthEmbeddedProduct[];
   orderId?: string;
-  transactionType?: 'Sale';
   customerEmail?: string | null;
 }
 
@@ -125,7 +124,6 @@ function embeddedPayloadDiagnostics(payload: Record<string, unknown>) {
   const products = Array.isArray(payload.products) ? payload.products : [];
   return {
     amount: payload.amount,
-    transactionType: payload.transactionType,
     hasEmail: typeof payload.email === 'string' && payload.email.length > 0,
     hasOrderId: typeof payload.orderId === 'string' && payload.orderId.length > 0,
     productCount: products.length,
@@ -336,7 +334,6 @@ class NorthGatewayService {
     const payload: Record<string, unknown> = {
       checkoutId: config.north.embeddedCheckoutId,
       profileId: config.north.embeddedProfileId,
-      transactionType: input.transactionType ?? 'Sale',
       amount,
     };
     if (input.products?.length) payload.products = input.products;
@@ -351,7 +348,6 @@ class NorthGatewayService {
       data = await this.postEmbeddedSession({
         checkoutId: config.north.embeddedCheckoutId,
         profileId: config.north.embeddedProfileId,
-        transactionType: input.transactionType ?? 'Sale',
         amount,
       });
     }
@@ -376,7 +372,8 @@ class NorthGatewayService {
         Authorization: `Bearer ${config.north.embeddedPrivateApiKey}`,
         'Content-Type': 'application/json',
         SessionToken: sessionToken,
-        checkoutId: config.north.embeddedCheckoutId,
+        CheckoutId: config.north.embeddedCheckoutId,
+        ProfileId: config.north.embeddedProfileId,
         'User-Agent': 'ServiceFinance Embedded Checkout',
       },
     });
