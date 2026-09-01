@@ -90,11 +90,16 @@ function pickNorthTransactionId(statusPayload: Record<string, unknown>, bodyPayl
   if (!bodyPayload) return null;
   const fullResponse = asRecord(bodyPayload.fullResponse);
   const candidate = [
+    // EPX (North processor) field names as observed in production
+    bodyPayload.auth_guid,
+    bodyPayload.tran_nbr,
+    bodyPayload.auth_tran_ident,
     bodyPayload.transactionId,
     bodyPayload.transaction_id,
     bodyPayload.tranId,
     bodyPayload.referenceNumber,
     bodyPayload.authCode,
+    fullResponse?.auth_guid,
     fullResponse?.transaction_id,
     fullResponse?.trans_id,
     fullResponse?.reference_number,
@@ -107,10 +112,14 @@ function pickNorthApprovedAmount(bodyPayload: Record<string, unknown> | null): n
   if (!bodyPayload) return null;
   const fullResponse = asRecord(bodyPayload.fullResponse);
   return (
-    parseNorthAmount(bodyPayload.amount)
+    // EPX (North processor) field names as observed in production
+    parseNorthAmount(bodyPayload.auth_amount)
+    ?? parseNorthAmount(bodyPayload.auth_amount_requested)
+    ?? parseNorthAmount(bodyPayload.amount)
     ?? parseNorthAmount(bodyPayload.approvedAmount)
     ?? parseNorthAmount(bodyPayload.tranAmount)
     ?? parseNorthAmount(bodyPayload.total)
+    ?? parseNorthAmount(fullResponse?.auth_amount)
     ?? parseNorthAmount(fullResponse?.amount)
     ?? parseNorthAmount(fullResponse?.approved_amount)
   );
