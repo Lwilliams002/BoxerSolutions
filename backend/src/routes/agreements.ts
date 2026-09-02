@@ -745,19 +745,22 @@ router.post(
       .setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
     if (paymentToken) {
       // The North embedded checkout loads a cross-origin script and mounts an
-      // iframe; helmet's default CSP (script-src 'self') blocks both, so
-      // override it for this page only.
+      // iframe, and its script pulls further dependencies (fingerprint/fraud
+      // check from fpnpmcdn.net, metrics.north.com, the /form iframe). Helmet's
+      // default CSP blocks those, silently failing the payment, so this
+      // transient payment page allows any https source for those directives.
       const northOrigin = new URL(config.north.embeddedBaseUrl).origin;
       res.setHeader(
         'Content-Security-Policy',
         [
           `default-src 'self'`,
-          `script-src 'self' ${northOrigin}`,
-          `frame-src ${northOrigin} https:`,
-          `connect-src 'self' ${northOrigin} https:`,
+          `script-src 'self' https: 'unsafe-inline'`,
+          `frame-src https:`,
+          `connect-src 'self' https: wss:`,
           `img-src 'self' data: https:`,
           `style-src 'self' 'unsafe-inline' https:`,
           `font-src 'self' data: https:`,
+          `worker-src 'self' blob:`,
           `base-uri 'self'`,
           `form-action 'self' ${northOrigin}`,
           `object-src 'none'`,
