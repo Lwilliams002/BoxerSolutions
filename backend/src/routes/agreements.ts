@@ -693,8 +693,8 @@ router.post(
         <p id="payStatus" style="color:#607D78;font-size:14px;margin:10px 0;">Loading secure payment form…</p>
         <p id="payError" style="color:#B3261E;font-size:14px;margin:10px 0;display:none;"></p>
         <button type="button" id="payRetry" style="display:none;margin:0 0 12px 0;padding:8px 12px;border:1px solid #CBD7D4;border-radius:8px;background:#fff;cursor:pointer;">Try Again</button>
-        <div id="checkoutWrap" style="border:1px solid #D5EDE9;border-radius:12px;background:#fff;overflow:hidden;">
-          <div id="checkout-root" style="min-height:520px;"></div>
+        <div id="checkoutWrap" style="border:1px solid #D5EDE9;border-radius:14px;background:#fff;padding:12px;">
+          <div id="checkout-root" style="width:100%;min-height:760px;background:#FFFFFF;"></div>
         </div>
         <div id="paySuccess" style="display:none;border:1px solid #BFE8DF;background:#EAF8F5;border-radius:10px;padding:14px;">
           <h3 style="margin:0 0 6px 0;color:#0D0D0D;font-size:15px;">Payment received — thank you!</h3>
@@ -737,14 +737,16 @@ router.post(
       .type('html')
       .send(`<!doctype html>
 <html>
-  <head><meta charset="utf-8"/><meta name="viewport" content="width=device-width, initial-scale=1"/><title>${title}</title></head>
+  <head><meta charset="utf-8"/><meta name="viewport" content="width=device-width, initial-scale=1"/><title>${title}</title><style>
+    #checkout-root iframe { width: 100% !important; min-height: 760px; border: 0; display: block; }
+  </style></head>
   <body style="font-family:Arial,sans-serif;background:#F5FAF8;padding:24px;">
     <div style="max-width:620px;margin:0 auto;background:#fff;border:1px solid #D5EDE9;border-radius:12px;padding:20px;">
       <h2 style="margin-top:0;color:#0D0D0D;">${title}</h2>
       <p style="color:#30433F;line-height:1.5;">${message}</p>
       ${paymentSection}
     </div>
-    ${paymentToken ? '<script src="/api/v1/agreements/sign/pay/client.js?v=1"></script>' : ''}
+    ${paymentToken ? '<script src="/api/v1/agreements/sign/pay/client.js?v=2"></script>' : ''}
   </body>
 </html>`);
   }),
