@@ -131,19 +131,27 @@ function parseClientSignedAt(raw: string | undefined) {
 }
 
 function formatSignedAtForAgreement(signedAt: Date, signerTimeZone: string | undefined) {
+  // Note: `timeZoneName` cannot be combined with `dateStyle`/`timeStyle` on
+  // some Node/ICU versions (it throws a TypeError), so spell out components.
+  const options: Intl.DateTimeFormatOptions = {
+    year: 'numeric',
+    month: 'short',
+    day: 'numeric',
+    hour: 'numeric',
+    minute: '2-digit',
+    timeZoneName: 'short',
+  };
   try {
     return new Intl.DateTimeFormat('en-US', {
-      dateStyle: 'medium',
-      timeStyle: 'short',
-      timeZoneName: 'short',
+      ...options,
       ...(signerTimeZone ? { timeZone: signerTimeZone } : {}),
     }).format(signedAt);
   } catch {
-    return new Intl.DateTimeFormat('en-US', {
-      dateStyle: 'medium',
-      timeStyle: 'short',
-      timeZoneName: 'short',
-    }).format(signedAt);
+    try {
+      return new Intl.DateTimeFormat('en-US', options).format(signedAt);
+    } catch {
+      return signedAt.toUTCString();
+    }
   }
 }
 
