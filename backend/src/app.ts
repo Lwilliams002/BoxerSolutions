@@ -37,7 +37,23 @@ export function createApp() {
   const app = express();
   app.set('trust proxy', 1);
 
-  app.use(helmet());
+  // The agreement signing/payment pages served by this API load North's
+  // embedded checkout (cross-origin script + iframe), so the CSP must allow
+  // that origin. Everything else keeps helmet's strict defaults.
+  const northOrigin = new URL(config.north.embeddedBaseUrl).origin;
+  app.use(
+    helmet({
+      contentSecurityPolicy: {
+        directives: {
+          ...helmet.contentSecurityPolicy.getDefaultDirectives(),
+          'script-src': ["'self'", northOrigin],
+          'frame-src': ["'self'", northOrigin],
+          'connect-src': ["'self'", northOrigin],
+          'img-src': ["'self'", 'data:', 'https:'],
+        },
+      },
+    }),
+  );
   app.use(cors());
   app.use(express.json({
     limit: '2mb',
