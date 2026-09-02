@@ -515,6 +515,24 @@ function payClientScript() {
     }
   }
 
+  var statusPolls = 0;
+  function pollStatus() {
+    // Diagnostic + resilience: record North's session state server-side and
+    // recover if onPaymentComplete never fires but the payment was approved.
+    if (confirming || !activeSessionToken || statusPolls >= 40) return;
+    statusPolls += 1;
+    postJson('/api/v1/agreements/sign/pay/status', {
+      payToken: payToken,
+      sessionToken: activeSessionToken
+    }).then(function (data) {
+      var s = String((data && data.status) || '').toLowerCase();
+      if (s === 'approved') { confirmPayment(); return; }
+      setTimeout(pollStatus, 15000);
+    }).catch(function () {
+      setTimeout(pollStatus, 15000);
+    });
+  }
+
   async function startCheckout() {
     clearError();
     setStatus('Loading secure payment form…');
@@ -530,6 +548,7 @@ function payClientScript() {
       if (rootEl) rootEl.innerHTML = '';
       await Promise.resolve(window.checkout.mount(activeSessionToken, 'checkout-root'));
       setStatus('');
+      setTimeout(pollStatus, 20000);
     } catch (err) {
       showError(err && err.message ? err.message : 'Unable to start the payment.');
     }
@@ -569,6 +588,18 @@ router.post(
     }).parse(req.body);
     const result = await agreementSigningService.confirmInitialPayment(body.payToken, body.sessionToken);
     ok(res, result, result.duplicate ? 'Payment already recorded' : 'Payment recorded', 201);
+  }),
+);
+
+router.post(
+  '/sign/pay/status',
+  asyncHandler(async (req, res) => {
+    const body = z.object({
+      payToken: z.string().min(20),
+      sessionToken: z.string().min(10),
+    }).parse(req.body);
+    const status = await agreementSigningService.getInitialPaymentStatus(body.payToken, body.sessionToken);
+    ok(res, status, 'Checkout session status');
   }),
 );
 
@@ -746,7 +777,7 @@ router.post(
       <p style="color:#30433F;line-height:1.5;">${message}</p>
       ${paymentSection}
     </div>
-    ${paymentToken ? '<script src="/api/v1/agreements/sign/pay/client.js?v=2"></script>' : ''}
+    ${paymentToken ? '<script src="/api/v1/agreements/sign/pay/client.js?v=3"></script>' : ''}
   </body>
 </html>`);
   }),

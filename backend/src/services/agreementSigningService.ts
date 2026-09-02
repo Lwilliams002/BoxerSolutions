@@ -8,6 +8,7 @@ import { invoiceService } from './invoiceService';
 import { paymentService } from './paymentService';
 import { northGatewayService } from './northGatewayService';
 import { waitForApprovedNorthSession } from '../utils/northEmbedded';
+import { logger } from '../utils/logger';
 
 const SIGNING_TOKEN_TTL_SECONDS = 60 * 60 * 24 * 7;
 const INITIAL_PAYMENT_TOKEN_TTL_SECONDS = 60 * 60 * 24 * 3;
@@ -722,6 +723,21 @@ export const agreementSigningService = {
       scriptUrl: `${config.north.embeddedBaseUrl}/checkout.js`,
       amount,
       invoiceNumber: invoice.invoice_number,
+    };
+  },
+
+  async getInitialPaymentStatus(paymentToken: string, northSessionToken: string) {
+    const payload = parseInitialPaymentToken(paymentToken);
+    const sessionStatus = await northGatewayService.getEmbeddedSessionStatus(northSessionToken);
+    const statusData = (sessionStatus.data && typeof sessionStatus.data === 'object'
+      ? sessionStatus.data as Record<string, unknown>
+      : sessionStatus) as Record<string, unknown>;
+    logger.info(
+      { customerId: payload.customerId, invoiceId: payload.invoiceId, northSessionStatus: sessionStatus },
+      'agreement initial payment session status',
+    );
+    return {
+      status: String(statusData.status ?? 'unknown'),
     };
   },
 
