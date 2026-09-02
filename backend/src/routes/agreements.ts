@@ -4,6 +4,7 @@ import path from 'path';
 import { z } from 'zod';
 import { asyncHandler } from '../utils/asyncHandler';
 import { ok } from '../utils/http';
+import { config } from '../config';
 import { agreementSigningService } from '../services/agreementSigningService';
 
 const router = Router();
@@ -710,7 +711,29 @@ router.post(
 
     res
       .status(200)
-      .setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate')
+      .setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
+    if (paymentToken) {
+      // The North embedded checkout loads a cross-origin script and mounts an
+      // iframe; helmet's default CSP (script-src 'self') blocks both, so
+      // override it for this page only.
+      const northOrigin = new URL(config.north.embeddedBaseUrl).origin;
+      res.setHeader(
+        'Content-Security-Policy',
+        [
+          `default-src 'self'`,
+          `script-src 'self' ${northOrigin}`,
+          `frame-src ${northOrigin} https:`,
+          `connect-src 'self' ${northOrigin} https:`,
+          `img-src 'self' data: https:`,
+          `style-src 'self' 'unsafe-inline' https:`,
+          `font-src 'self' data: https:`,
+          `base-uri 'self'`,
+          `form-action 'self' ${northOrigin}`,
+          `object-src 'none'`,
+        ].join(';'),
+      );
+    }
+    res
       .type('html')
       .send(`<!doctype html>
 <html>
