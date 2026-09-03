@@ -12,7 +12,7 @@ export interface CompanySettings {
 
 export const DEFAULT_SETTINGS: CompanySettings = {
   companyName: 'Boxer Solutions Pest Control',
-  phone: '(512) 555-0142',
+  phone: '3057135011',
   address: '2500 Bee Cave Rd, Austin, TX 78746',
   licenseNumber: 'TPCL-0099421',
   defaultTaxRate: 0.0825,

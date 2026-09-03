@@ -19,7 +19,7 @@ export type CommunicationTemplateKey =
 
 const COMPANY = {
   name: 'Boxer Solutions Pest Control',
-  phone: '(512) 555-0142',
+  phone: '3057135011',
   email: 'service@boxersolutionspestcontrol.com',
 };
 

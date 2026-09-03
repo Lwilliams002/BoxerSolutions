@@ -5,7 +5,7 @@ export const company = {
   tagline: 'Pest Control',
   addressLine1: '2500 Bee Cave Rd',
   addressLine2: 'Austin, TX 78746',
-  phone: '(512) 555-0142',
+  phone: '3057135011',
   email: 'service@boxersolutionspestcontrol.com',
   license: 'License #: TPCL-0099421',
 };

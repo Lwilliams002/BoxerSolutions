@@ -12,7 +12,7 @@ import { fileService } from './fileService';
 const COMPANY = {
   name: 'Boxer Solutions Pest Control',
   address: '2500 Bee Cave Rd, Austin, TX 78746',
-  phone: '(512) 555-0142',
+  phone: '3057135011',
   email: 'service@boxersolutionspestcontrol.com',
 };
 
