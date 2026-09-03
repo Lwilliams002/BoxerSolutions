@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { useQuery } from '@tanstack/react-query';
 import { useRouter } from 'expo-router';
@@ -27,10 +27,31 @@ interface MapLocation {
   company: string | null;
 }
 
+function distanceMiles(a: { lat: number; lon: number }, b: { lat: number; lon: number }) {
+  const R = 3958.8;
+  const dLat = ((b.lat - a.lat) * Math.PI) / 180;
+  const dLon = ((b.lon - a.lon) * Math.PI) / 180;
+  const s =
+    Math.sin(dLat / 2) ** 2 +
+    Math.cos((a.lat * Math.PI) / 180) * Math.cos((b.lat * Math.PI) / 180) * Math.sin(dLon / 2) ** 2;
+  return 2 * R * Math.asin(Math.sqrt(s));
+}
+
 export default function TerritoryMapScreenWeb() {
   const router = useRouter();
   const hasPermission = useAuth((s) => s.hasPermission);
   const canCreateCustomer = hasPermission('customers:write');
+  const [myLocation, setMyLocation] = useState<{ lat: number; lon: number } | null>(null);
+
+  // Use the browser's location (tech or owner) to sort customers by proximity.
+  useEffect(() => {
+    if (typeof navigator === 'undefined' || !navigator.geolocation) return;
+    navigator.geolocation.getCurrentPosition(
+      (pos) => setMyLocation({ lat: pos.coords.latitude, lon: pos.coords.longitude }),
+      () => undefined,
+      { enableHighAccuracy: false, timeout: 8000, maximumAge: 300000 },
+    );
+  }, []);
 
   const territories = useQuery({
     queryKey: ['territories'],
@@ -40,6 +61,15 @@ export default function TerritoryMapScreenWeb() {
     queryKey: ['mapLocations'],
     queryFn: () => api<MapLocation[]>('/locations/map'),
   });
+
+  const sortedLocations = useMemo(() => {
+    const items = (mapLocations.data ?? []).map((c) => ({
+      ...c,
+      distance: myLocation ? distanceMiles(myLocation, { lat: c.latitude, lon: c.longitude }) : null,
+    }));
+    if (myLocation) items.sort((a, b) => (a.distance ?? 0) - (b.distance ?? 0));
+    return items;
+  }, [mapLocations.data, myLocation]);
 
   if (territories.isLoading || mapLocations.isLoading) return <Loading />;
 
@@ -73,11 +103,15 @@ export default function TerritoryMapScreenWeb() {
 
       <Card>
         <Text style={styles.section}>Customer locations</Text>
-        {(mapLocations.data ?? []).map((c) => (
+        {myLocation ? <Text style={styles.note}>Sorted by distance from your current location.</Text> : null}
+        {sortedLocations.map((c) => (
           <TouchableOpacity key={c.id} style={styles.row} onPress={() => router.push(`/customer/${c.customerId}`)}>
             <View style={{ flex: 1 }}>
               <Text style={styles.rowTitle}>{c.company ?? `${c.firstName} ${c.lastName}`}</Text>
-              <Text style={styles.rowSub}>{c.addressLine1}, {c.city}</Text>
+              <Text style={styles.rowSub}>
+                {c.addressLine1}, {c.city}
+                {c.distance != null ? ` · ${c.distance.toFixed(1)} mi away` : ''}
+              </Text>
             </View>
             <Text style={styles.open}>Open</Text>
           </TouchableOpacity>

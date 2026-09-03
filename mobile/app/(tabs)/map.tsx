@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Alert, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
 import MapView, { Marker, Polygon, PROVIDER_DEFAULT } from 'react-native-maps';
 import { useRouter } from 'expo-router';
@@ -39,7 +39,9 @@ interface MapLocation {
   company: string | null;
 }
 
-const AUSTIN_REGION = {
+// Fallback only — the map recenters on the device's location once permission
+// is granted (applies to technicians and owners alike).
+const FALLBACK_REGION = {
   latitude: 30.2672,
   longitude: -97.7431,
   latitudeDelta: 0.23,
@@ -52,10 +54,42 @@ export default function TerritoryMapScreen() {
   const hasPermission = useAuth((s) => s.hasPermission);
   const canManage = hasPermission('users:write');
   const canCreateCustomer = hasPermission('customers:write');
+  const mapRef = useRef<MapView | null>(null);
   const [drawing, setDrawing] = useState(false);
   const [draftName, setDraftName] = useState('');
   const [draftTechId, setDraftTechId] = useState<string | null>(null);
   const [draftPoints, setDraftPoints] = useState<{ latitude: number; longitude: number }[]>([]);
+  const [locationGranted, setLocationGranted] = useState(false);
+
+  // Center the map on the signed-in user's current location (tech or owner).
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const { status } = await Location.requestForegroundPermissionsAsync();
+        if (cancelled || status !== 'granted') return;
+        setLocationGranted(true);
+        const pos =
+          (await Location.getLastKnownPositionAsync()) ??
+          (await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced }));
+        if (cancelled || !pos) return;
+        mapRef.current?.animateToRegion(
+          {
+            latitude: pos.coords.latitude,
+            longitude: pos.coords.longitude,
+            latitudeDelta: 0.12,
+            longitudeDelta: 0.12,
+          },
+          600,
+        );
+      } catch {
+        // Keep the fallback region if location is unavailable.
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const territories = useQuery({
     queryKey: ['territories'],
@@ -144,9 +178,12 @@ export default function TerritoryMapScreen() {
   return (
     <View style={styles.screen}>
       <MapView
+        ref={mapRef}
         provider={PROVIDER_DEFAULT}
         style={styles.map}
-        initialRegion={AUSTIN_REGION}
+        initialRegion={FALLBACK_REGION}
+        showsUserLocation={locationGranted}
+        showsMyLocationButton
         onPress={(e) => onPressMap(e.nativeEvent.coordinate)}
         onLongPress={(e) => void onLongPress(e.nativeEvent.coordinate)}
       >
