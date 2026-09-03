@@ -6,6 +6,7 @@ import { ApiError } from '../utils/errors';
 import { storage } from '../integrations/storage';
 import { invoiceService } from './invoiceService';
 import { paymentService } from './paymentService';
+import { recurringChargeService } from './recurringChargeService';
 import { northGatewayService } from './northGatewayService';
 import { waitForApprovedNorthSession } from '../utils/northEmbedded';
 import { logger } from '../utils/logger';
@@ -676,6 +677,20 @@ export const agreementSigningService = {
     );
 
     const initialCharge = await chargeSignedAgreementInitial(row.customer_id, agreement);
+
+    // Capture (or update) the recurring "Regular" charge from this agreement.
+    // Signing a newer agreement replaces the previous recurring amount.
+    const recurringTotal = agreement?.recurringTotal
+      ?? agreement?.lineItems?.reduce((sum, item) => sum + item.regular, 0)
+      ?? null;
+    if (recurringTotal != null && recurringTotal > 0) {
+      try {
+        await recurringChargeService.upsertFromAgreement(row.customer_id, recurringTotal, row.id);
+      } catch (error) {
+        logger.warn({ err: error, customerId: row.customer_id }, 'failed to upsert recurring charge from agreement');
+      }
+    }
+
     return {
       alreadySigned: false,
       customerId: row.customer_id,

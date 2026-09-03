@@ -380,10 +380,25 @@ export default function AgreementScreen() {
             // Keep signed-agreement flow successful even if invoice generation fails.
           }
         }
+
+        // Register/update the customer's recurring "Regular" charge so it shows
+        // in the Invoices section with a charge action. Re-signing replaces the amount.
+        if (regularTotal > 0.009) {
+          try {
+            await api('/recurring-charges', {
+              method: 'POST',
+              body: { customerId: targetCustomerId, amount: Number(regularTotal.toFixed(2)) },
+            });
+          } catch {
+            // Non-fatal; the recurring charge can be corrected from the invoices screen.
+          }
+        }
       }
 
       void qc.invalidateQueries({ queryKey: ['customers'] });
       void qc.invalidateQueries({ queryKey: ['customer', targetCustomerId] });
+      void qc.invalidateQueries({ queryKey: ['recurring-charges'] });
+      void qc.invalidateQueries({ queryKey: ['recurring-charges', targetCustomerId] });
       void qc.invalidateQueries({ queryKey: ['customerDocs', targetCustomerId] });
       void qc.invalidateQueries({ queryKey: ['customerNotes', targetCustomerId] });
       void qc.invalidateQueries({ queryKey: ['customerComms', targetCustomerId] });

@@ -36,6 +36,7 @@ export default function CustomerScreen() {
   const [customInvoiceDescription, setCustomInvoiceDescription] = useState('Additional service');
   const [customInvoiceAmount, setCustomInvoiceAmount] = useState('');
   const [creatingCustomInvoice, setCreatingCustomInvoice] = useState(false);
+  const [chargingRecurring, setChargingRecurring] = useState(false);
 
   const { data: cust, isLoading } = useQuery({
     queryKey: ['customer', id],
@@ -49,6 +50,11 @@ export default function CustomerScreen() {
   const { data: invoices } = useQuery({
     queryKey: ['customerInvoices', id],
     queryFn: () => api<{ items: any[] }>(`/invoices?customerId=${id}&pageSize=50`),
+    enabled: tab === 'Invoices',
+  });
+  const { data: recurringCharges } = useQuery({
+    queryKey: ['recurring-charges', id],
+    queryFn: () => api<{ items: any[] }>(`/recurring-charges?customerId=${id}`),
     enabled: tab === 'Invoices',
   });
   const { data: payments } = useQuery({
@@ -202,6 +208,54 @@ export default function CustomerScreen() {
     } finally {
       setCreatingCustomInvoice(false);
     }
+  };
+
+  const chargeRecurring = (rc: any) => {
+    Alert.alert(
+      'Charge recurring service',
+      `Charge ${money(rc.amount)} for the regular recurring service using the card on file?`,
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Charge',
+          style: 'destructive',
+          onPress: async () => {
+            setChargingRecurring(true);
+            try {
+              const result = await api<{ charged: boolean; invoiceId: string; amount: number; reason?: string }>(
+                `/recurring-charges/${rc.id}/charge`,
+                { method: 'POST', body: {}, idempotencyKey: newIdempotencyKey() },
+              );
+              void qc.invalidateQueries({ queryKey: ['recurring-charges', id] });
+              void qc.invalidateQueries({ queryKey: ['recurring-charges'] });
+              void qc.invalidateQueries({ queryKey: ['customerInvoices', id] });
+              void qc.invalidateQueries({ queryKey: ['customerPayments', id] });
+              void qc.invalidateQueries({ queryKey: ['customer', id] });
+              void qc.invalidateQueries({ queryKey: ['invoices'] });
+              if (result.charged) {
+                Alert.alert('Payment collected', `Charged ${money(result.amount)} for the recurring service.`, [
+                  { text: 'View Invoice', onPress: () => router.push(`/invoice/${result.invoiceId}`) },
+                  { text: 'OK' },
+                ]);
+              } else {
+                Alert.alert(
+                  'Invoice created',
+                  result.reason ?? 'The invoice was created but the card could not be charged.',
+                  [
+                    { text: 'Open Invoice', onPress: () => router.push(`/invoice/${result.invoiceId}`) },
+                    { text: 'Later' },
+                  ],
+                );
+              }
+            } catch (e) {
+              Alert.alert('Charge failed', (e as Error).message);
+            } finally {
+              setChargingRecurring(false);
+            }
+          },
+        },
+      ],
+    );
   };
 
   const addCard = async (token: string) => {
@@ -506,6 +560,30 @@ export default function CustomerScreen() {
 
         {tab === 'Invoices' && (
           <>
+            {(recurringCharges?.items ?? []).map((rc: any) => (
+              <Card key={rc.id}>
+                <Row>
+                  <Value style={{ fontWeight: '700' }}>{rc.description ?? 'Regular recurring service'}</Value>
+                  <StatusBadge status="recurring" />
+                </Row>
+                <Row style={{ marginTop: 4 }}>
+                  <Text style={styles.metaText}>
+                    {rc.lastChargedAt ? `Last charged ${fmtDate(rc.lastChargedAt)}` : 'Not charged yet'}
+                  </Text>
+                  <Value style={{ fontWeight: '700' }}>{money(rc.amount)}</Value>
+                </Row>
+                {hasPermission('invoices:write', 'payments:collect', 'payments:write') && (
+                  <Button
+                    title={chargingRecurring ? 'Charging…' : `Charge ${money(rc.amount)}`}
+                    variant="success"
+                    onPress={() => chargeRecurring(rc)}
+                    loading={chargingRecurring}
+                    disabled={chargingRecurring}
+                  />
+                )}
+              </Card>
+            ))}
+
             {hasPermission('invoices:write', 'invoices:write_assigned') && (
               <Card>
                 <Text style={styles.metaText}>Create a manual invoice and charge it to the card on file.</Text>

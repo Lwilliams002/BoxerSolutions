@@ -1,13 +1,123 @@
 import React, { useState } from 'react';
-import { View, Text, FlatList, StyleSheet, TouchableOpacity, ScrollView } from 'react-native';
-import { useQuery } from '@tanstack/react-query';
+import { View, Text, FlatList, StyleSheet, TouchableOpacity, ScrollView, Alert } from 'react-native';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useRouter } from 'expo-router';
-import { api } from '../../src/lib/api';
+import { api, newIdempotencyKey } from '../../src/lib/api';
 import { colors, money, fmtDate } from '../../src/lib/theme';
 import { Loading, EmptyState, StatusBadge } from '../../src/components/ui';
 import { SyncBanner } from '../../src/components/SyncBanner';
 
 const FILTERS = ['', 'open', 'past_due', 'partially_paid', 'paid', 'draft', 'void'];
+
+interface RecurringCharge {
+  id: string;
+  customerId: string;
+  customerName: string;
+  description: string;
+  amount: number;
+  lastChargedAt: string | null;
+}
+
+interface ChargeResult {
+  charged: boolean;
+  invoiceId: string;
+  amount: number;
+  reason?: string;
+}
+
+function RecurringSection() {
+  const router = useRouter();
+  const queryClient = useQueryClient();
+  const [chargingId, setChargingId] = useState<string | null>(null);
+
+  const { data } = useQuery({
+    queryKey: ['recurring-charges'],
+    queryFn: () => api<{ items: RecurringCharge[]; total: number }>('/recurring-charges'),
+  });
+
+  const chargeMutation = useMutation({
+    mutationFn: (id: string) =>
+      api<ChargeResult>(`/recurring-charges/${id}/charge`, {
+        method: 'POST',
+        body: {},
+        idempotencyKey: newIdempotencyKey(),
+      }),
+    onSettled: () => {
+      setChargingId(null);
+      queryClient.invalidateQueries({ queryKey: ['recurring-charges'] });
+      queryClient.invalidateQueries({ queryKey: ['invoices'] });
+    },
+    onSuccess: (result) => {
+      if (result.charged) {
+        Alert.alert('Payment collected', `Charged ${money(result.amount)} for the recurring service.`, [
+          { text: 'View Invoice', onPress: () => router.push(`/invoice/${result.invoiceId}`) },
+          { text: 'OK' },
+        ]);
+      } else {
+        Alert.alert(
+          'Invoice created',
+          result.reason ?? 'The invoice was created but the card could not be charged.',
+          [
+            { text: 'Open Invoice', onPress: () => router.push(`/invoice/${result.invoiceId}`) },
+            { text: 'Later' },
+          ],
+        );
+      }
+    },
+    onError: (e: any) => Alert.alert('Charge failed', e?.message ?? 'Unable to charge recurring service.'),
+  });
+
+  const confirmCharge = (item: RecurringCharge) => {
+    Alert.alert(
+      'Charge recurring service',
+      `Charge ${item.customerName} ${money(item.amount)} for their regular recurring service?`,
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Charge',
+          style: 'destructive',
+          onPress: () => {
+            setChargingId(item.id);
+            chargeMutation.mutate(item.id);
+          },
+        },
+      ],
+    );
+  };
+
+  const items = data?.items ?? [];
+  if (!items.length) return null;
+
+  return (
+    <View style={styles.recurringSection}>
+      <Text style={styles.sectionTitle}>Recurring</Text>
+      {items.map((item) => (
+        <View key={item.id} style={styles.card}>
+          <View style={styles.rowTop}>
+            <Text style={styles.number}>{item.customerName}</Text>
+            <StatusBadge status="recurring" />
+          </View>
+          <Text style={styles.customer}>{item.description}</Text>
+          <View style={styles.rowBottom}>
+            <Text style={styles.date}>
+              {item.lastChargedAt ? `Last charged ${fmtDate(item.lastChargedAt)}` : 'Not charged yet'}
+            </Text>
+            <Text style={styles.total}>{money(item.amount)}</Text>
+          </View>
+          <TouchableOpacity
+            style={[styles.chargeButton, chargingId === item.id && styles.chargeButtonDisabled]}
+            disabled={chargingId === item.id}
+            onPress={() => confirmCharge(item)}
+          >
+            <Text style={styles.chargeButtonText}>
+              {chargingId === item.id ? 'Charging…' : `Charge ${money(item.amount)}`}
+            </Text>
+          </TouchableOpacity>
+        </View>
+      ))}
+    </View>
+  );
+}
 
 export default function InvoicesScreen() {
   const router = useRouter();
@@ -38,6 +148,7 @@ export default function InvoicesScreen() {
           data={data?.items ?? []}
           keyExtractor={(i) => i.id}
           contentContainerStyle={{ padding: 16, paddingTop: 8 }}
+          ListHeaderComponent={status === '' ? <RecurringSection /> : null}
           ListEmptyComponent={<EmptyState title="No invoices" />}
           renderItem={({ item }) => (
             <TouchableOpacity style={styles.card} onPress={() => router.push(`/invoice/${item.id}`)}>
@@ -89,4 +200,15 @@ const styles = StyleSheet.create({
   customer: { fontSize: 14, color: colors.text, marginTop: 4 },
   date: { fontSize: 12, color: colors.textMuted },
   total: { fontSize: 15, fontWeight: '800', color: colors.text },
+  recurringSection: { marginBottom: 8 },
+  sectionTitle: { fontSize: 13, fontWeight: '800', color: colors.textMuted, textTransform: 'uppercase', marginBottom: 8 },
+  chargeButton: {
+    marginTop: 10,
+    backgroundColor: colors.primary,
+    borderRadius: 12,
+    paddingVertical: 10,
+    alignItems: 'center',
+  },
+  chargeButtonDisabled: { opacity: 0.5 },
+  chargeButtonText: { fontSize: 14, fontWeight: '800', color: '#0D0D0D' },
 });

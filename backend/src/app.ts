@@ -32,6 +32,7 @@ import territoryRoutes from './routes/territories';
 import customerPortalRoutes from './routes/customerPortal';
 import serviceRequestRoutes from './routes/serviceRequests';
 import agreementRoutes from './routes/agreements';
+import recurringChargeRoutes from './routes/recurringCharges';
 
 export function createApp() {
   const app = express();
@@ -99,6 +100,7 @@ export function createApp() {
   v1.use('/customer-portal', customerPortalRoutes);
   v1.use('/service-requests', serviceRequestRoutes);
   v1.use('/agreements', agreementRoutes);
+  v1.use('/recurring-charges', recurringChargeRoutes);
   app.use('/api/v1', v1);
 
   app.use(notFoundHandler);
