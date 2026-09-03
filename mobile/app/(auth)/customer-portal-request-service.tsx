@@ -35,18 +35,21 @@ export default function CustomerPortalRequestServiceScreen() {
       if (description.trim().length < 10) throw new Error('Please describe the issue in more detail.');
       const photoFileIds: string[] = [];
       for (const p of photos) {
+        // compressPhoto always re-encodes to JPEG, so upload as image/jpeg
+        // regardless of the original format (e.g. iPhone HEIC).
         const compressed = await compressPhoto(p.uri);
-        const localUri = await persistLocally(compressed, p.fileName);
+        const uploadName = p.fileName.replace(/\.[^.]+$/, '') + '.jpg';
+        const localUri = await persistLocally(compressed, uploadName);
         const auth = await customerPortalApi<UploadAuthorization>('/files/upload-request', {
           method: 'POST',
           body: {
-            fileName: p.fileName,
-            mimeType: p.mimeType,
+            fileName: uploadName,
+            mimeType: 'image/jpeg',
           },
         });
         const result = await FileSystem.uploadAsync(auth.uploadUrl, localUri, {
           httpMethod: 'PUT',
-          headers: { 'Content-Type': p.mimeType },
+          headers: { 'Content-Type': 'image/jpeg' },
         });
         if (result.status < 200 || result.status >= 300) throw new Error(`Photo upload failed (${result.status})`);
         await customerPortalApi(`/files/${auth.file.id}/confirm`, { method: 'POST', body: {} });
