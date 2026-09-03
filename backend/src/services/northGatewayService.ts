@@ -364,6 +364,66 @@ class NorthGatewayService {
     });
   }
 
+  /**
+   * Refund or void (reversal) a transaction via the Gateway Functions API.
+   *
+   * Per North: transactions may be REFUNDED after settlement, or VOIDED
+   * (Reversal) before settlement. The transaction id is the numeric portion of
+   * the transactionUniqueId (strip any "ccs_" prefix).
+   */
+  private async postTransactionAction(payload: Record<string, unknown>) {
+    const auth = await this.requestAuth();
+    const res = await fetch(`${config.north.functionsBaseUrl}/accounts/${auth.accountId}/transactions`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${auth.token}`,
+        'x-nabwss-appsource': config.north.appSource,
+      },
+      body: jsonBody(payload),
+    });
+    const data = (await res.json().catch(() => null)) as {
+      void_id?: number;
+      refund_id?: number;
+      status_code?: string;
+      status_message?: string;
+      message?: string;
+    } | null;
+    if (!res.ok) {
+      throw new ApiError(502, `North ${String(payload.type)} failed: ${data?.message ?? data?.status_message ?? res.statusText}`);
+    }
+    return data;
+  }
+
+  private transactionsUsername(): string {
+    const username = config.north.transactionsUsername;
+    if (!username) {
+      throw new ApiError(424, 'NORTH_TRANSACTIONS_USERNAME is not configured (required for API refunds/voids).');
+    }
+    return username;
+  }
+
+  /** Reversal (Void) — only valid before the transaction settles. */
+  async voidTransaction(transactionId: number, comment?: string) {
+    return this.postTransactionAction({
+      type: 'void',
+      transaction_id: transactionId,
+      username: this.transactionsUsername(),
+      comment: comment ?? 'Voided via ServiceFinance API',
+    });
+  }
+
+  /** Refund — full or partial, after the transaction settles. Amount is USD. */
+  async refundTransaction(ccsPk: number, amount: number, comment?: string) {
+    return this.postTransactionAction({
+      type: 'refund',
+      ccs_pk: ccsPk,
+      amount: amount.toFixed(2),
+      username: this.transactionsUsername(),
+      comment: comment ?? 'Refunded via ServiceFinance API',
+    });
+  }
+
   async payBill(billID: number) {
     return this.northFetch('/paybill', {
       billID,

@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Alert, StyleSheet, Text, View } from 'react-native';
 import { Stack, useLocalSearchParams, useRouter } from 'expo-router';
-import { WebView, WebViewMessageEvent } from 'react-native-webview';
+import type { WebViewMessageEvent } from 'react-native-webview';
 import { api } from '../../src/lib/api';
 import { Button, Card, Loading, Value } from '../../src/components/ui';
 import { colors, money } from '../../src/lib/theme';
@@ -13,6 +13,19 @@ import {
   SessionResponse,
   formatEmbeddedCheckoutError,
 } from '../../src/lib/northEmbeddedCheckout';
+
+// react-native-webview requires the RNCWebView native module. If the app
+// binary was built before the dependency was added (or pods weren't
+// installed), importing it at module scope crashes the entire route tree.
+// Load it lazily so we can show a helpful error screen instead.
+let WebViewComponent: typeof import('react-native-webview').WebView | null = null;
+let webViewLoadError: string | null = null;
+try {
+  // eslint-disable-next-line @typescript-eslint/no-var-requires
+  WebViewComponent = (require('react-native-webview') as typeof import('react-native-webview')).WebView;
+} catch (e) {
+  webViewLoadError = (e as Error).message;
+}
 
 function buildCheckoutHtml(sessionToken: string, scriptUrl: string) {
   const safeToken = JSON.stringify(sessionToken);
@@ -179,6 +192,24 @@ export default function EmbeddedCheckoutScreen() {
     return <Loading />;
   }
 
+  if (!WebViewComponent) {
+    return (
+      <View style={styles.screen}>
+        <Stack.Screen options={{ title: 'Embedded Checkout' }} />
+        <Card>
+          <Value style={styles.errorTitle}>Payment form unavailable in this build</Value>
+          <Value>
+            This app build is missing the WebView component required for North Embedded Checkout.
+            Rebuild the app (pod install + native rebuild), or collect payment with a saved card
+            from the invoice screen instead.
+          </Value>
+          {webViewLoadError ? <Text style={styles.helpText}>{webViewLoadError}</Text> : null}
+          <Button title="Back to Invoice" variant="outline" onPress={() => router.back()} />
+        </Card>
+      </View>
+    );
+  }
+
   if (error || !session) {
     return (
       <View style={styles.screen}>
@@ -221,7 +252,7 @@ export default function EmbeddedCheckoutScreen() {
         </View>
       ) : (
         <View style={styles.webviewWrap}>
-          <WebView
+          <WebViewComponent
             source={{ html, baseUrl: 'https://checkout.north.com' }}
             originWhitelist={['*']}
             onMessage={onMessage}

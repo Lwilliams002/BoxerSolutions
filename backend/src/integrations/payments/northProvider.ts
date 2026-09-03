@@ -187,12 +187,53 @@ export class NorthPaymentProvider implements PaymentProvider {
     };
   }
 
-  async refund(_transactionId: string, _amountCents: number): Promise<ChargeResult> {
-    return {
-      success: false,
-      transactionId: null,
-      failureReason: 'Refunds for North card-on-file charges must be issued from the Payments Hub portal.',
-    };
+  /**
+   * Refunds via North's Gateway Functions transactions endpoint.
+   *
+   * North rules: unsettled transactions must be VOIDED (Reversal); settled
+   * transactions must be REFUNDED. We attempt a refund first; if that is
+   * rejected (typically because the transaction has not settled yet) and the
+   * full amount is being returned, we fall back to a Reversal (Void).
+   */
+  async refund(transactionId: string, amountCents: number): Promise<ChargeResult> {
+    // The gateway wants the numeric portion of the transactionUniqueId
+    // (e.g. "ccs_87654321" → 87654321).
+    const numericId = Number(String(transactionId).replace(/^ccs_/i, '').replace(/\D/g, ''));
+    if (!Number.isInteger(numericId) || numericId <= 0) {
+      return {
+        success: false,
+        transactionId: null,
+        failureReason: 'This transaction does not have a North gateway transaction id; issue the refund from the Payments Hub portal.',
+      };
+    }
+    if (amountCents <= 0) {
+      return { success: false, transactionId: null, failureReason: 'Invalid refund amount' };
+    }
+    const amount = Number((amountCents / 100).toFixed(2));
+
+    interface TxActionResponse { refund_id?: number; void_id?: number; status_code?: string; status_message?: string }
+    let refundError: string | null = null;
+    try {
+      const res = (await northGatewayService.refundTransaction(numericId, amount)) as TxActionResponse | null;
+      if (res?.status_code === '00' || typeof res?.refund_id === 'number') {
+        return { success: true, transactionId: String(res.refund_id ?? numericId), failureReason: null };
+      }
+      refundError = res?.status_message ?? 'Refund was not approved.';
+    } catch (error) {
+      refundError = (error as Error).message || 'North refund request failed.';
+    }
+
+    // Reversal (Void) fallback — only valid for the full transaction amount
+    // and only before settlement.
+    try {
+      const res = (await northGatewayService.voidTransaction(numericId)) as TxActionResponse | null;
+      if (res?.status_code === '00' || typeof res?.void_id === 'number') {
+        return { success: true, transactionId: String(res.void_id ?? numericId), failureReason: null };
+      }
+    } catch {
+      // Fall through to report the original refund error.
+    }
+    return { success: false, transactionId: null, failureReason: refundError };
   }
 }
 

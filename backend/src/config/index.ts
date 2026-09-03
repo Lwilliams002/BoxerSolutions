@@ -50,6 +50,7 @@ export const config = {
     password: normalizedOptional('NORTH_PASSWORD'),
     appSource: normalizedOptional('NORTH_APPSOURCE'),
     signatureSecret: normalizedOptional('NORTH_SIGNATURE_SECRET'),
+    transactionsUsername: normalizedOptional('NORTH_TRANSACTIONS_USERNAME'),
     embeddedCheckoutId: normalizedOptional('NORTH_EMBEDDED_CHECKOUT_ID'),
     embeddedProfileId: normalizedOptional('NORTH_EMBEDDED_PROFILE_ID'),
     embeddedPrivateApiKey: normalizedOptional('NORTH_EMBEDDED_PRIVATE_API_KEY'),

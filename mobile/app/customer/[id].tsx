@@ -2,7 +2,8 @@ import React, { useState } from 'react';
 import { View, Text, ScrollView, StyleSheet, TouchableOpacity, Alert, TextInput, Linking } from 'react-native';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useLocalSearchParams, useRouter } from 'expo-router';
-import { api } from '../../src/lib/api';
+import { api, newIdempotencyKey } from '../../src/lib/api';
+import { confirmAction } from '../../src/lib/confirm';
 import { useAuth } from '../../src/lib/authStore';
 import { colors, money, fmtDate, fmtTime } from '../../src/lib/theme';
 import { Card, Button, StatusBadge, Loading, Row, Value, Label, EmptyState } from '../../src/components/ui';
@@ -30,7 +31,7 @@ export default function CustomerScreen() {
   const hasPermission = useAuth((s) => s.hasPermission);
   const [tab, setTab] = useState<Tab>(TABS.includes(tabParam as Tab) ? (tabParam as Tab) : 'Overview');
   const [noteText, setNoteText] = useState('');
-  const [showAddCard, setShowAddCard] = useState(false);
+  const [showAddCard, setShowAddCard] = useState(promptInitialCharge === '1' && !!initialInvoiceId);
   const [busy, setBusy] = useState(false);
   const [customInvoiceDescription, setCustomInvoiceDescription] = useState('Additional service');
   const [customInvoiceAmount, setCustomInvoiceAmount] = useState('');
@@ -214,23 +215,28 @@ export default function CustomerScreen() {
       void qc.invalidateQueries({ queryKey: ['paymentMethods', id] });
       if (promptInitialCharge === '1' && initialInvoiceId) {
         try {
-          await api('/payments/charge', {
+          const result = await api<{ receipt?: { receiptNumber?: string } }>('/payments/charge', {
             method: 'POST',
             body: { invoiceId: initialInvoiceId, paymentMethodId: method.id },
+            idempotencyKey: newIdempotencyKey(),
           });
           void qc.invalidateQueries({ queryKey: ['customer', id] });
           void qc.invalidateQueries({ queryKey: ['customerInvoices', id] });
           void qc.invalidateQueries({ queryKey: ['customerPayments', id] });
-          Alert.alert(
-            'Payment method saved and charged',
-            'Initial service payment was collected successfully and this payment method is now on file.',
-            [{ text: 'OK', onPress: () => router.replace({ pathname: '/customer/[id]', params: { id, tab: 'Payments' } }) }],
-          );
+          void qc.invalidateQueries({ queryKey: ['invoice', initialInvoiceId] });
+          void qc.invalidateQueries({ queryKey: ['invoicePayments', initialInvoiceId] });
+          void qc.invalidateQueries({ queryKey: ['invoices'] });
+          confirmAction({
+            title: 'Payment method saved and charged',
+            message: `Payment was collected${result.receipt?.receiptNumber ? ` (receipt ${result.receipt.receiptNumber})` : ''} and this payment method is now on file for future charges.`,
+            confirmText: 'View Invoice',
+            onConfirm: () => router.replace(`/invoice/${initialInvoiceId}`),
+          });
           return;
         } catch (e) {
           Alert.alert(
             'Payment method saved',
-            `The payment method was saved, but the initial charge could not be completed: ${(e as Error).message}`,
+            `The payment method was saved, but the charge could not be completed: ${(e as Error).message}\n\nYou can retry from the invoice using the saved method.`,
           );
         }
       }

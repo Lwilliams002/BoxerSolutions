@@ -3,6 +3,7 @@ import { View, Text, ScrollView, StyleSheet, Alert, Linking, TextInput } from 'r
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { api, newIdempotencyKey } from '../../src/lib/api';
+import { confirmAction, notify } from '../../src/lib/confirm';
 import { useAuth } from '../../src/lib/authStore';
 import { colors, money, fmtDate } from '../../src/lib/theme';
 import { Card, Button, StatusBadge, Loading, SectionTitle, Row, Value, Label } from '../../src/components/ui';
@@ -102,29 +103,28 @@ export default function InvoiceScreen() {
   };
 
   const charge = async (method: Method) => {
-    Alert.alert('Collect Payment', `Charge ${money(inv!.balanceDue)} to ${method.brand} ****${maskedLast4(method.last4)}?`, [
-      { text: 'Cancel', style: 'cancel' },
-      {
-        text: `Charge ${money(inv!.balanceDue)}`,
-        onPress: async () => {
-          setBusy(method.id);
-          try {
-            const result = await api<{ receipt: { receiptNumber: string; transactionId: string } }>('/payments/charge', {
-              method: 'POST',
-              body: { invoiceId: id, paymentMethodId: method.id },
-              idempotencyKey: newIdempotencyKey(),
-            });
-            refresh();
-            Alert.alert('Payment collected ✓', `Receipt ${result.receipt.receiptNumber}`);
-          } catch (e) {
-            Alert.alert('Payment failed', `${(e as Error).message}\n\nThe invoice remains unpaid. You can retry.`);
-            refresh();
-          } finally {
-            setBusy(null);
-          }
-        },
+    confirmAction({
+      title: 'Collect Payment',
+      message: `Charge ${money(inv!.balanceDue)} to ${method.brand} ****${maskedLast4(method.last4)}?`,
+      confirmText: `Charge ${money(inv!.balanceDue)}`,
+      onConfirm: async () => {
+        setBusy(method.id);
+        try {
+          const result = await api<{ receipt: { receiptNumber: string; transactionId: string } }>('/payments/charge', {
+            method: 'POST',
+            body: { invoiceId: id, paymentMethodId: method.id },
+            idempotencyKey: newIdempotencyKey(),
+          });
+          refresh();
+          notify('Payment collected ✓', `Receipt ${result.receipt.receiptNumber}`);
+        } catch (e) {
+          notify('Payment failed', `${(e as Error).message}\n\nThe invoice remains unpaid. You can retry.`);
+          refresh();
+        } finally {
+          setBusy(null);
+        }
       },
-    ]);
+    });
   };
 
   const retryDefault = () => {
@@ -185,32 +185,46 @@ export default function InvoiceScreen() {
     router.push({ pathname: '/invoice/embedded-checkout', params: { invoiceId: id } });
   };
 
+  // Vault-then-charge: collects new card/bank details, saves them on file for
+  // future charges (AutoPay, repeat billing), then charges this invoice.
+  const payWithNewMethod = () => {
+    router.push({
+      pathname: '/customer/[id]',
+      params: {
+        id: inv!.customerId,
+        tab: 'Payment Methods',
+        promptPayment: '1',
+        promptInitialCharge: '1',
+        initialInvoiceId: id,
+      },
+    });
+  };
+
   const refund = (payment: PaymentRow) => {
     const amountText = refundAmountByPayment[payment.id] ?? String(Number(payment.remainingRefundableAmount ?? payment.amount).toFixed(2));
     const amount = Number(amountText);
     if (!Number.isFinite(amount) || amount <= 0) {
-      Alert.alert('Invalid amount', 'Enter a refund amount greater than zero.');
+      notify('Invalid amount', 'Enter a refund amount greater than zero.');
       return;
     }
-    Alert.alert('Confirm refund', `Refund ${money(amount)} from payment ${payment.receiptNumber ?? payment.id}?`, [
-      { text: 'Cancel', style: 'cancel' },
-      {
-        text: `Refund ${money(amount)}`,
-        style: 'destructive',
-        onPress: async () => {
-          setBusy(`refund-${payment.id}`);
-          try {
-            await api(`/payments/${payment.id}/refund`, { method: 'POST', body: { amount } });
-            refresh();
-            Alert.alert('Refund processed', `${money(amount)} was refunded.`);
-          } catch (e) {
-            Alert.alert('Refund failed', (e as Error).message);
-          } finally {
-            setBusy(null);
-          }
-        },
+    confirmAction({
+      title: 'Confirm refund',
+      message: `Refund ${money(amount)} from payment ${payment.receiptNumber ?? payment.id}?`,
+      confirmText: `Refund ${money(amount)}`,
+      destructive: true,
+      onConfirm: async () => {
+        setBusy(`refund-${payment.id}`);
+        try {
+          await api(`/payments/${payment.id}/refund`, { method: 'POST', body: { amount } });
+          refresh();
+          notify('Refund processed', `${money(amount)} was refunded.`);
+        } catch (e) {
+          notify('Refund failed', (e as Error).message);
+        } finally {
+          setBusy(null);
+        }
       },
-    ]);
+    });
   };
 
   const lastFailed = useMemo(() => (payments?.items ?? []).find((p) => p.status === 'failed'), [payments]);
@@ -287,7 +301,10 @@ export default function InvoiceScreen() {
 
       <Button title={inv.pdfFileId ? 'View PDF' : 'Generate PDF'} variant="outline" onPress={openPdf} loading={busy === 'pdf'} />
       {unpaid && (canCollect || hasPermission('payments:write')) ? (
-        <Button title="Pay with North Embedded Checkout" variant="success" onPress={openNorthEmbeddedCheckout} />
+        <>
+          <Button title="Pay with New Card / Bank (saves on file)" variant="success" onPress={payWithNewMethod} />
+          <Button title="Pay with North Embedded Checkout (one-time)" variant="secondary" onPress={openNorthEmbeddedCheckout} />
+        </>
       ) : null}
       {canCollect || hasPermission('payments:write') ? (
         <Button title="Create North Payment Link" variant="secondary" onPress={createNorthInvoiceLink} loading={busy === 'north-link'} />
@@ -366,7 +383,11 @@ export default function InvoiceScreen() {
           ))}
           {!methods?.length && (
             <Card>
-              <Value>No saved payment methods. Add one from the customer profile.</Value>
+              <Value>No saved payment methods.</Value>
+              <Text style={styles.itemMeta}>
+                Use “Pay with New Card / Bank” above to save a payment method and collect this invoice in one step.
+              </Text>
+              <Button title="Add & Charge New Method" variant="success" onPress={payWithNewMethod} />
             </Card>
           )}
         </>
