@@ -47,6 +47,13 @@ function detectBrand(digits: string): string {
   return 'Card';
 }
 
+function formatNorthFailure(result: { responseCode: string | null; responseText: string | null }): string {
+  const parts = [] as string[];
+  if (result.responseCode) parts.push(`AUTH_RESP ${result.responseCode}`);
+  if (result.responseText) parts.push(result.responseText);
+  return parts.length > 0 ? parts.join(' — ') : 'North token sale failed.';
+}
+
 function parseToken(token: string): NorthTokenPayload {
   let parsed: unknown;
   try {
@@ -181,7 +188,7 @@ export class NorthPaymentProvider implements PaymentProvider {
           return {
             success: false,
             transactionId: result.authGuid,
-            failureReason: result.responseText || `Declined (code ${result.responseCode ?? 'unknown'})`,
+            failureReason: formatNorthFailure(result),
           };
         }
         return { success: true, transactionId: result.authGuid ?? `north_${Date.now()}`, failureReason: null };
