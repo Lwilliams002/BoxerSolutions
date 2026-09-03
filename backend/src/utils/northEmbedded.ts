@@ -44,23 +44,29 @@ export function pickNorthTransactionId(statusPayload: Record<string, unknown>, b
   if (fromTop) return fromTop;
   if (!bodyPayload) return null;
   const fullResponse = asRecord(bodyPayload.fullResponse);
-  const candidate = [
-    // EPX (North processor) field names as observed in production
-    bodyPayload.auth_guid,
-    bodyPayload.tran_nbr,
+  const candidates = [
+    // EPX / North processor field names observed in production. Prefer the
+    // numeric transaction id so refunds and reversals can target the sale.
     bodyPayload.auth_tran_ident,
     bodyPayload.transactionId,
     bodyPayload.transaction_id,
     bodyPayload.tranId,
     bodyPayload.referenceNumber,
-    bodyPayload.authCode,
-    fullResponse?.auth_guid,
+    bodyPayload.tran_nbr,
+    fullResponse?.auth_tran_ident,
     fullResponse?.transaction_id,
     fullResponse?.trans_id,
     fullResponse?.reference_number,
+    fullResponse?.tran_nbr,
+    // Fallbacks if North only returns a non-numeric id.
+    bodyPayload.auth_guid,
+    fullResponse?.auth_guid,
+    bodyPayload.authCode,
     fullResponse?.auth_code,
-  ].find((v) => typeof v === 'string' && v.length > 1);
-  return (candidate as string | undefined) ?? null;
+  ].filter((v): v is string => typeof v === 'string' && v.trim().length > 0);
+
+  const numeric = candidates.find((v) => /^\d+$/.test(v)) ?? candidates.find((v) => /^ccs_\d+$/i.test(v));
+  return numeric ?? candidates[0] ?? null;
 }
 
 export function pickNorthApprovedAmount(bodyPayload: Record<string, unknown> | null): number | null {
