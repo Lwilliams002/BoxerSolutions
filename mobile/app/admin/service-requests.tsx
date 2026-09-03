@@ -1,5 +1,5 @@
 import React, { useMemo, useState } from 'react';
-import { Alert, Linking, Platform, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
+import { Alert, Linking, Modal, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
 import DateTimePicker from '@react-native-community/datetimepicker';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api } from '../../src/lib/api';
@@ -262,23 +262,38 @@ export default function ServiceRequestsAdminScreen() {
       })}
       {requests.isLoading ? <Text style={styles.loading}>Loading requests...</Text> : null}
       {!requests.isLoading && !rows.length ? <Text style={styles.loading}>No service requests yet.</Text> : null}
-      {picker ? (
-        <View style={styles.pickerDock}>
-          <Card>
-            <Text style={styles.pickerDockTitle}>{picker.mode === 'date' ? 'Select visit date' : 'Select visit time'}</Text>
-            <DateTimePicker
-              value={picker.mode === 'date' ? dateFromIso(dateById[picker.requestId]) : timeFromWindow(windowById[picker.requestId]?.start)}
-              mode={picker.mode}
-              display={Platform.OS === 'ios' ? 'spinner' : 'default'}
-              minuteInterval={picker.mode === 'time' ? 30 : 1}
-              onValueChange={onPickerValueChange}
-              onDismiss={closePicker}
-            />
-            {Platform.OS === 'ios' ? (
-              <Button title="Done" onPress={closePicker} />
-            ) : null}
-          </Card>
-        </View>
+      {picker && Platform.OS === 'ios' ? (
+        <Modal transparent animationType="fade" visible onRequestClose={closePicker}>
+          <Pressable style={styles.pickerBackdrop} onPress={closePicker}>
+            <Pressable style={styles.pickerModalCard} onPress={() => undefined}>
+              <Text style={styles.pickerDockTitle}>{picker.mode === 'date' ? 'Select visit date' : 'Select visit time'}</Text>
+              <DateTimePicker
+                value={picker.mode === 'date' ? dateFromIso(dateById[picker.requestId]) : timeFromWindow(windowById[picker.requestId]?.start)}
+                mode={picker.mode}
+                display="spinner"
+                minuteInterval={picker.mode === 'time' ? 30 : 1}
+                themeVariant="light"
+                textColor={colors.text}
+                style={styles.pickerControl}
+                onValueChange={onPickerValueChange}
+                onDismiss={closePicker}
+              />
+              <View style={styles.pickerActions}>
+                <Button title="Done" onPress={closePicker} />
+              </View>
+            </Pressable>
+          </Pressable>
+        </Modal>
+      ) : null}
+      {picker && Platform.OS !== 'ios' ? (
+        <DateTimePicker
+          value={picker.mode === 'date' ? dateFromIso(dateById[picker.requestId]) : timeFromWindow(windowById[picker.requestId]?.start)}
+          mode={picker.mode}
+          display="default"
+          minuteInterval={picker.mode === 'time' ? 30 : 1}
+          onValueChange={onPickerValueChange}
+          onDismiss={closePicker}
+        />
       ) : null}
     </ScrollView>
   );
@@ -322,7 +337,19 @@ const styles = StyleSheet.create({
   pickerLabel: { color: colors.textMuted, fontSize: 11, fontWeight: '700', marginBottom: 3, textTransform: 'uppercase' },
   pickerValue: { color: colors.text, fontSize: 14, fontWeight: '700' },
   intervalHint: { color: colors.textMuted, fontSize: 12, marginBottom: 8 },
-  pickerDock: { marginTop: 12 },
+  pickerBackdrop: {
+    flex: 1,
+    backgroundColor: 'rgba(13,13,13,0.35)',
+    justifyContent: 'center',
+    padding: 20,
+  },
+  pickerModalCard: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 18,
+    padding: 16,
+  },
   pickerDockTitle: { color: colors.text, fontSize: 15, fontWeight: '800', marginBottom: 6 },
+  pickerControl: { height: 200, alignSelf: 'stretch' },
+  pickerActions: { marginTop: 8 },
   loading: { textAlign: 'center', color: colors.textMuted, marginTop: 24 },
 });
