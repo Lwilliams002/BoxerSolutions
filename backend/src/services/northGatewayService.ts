@@ -108,6 +108,32 @@ function assertNorthEmbeddedConfig() {
   }
 }
 
+interface EmbeddedCredentials {
+  checkoutId: string;
+  profileId: string;
+  apiKey: string;
+}
+
+/**
+ * Each North Embedded Checkout configuration has its own checkout id, profile
+ * id, and private API key. STORAGE sessions use the "Fields"-type checkout
+ * credentials when configured.
+ */
+function embeddedCredentials(variant?: 'storage'): EmbeddedCredentials {
+  if (variant === 'storage' && config.north.embeddedFieldsCheckoutId) {
+    return {
+      checkoutId: config.north.embeddedFieldsCheckoutId,
+      profileId: config.north.embeddedFieldsProfileId || config.north.embeddedProfileId,
+      apiKey: config.north.embeddedFieldsPrivateApiKey || config.north.embeddedPrivateApiKey,
+    };
+  }
+  return {
+    checkoutId: config.north.embeddedCheckoutId,
+    profileId: config.north.embeddedProfileId,
+    apiKey: config.north.embeddedPrivateApiKey,
+  };
+}
+
 function jsonBody(payload: unknown) {
   return JSON.stringify(payload);
 }
@@ -182,10 +208,10 @@ class NorthGatewayService {
   private auth?: NorthAuthResponse;
   private authAt = 0;
 
-  private async postEmbeddedSession(payload: Record<string, unknown>) {
+  private async postEmbeddedSession(payload: Record<string, unknown>, apiKey = config.north.embeddedPrivateApiKey) {
     const url = `${config.north.embeddedBaseUrl}/api/sessions`;
     const headers = {
-      Authorization: `Bearer ${config.north.embeddedPrivateApiKey}`,
+      Authorization: `Bearer ${apiKey}`,
       'Content-Type': 'application/json',
       'User-Agent': 'ServiceFinance Embedded Checkout',
     };
@@ -484,17 +510,16 @@ class NorthGatewayService {
     assertNorthEmbeddedConfig();
     const transactionType = input.transactionType?.toUpperCase();
     const isStorage = transactionType === 'STORAGE';
-    // North recommends a "Fields"-type checkout for STORAGE transactions.
-    const checkoutId = isStorage && config.north.embeddedFieldsCheckoutId
-      ? config.north.embeddedFieldsCheckoutId
-      : config.north.embeddedCheckoutId;
+    // North recommends a "Fields"-type checkout for STORAGE transactions —
+    // each checkout has its own id, profile, and private API key.
+    const creds = embeddedCredentials(isStorage ? 'storage' : undefined);
     const amount = Number(input.amount.toFixed(2));
     if (!Number.isFinite(amount) || (!isStorage && amount <= 0) || amount < 0) {
       throw ApiError.badRequest('Embedded checkout amount must be greater than 0.');
     }
     const payload: Record<string, unknown> = {
-      checkoutId,
-      profileId: config.north.embeddedProfileId,
+      checkoutId: creds.checkoutId,
+      profileId: creds.profileId,
       amount,
     };
     if (transactionType) payload.transactionType = transactionType;
@@ -506,17 +531,17 @@ class NorthGatewayService {
     if (input.customerEmail) payload.email = input.customerEmail;
     let data: Record<string, unknown> | null = null;
     try {
-      data = await this.postEmbeddedSession(payload);
+      data = await this.postEmbeddedSession(payload, creds.apiKey);
     } catch (error) {
       const hasOptionalFields = Boolean(payload.products || payload.orderId || payload.email);
       if (!hasOptionalFields || isStorage) throw error;
       data = await this.postEmbeddedSession({
-        checkoutId,
-        profileId: config.north.embeddedProfileId,
+        checkoutId: creds.checkoutId,
+        profileId: creds.profileId,
         amount,
         ...(transactionType ? { transactionType } : {}),
         ...(payload.additionalFields ? { additionalFields: payload.additionalFields } : {}),
-      });
+      }, creds.apiKey);
     }
     const tokenCandidate = [
       data.sessionToken,
@@ -531,16 +556,17 @@ class NorthGatewayService {
     return tokenCandidate;
   }
 
-  async getEmbeddedSessionStatus(sessionToken: string, checkoutId?: string) {
+  async getEmbeddedSessionStatus(sessionToken: string, variant?: 'storage') {
     assertNorthEmbeddedConfig();
+    const creds = embeddedCredentials(variant);
     const res = await fetch(`${config.north.embeddedBaseUrl}/api/sessions/status`, {
       method: 'GET',
       headers: {
-        Authorization: `Bearer ${config.north.embeddedPrivateApiKey}`,
+        Authorization: `Bearer ${creds.apiKey}`,
         'Content-Type': 'application/json',
         SessionToken: sessionToken,
-        CheckoutId: checkoutId || config.north.embeddedCheckoutId,
-        ProfileId: config.north.embeddedProfileId,
+        CheckoutId: creds.checkoutId,
+        ProfileId: creds.profileId,
         'User-Agent': 'ServiceFinance Embedded Checkout',
       },
     });

@@ -53,8 +53,11 @@ export const config = {
     transactionsUsername: normalizedOptional('NORTH_TRANSACTIONS_USERNAME'),
     embeddedCheckoutId: normalizedOptional('NORTH_EMBEDDED_CHECKOUT_ID'),
     // "Fields"-type checkout — used for STORAGE (card vaulting) sessions per
-    // North certification guidance. Falls back to the main checkout id.
+    // North certification guidance. Each checkout has its own profile id and
+    // private API key; all fall back to the main checkout's values.
     embeddedFieldsCheckoutId: normalizedOptional('NORTH_EMBEDDED_FIELDS_CHECKOUT_ID', process.env.NORTH_EMBEDDED_CHECKOUT_ID ?? ''),
+    embeddedFieldsProfileId: normalizedOptional('NORTH_EMBEDDED_FIELDS_PROFILE_ID', process.env.NORTH_EMBEDDED_PROFILE_ID ?? ''),
+    embeddedFieldsPrivateApiKey: normalizedOptional('NORTH_EMBEDDED_FIELDS_PRIVATE_API_KEY', process.env.NORTH_EMBEDDED_PRIVATE_API_KEY ?? ''),
     embeddedProfileId: normalizedOptional('NORTH_EMBEDDED_PROFILE_ID'),
     embeddedPrivateApiKey: normalizedOptional('NORTH_EMBEDDED_PRIVATE_API_KEY'),
     webhookSecret: normalizedOptional('NORTH_WEBHOOK_SECRET', process.env.NORTH_SIGNATURE_SECRET ?? ''),

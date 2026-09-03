@@ -1,5 +1,4 @@
 import { ApiError } from './errors';
-import { config } from '../config';
 import { northGatewayService } from '../services/northGatewayService';
 
 export function asRecord(value: unknown): Record<string, unknown> | null {
@@ -151,17 +150,16 @@ function pickString(...candidates: unknown[]): string | null {
  * EPX as AUTH_GUID on storage transactions.
  */
 export async function waitForNorthStorageResult(sessionToken: string): Promise<NorthStorageResult> {
-  const storageCheckoutId = config.north.embeddedFieldsCheckoutId || config.north.embeddedCheckoutId;
   await new Promise((resolve) => setTimeout(resolve, 5_000));
   const deadline = Date.now() + 30_000;
-  let sessionStatus = await northGatewayService.getEmbeddedSessionStatus(sessionToken, storageCheckoutId);
+  let sessionStatus = await northGatewayService.getEmbeddedSessionStatus(sessionToken, 'storage');
   let statusData = asRecord(sessionStatus.data) ?? sessionStatus;
   let status = String(statusData.status ?? '').toLowerCase();
   while (!['approved', 'completed', 'complete', 'success'].includes(status)
     && !['declined', 'failed', 'error', 'expired', 'cancelled', 'canceled'].includes(status)
     && Date.now() < deadline) {
     await new Promise((resolve) => setTimeout(resolve, 3_000));
-    sessionStatus = await northGatewayService.getEmbeddedSessionStatus(sessionToken, storageCheckoutId);
+    sessionStatus = await northGatewayService.getEmbeddedSessionStatus(sessionToken, 'storage');
     statusData = asRecord(sessionStatus.data) ?? sessionStatus;
     status = String(statusData.status ?? '').toLowerCase();
   }
