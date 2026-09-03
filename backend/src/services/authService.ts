@@ -5,7 +5,9 @@ import { pool } from '../config/db';
 import { config } from '../config';
 import { ApiError } from '../utils/errors';
 import { recordAudit } from './auditService';
-import { cognitoAuth, cognitoOtp } from '../integrations/cognito';
+import { cognitoAuth, cognitoOtp, cognitoUsers } from '../integrations/cognito';
+import { getOutboundMessageProvider } from '../integrations/notifications';
+import { logger } from '../utils/logger';
 
 interface TokenPair {
   accessToken: string;
@@ -22,6 +24,27 @@ type CustomerPortalCodeEntry =
 
 const customerPortalCodes = new Map<string, CustomerPortalCodeEntry>();
 const customerPortalSessions = new Map<string, { customerId: string; email: string; expiresAt: number }>();
+
+/**
+ * Starts a Cognito EMAIL_OTP challenge, provisioning the Cognito user first
+ * if it doesn't exist yet (customers created before Cognito OTP was enabled
+ * were never added to the pool).
+ */
+async function startCognitoOtpProvisioning(email: string): Promise<string> {
+  try {
+    const { session } = await cognitoOtp.startEmailOtp(email);
+    return session;
+  } catch (err) {
+    const name = (err as { code?: string; name?: string }).code ?? (err as { name?: string }).name;
+    // Pools configured to hide user-existence errors report NotAuthorized
+    // instead of UserNotFound; ensureCustomerUser is idempotent so trying is safe.
+    const missingUser = name === 'UserNotFoundException' || name === 'NotAuthorizedException';
+    if (!missingUser || !config.cognito.autoCreateCustomerUsers) throw err;
+    await cognitoUsers.ensureCustomerUser(email);
+    const { session } = await cognitoOtp.startEmailOtp(email);
+    return session;
+  }
+}
 
 async function loadUserAuthContext(userId: string) {
   const { rows } = await pool.query(
@@ -230,14 +253,20 @@ export const authService = {
     if (!customer) return {};
 
     if (config.cognito.customerOtpEnabled) {
-      const { session } = await cognitoOtp.startEmailOtp(normalizedEmail);
-      customerPortalCodes.set(normalizedEmail, {
-        provider: 'cognito',
-        session,
-        expiresAt: Date.now() + CUSTOMER_PORTAL_CODE_TTL_MS,
-        customerId: customer.id,
-      });
-      return {};
+      try {
+        const session = await startCognitoOtpProvisioning(normalizedEmail);
+        customerPortalCodes.set(normalizedEmail, {
+          provider: 'cognito',
+          session,
+          expiresAt: Date.now() + CUSTOMER_PORTAL_CODE_TTL_MS,
+          customerId: customer.id,
+        });
+        return {};
+      } catch (err) {
+        // Never lock customers out because of a Cognito misconfiguration —
+        // fall back to a locally generated, emailed code.
+        logger.warn({ err, email: normalizedEmail }, 'Cognito EMAIL_OTP unavailable; falling back to emailed code');
+      }
     }
 
     const code = `${Math.floor(100000 + Math.random() * 900000)}`;
@@ -248,6 +277,21 @@ export const authService = {
       expiresAt: Date.now() + CUSTOMER_PORTAL_CODE_TTL_MS,
       customerId: customer.id,
     });
+
+    // Deliver the code. Without this, production customers would never
+    // receive the local fallback code.
+    try {
+      await getOutboundMessageProvider('email').send({
+        communicationId: crypto.randomUUID(),
+        channel: 'email',
+        to: normalizedEmail,
+        subject: 'Your sign-in code',
+        body: `Your one-time sign-in code is ${code}. It expires in 10 minutes.\n\nIf you did not request this code, you can ignore this email.`,
+        templateKey: 'customer_portal_login_code',
+      });
+    } catch (err) {
+      logger.error({ err, email: normalizedEmail }, 'failed to email customer portal login code');
+    }
 
     if (config.env !== 'production') {
       return { debugCode: code };
