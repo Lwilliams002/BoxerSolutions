@@ -125,6 +125,16 @@ export default function SaveCardScreen() {
   const [saved, setSaved] = useState<StorageConfirmResponse | null>(null);
   const confirmedRef = useRef(false);
 
+  const goBack = () => {
+    if (router.canGoBack()) {
+      router.back();
+    } else if (customerId) {
+      router.replace({ pathname: '/customer/[id]', params: { id: customerId, tab: 'Payment Methods' } });
+    } else {
+      router.replace('/');
+    }
+  };
+
   useEffect(() => {
     let mounted = true;
     if (!customerId) {
@@ -178,7 +188,7 @@ export default function SaveCardScreen() {
       Alert.alert(
         result.duplicate ? 'Card already on file' : 'Card saved',
         `${result.brand}${result.last4 ? ` ****${result.last4}` : ''} is ${result.duplicate ? 'already' : 'now'} stored on file for future charges.`,
-        [{ text: 'Done', onPress: () => router.back() }],
+        [{ text: 'Done', onPress: () => goBack() }],
       );
     } catch (e) {
       confirmedRef.current = false;
@@ -218,7 +228,7 @@ export default function SaveCardScreen() {
             Rebuild the app (pod install + native rebuild).
           </Value>
           {webViewLoadError ? <Text style={styles.helpText}>{webViewLoadError}</Text> : null}
-          <Button title="Back" variant="outline" onPress={() => router.back()} />
+          <Button title="Back" variant="outline" onPress={goBack} />
         </Card>
       </View>
     );
@@ -231,7 +241,7 @@ export default function SaveCardScreen() {
         <Card>
           <Value style={styles.errorTitle}>Unable to open the secure card form</Value>
           <Value>{error ?? 'Missing storage session.'}</Value>
-          <Button title="Back" variant="outline" onPress={() => router.back()} />
+          <Button title="Back" variant="outline" onPress={goBack} />
         </Card>
       </View>
     );
@@ -275,10 +285,10 @@ export default function SaveCardScreen() {
       )}
       <View style={styles.footer}>
         {saved ? (
-          <Button title="Done" onPress={() => router.back()} style={styles.confirmBtn} />
+          <Button title="Done" onPress={goBack} style={styles.confirmBtn} />
         ) : (
           <>
-            <Button title="Cancel" variant="outline" onPress={() => router.back()} disabled={submitting} />
+            <Button title="Cancel" variant="outline" onPress={goBack} disabled={submitting} />
             <Button title="Saving…" onPress={() => undefined} loading={submitting} disabled={!submitting} style={styles.confirmBtn} />
           </>
         )}
@@ -353,4 +363,5 @@ const styles = StyleSheet.create({
     color: colors.danger,
   },
 });
+
 
