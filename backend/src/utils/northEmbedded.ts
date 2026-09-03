@@ -179,13 +179,25 @@ export async function waitForNorthStorageResult(sessionToken: string): Promise<N
     throw new ApiError(502, 'North storage response did not include a BRIC token.');
   }
 
-  const brand = pickString(
+  // EPX AUTH_CARD_TYPE is a single-letter code.
+  const CARD_TYPE_NAMES: Record<string, string> = {
+    V: 'Visa',
+    M: 'Mastercard',
+    X: 'American Express',
+    A: 'American Express',
+    D: 'Discover',
+  };
+  const brandRaw = pickString(
     body?.card_type, body?.cardType, body?.auth_card_type, body?.card_brand,
     fullResponse?.AUTH_CARD_TYPE, fullResponse?.card_type,
-  ) ?? 'Card';
+  );
+  const brand = brandRaw
+    ? (CARD_TYPE_NAMES[brandRaw.toUpperCase()] ?? (brandRaw.length === 1 ? 'Card' : brandRaw))
+    : 'Card';
   const masked = pickString(
     body?.masked_pan, body?.maskedPan, body?.account_number, body?.last_four, body?.lastFour,
-    fullResponse?.AUTH_MASKED_ACCOUNT_NBR, fullResponse?.masked_pan,
+    body?.auth_masked_account_nbr, body?.AUTH_MASKED_ACCOUNT_NBR,
+    fullResponse?.AUTH_MASKED_ACCOUNT_NBR, fullResponse?.auth_masked_account_nbr, fullResponse?.masked_pan,
   );
   const last4 = masked ? masked.replace(/\D/g, '').slice(-4) || null : null;
 
