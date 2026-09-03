@@ -231,7 +231,7 @@ router.post(
     });
     ok(res, {
       sessionToken,
-      checkoutId: config.north.embeddedCheckoutId,
+      checkoutId: config.north.embeddedFieldsCheckoutId || config.north.embeddedCheckoutId,
       scriptUrl: `${config.north.embeddedBaseUrl}/checkout.js`,
       customerId: body.customerId,
     }, 'North storage session created', 201);

@@ -484,12 +484,16 @@ class NorthGatewayService {
     assertNorthEmbeddedConfig();
     const transactionType = input.transactionType?.toUpperCase();
     const isStorage = transactionType === 'STORAGE';
+    // North recommends a "Fields"-type checkout for STORAGE transactions.
+    const checkoutId = isStorage && config.north.embeddedFieldsCheckoutId
+      ? config.north.embeddedFieldsCheckoutId
+      : config.north.embeddedCheckoutId;
     const amount = Number(input.amount.toFixed(2));
     if (!Number.isFinite(amount) || (!isStorage && amount <= 0) || amount < 0) {
       throw ApiError.badRequest('Embedded checkout amount must be greater than 0.');
     }
     const payload: Record<string, unknown> = {
-      checkoutId: config.north.embeddedCheckoutId,
+      checkoutId,
       profileId: config.north.embeddedProfileId,
       amount,
     };
@@ -507,7 +511,7 @@ class NorthGatewayService {
       const hasOptionalFields = Boolean(payload.products || payload.orderId || payload.email);
       if (!hasOptionalFields || isStorage) throw error;
       data = await this.postEmbeddedSession({
-        checkoutId: config.north.embeddedCheckoutId,
+        checkoutId,
         profileId: config.north.embeddedProfileId,
         amount,
         ...(transactionType ? { transactionType } : {}),
@@ -527,7 +531,7 @@ class NorthGatewayService {
     return tokenCandidate;
   }
 
-  async getEmbeddedSessionStatus(sessionToken: string) {
+  async getEmbeddedSessionStatus(sessionToken: string, checkoutId?: string) {
     assertNorthEmbeddedConfig();
     const res = await fetch(`${config.north.embeddedBaseUrl}/api/sessions/status`, {
       method: 'GET',
@@ -535,7 +539,7 @@ class NorthGatewayService {
         Authorization: `Bearer ${config.north.embeddedPrivateApiKey}`,
         'Content-Type': 'application/json',
         SessionToken: sessionToken,
-        CheckoutId: config.north.embeddedCheckoutId,
+        CheckoutId: checkoutId || config.north.embeddedCheckoutId,
         ProfileId: config.north.embeddedProfileId,
         'User-Agent': 'ServiceFinance Embedded Checkout',
       },
