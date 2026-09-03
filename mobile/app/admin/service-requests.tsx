@@ -1,6 +1,6 @@
 import React, { useMemo, useState } from 'react';
-import { Alert, Platform, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
-import DateTimePicker, { type DateTimePickerEvent } from '@react-native-community/datetimepicker';
+import { Alert, Linking, Platform, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
+import DateTimePicker from '@react-native-community/datetimepicker';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api } from '../../src/lib/api';
 import { useAuth } from '../../src/lib/authStore';
@@ -142,20 +142,26 @@ export default function ServiceRequestsAdminScreen() {
     ]);
   };
 
-  const onPickerChange = (event: DateTimePickerEvent, value?: Date) => {
-    if (!picker) return;
-    if (event.type === 'dismissed') {
-      setPicker(null);
-      return;
-    }
-    if (!value) return;
+  const closePicker = () => setPicker(null);
+
+  const onPickerValueChange = (_event: unknown, value?: Date) => {
+    if (!picker || !value) return;
     if (picker.mode === 'date') {
       setDateById((prev) => ({ ...prev, [picker.requestId]: dateToIso(value) }));
     } else {
       const nextWindow = snapToHourWindow(value);
       setWindowById((prev) => ({ ...prev, [picker.requestId]: { start: nextWindow.start, end: nextWindow.end } }));
     }
-    if (Platform.OS !== 'ios') setPicker(null);
+    if (Platform.OS !== 'ios') closePicker();
+  };
+
+  const openEmployeeFile = async (fileId: string) => {
+    try {
+      const dl = await api<{ downloadUrl: string }>(`/files/${fileId}/download`);
+      await Linking.openURL(dl.downloadUrl);
+    } catch (e) {
+      Alert.alert('Unable to open photo', (e as Error).message);
+    }
   };
 
   const rows = useMemo(() => requests.data?.items ?? [], [requests.data?.items]);
@@ -195,6 +201,15 @@ export default function ServiceRequestsAdminScreen() {
               <StatusBadge status={r.status} />
             </View>
             <Text style={styles.desc}>{r.description}</Text>
+            {r.files.length ? (
+              <View style={styles.fileRow}>
+                {r.files.map((file) => (
+                  <TouchableOpacity key={file.fileId} style={styles.fileChip} onPress={() => void openEmployeeFile(file.fileId)}>
+                    <Text style={styles.fileChipText}>{file.fileName || 'View photo'}</Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
+            ) : null}
             {alreadyScheduled ? (
               <Text style={styles.scheduledBanner}>
                 Visit scheduled: {fmtDate(r.scheduled_date)} · {String(r.window_start ?? '').slice(0, 5)}–{String(r.window_end ?? '').slice(0, 5)}
@@ -256,10 +271,11 @@ export default function ServiceRequestsAdminScreen() {
               mode={picker.mode}
               display={Platform.OS === 'ios' ? 'spinner' : 'default'}
               minuteInterval={picker.mode === 'time' ? 30 : 1}
-              onChange={onPickerChange}
+              onValueChange={onPickerValueChange}
+              onDismiss={closePicker}
             />
             {Platform.OS === 'ios' ? (
-              <Button title="Done" onPress={() => setPicker(null)} />
+              <Button title="Done" onPress={closePicker} />
             ) : null}
           </Card>
         </View>
@@ -275,6 +291,9 @@ const styles = StyleSheet.create({
   customer: { color: colors.text, fontWeight: '800', fontSize: 16 },
   meta: { color: colors.textMuted, marginTop: 2, fontSize: 12 },
   desc: { color: colors.text, marginTop: 10, marginBottom: 10 },
+  fileRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginBottom: 8 },
+  fileChip: { borderWidth: 1, borderColor: colors.border, borderRadius: 14, paddingVertical: 6, paddingHorizontal: 10, backgroundColor: '#fff' },
+  fileChipText: { color: colors.primaryDark, fontSize: 12, fontWeight: '700' },
   assignBtn: { borderWidth: 1, borderColor: colors.border, borderRadius: 10, paddingVertical: 10, paddingHorizontal: 12, marginBottom: 8 },
   assignText: { color: colors.text, fontWeight: '700' },
   input: {

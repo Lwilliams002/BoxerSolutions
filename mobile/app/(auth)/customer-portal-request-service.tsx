@@ -1,5 +1,5 @@
 import React, { useMemo, useState } from 'react';
-import { Alert, Image, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
+import { Alert, Image, Linking, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import * as ImagePicker from 'expo-image-picker';
 import * as FileSystem from 'expo-file-system/legacy';
@@ -24,6 +24,15 @@ export default function CustomerPortalRequestServiceScreen() {
   const qc = useQueryClient();
   const [description, setDescription] = useState('');
   const [photos, setPhotos] = useState<LocalPhoto[]>([]);
+  const openPortalFile = async (fileId: string) => {
+    try {
+      const dl = await customerPortalApi<{ downloadUrl: string }>(`/files/${fileId}/download`);
+      await Linking.openURL(dl.downloadUrl);
+    } catch (e) {
+      Alert.alert('Unable to open photo', (e as Error).message);
+    }
+  };
+
 
   const requests = useQuery({
     queryKey: ['portal-service-requests'],
@@ -86,7 +95,7 @@ export default function CustomerPortalRequestServiceScreen() {
     // allowsMultipleSelection shows the native checkmark selection UI and
     // lets the customer pick several photos at once.
     const pick = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ImagePicker.MediaTypeOptions.Images,
+      mediaTypes: ['images'],
       quality: 0.85,
       allowsMultipleSelection: true,
       selectionLimit: remaining,
@@ -176,6 +185,15 @@ export default function CustomerPortalRequestServiceScreen() {
                 </Text>
               ) : null}
               {r.quoted_price != null ? <Text style={styles.quote}>Quoted: {money(r.quoted_price)}</Text> : null}
+              {r.files.length ? (
+                <View style={styles.fileRow}>
+                  {r.files.map((file) => (
+                    <TouchableOpacity key={file.fileId} style={styles.fileChip} onPress={() => void openPortalFile(file.fileId)}>
+                      <Text style={styles.fileChipText}>{file.fileName || 'View photo'}</Text>
+                    </TouchableOpacity>
+                  ))}
+                </View>
+              ) : null}
             </View>
             <StatusBadge status={r.status} />
           </View>
@@ -221,4 +239,7 @@ const styles = StyleSheet.create({
   requestMeta: { color: colors.textMuted, fontSize: 12, marginTop: 2 },
   quote: { color: colors.success, fontSize: 12, marginTop: 3, fontWeight: '700' },
   visit: { color: colors.primary, fontSize: 12, marginTop: 3, fontWeight: '700' },
+  fileRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginTop: 8 },
+  fileChip: { borderWidth: 1, borderColor: colors.border, borderRadius: 14, paddingVertical: 6, paddingHorizontal: 10 },
+  fileChipText: { color: colors.primaryDark, fontSize: 12, fontWeight: '700' },
 });

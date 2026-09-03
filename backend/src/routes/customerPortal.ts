@@ -165,6 +165,18 @@ router.post(
   }),
 );
 
+router.get(
+  '/files/:id/download',
+  asyncHandler(async (req, res) => {
+    const session = portalCustomer(req);
+    const download = await fileService.getDownloadUrl(req.params.id);
+    if (!download.file || download.file.customerId !== session.customerId) {
+      throw ApiError.forbidden('File does not belong to this customer');
+    }
+    ok(res, download);
+  }),
+);
+
 const createRequestSchema = z.object({
   description: z.string().min(10).max(4000),
   photoFileIds: z.array(z.string().uuid()).max(8).optional(),
