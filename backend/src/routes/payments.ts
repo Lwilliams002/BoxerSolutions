@@ -27,8 +27,12 @@ function timingSafeEqualText(a: string, b: string) {
 }
 
 function verifyNorthWebhookSignature(rawBody: string, headerValue: string | undefined): boolean {
-  const secret = config.north.webhookSecret;
-  if (!secret || !headerValue) return false;
+  const secrets = [config.north.webhookSecret, config.north.fieldsWebhookSecret].filter(Boolean);
+  if (!secrets.length || !headerValue) return false;
+  return secrets.some((secret) => verifyWithSecret(secret, rawBody, headerValue));
+}
+
+function verifyWithSecret(secret: string, rawBody: string, headerValue: string): boolean {
   const signed = headerValue.trim();
   // "t=<timestamp>,v1=<hex>" format
   if (signed.includes('t=') && signed.includes('v1=')) {

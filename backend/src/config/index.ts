@@ -61,6 +61,9 @@ export const config = {
     embeddedProfileId: normalizedOptional('NORTH_EMBEDDED_PROFILE_ID'),
     embeddedPrivateApiKey: normalizedOptional('NORTH_EMBEDDED_PRIVATE_API_KEY'),
     webhookSecret: normalizedOptional('NORTH_WEBHOOK_SECRET', process.env.NORTH_SIGNATURE_SECRET ?? ''),
+    // Webhook secret for the Fields-type (STORAGE) checkout — webhooks are
+    // verified against either secret.
+    fieldsWebhookSecret: normalizedOptional('NORTH_EMBEDDED_FIELDS_WEBHOOK_SECRET'),
     // Raw request/response certification logging (text file North asks for).
     certLogEnabled: (process.env.NORTH_CERT_LOG_ENABLED ?? 'true') === 'true',
     certLogPath: normalizedOptional('NORTH_CERT_LOG_PATH', 'logs/north-cert.log'),
