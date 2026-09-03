@@ -122,8 +122,10 @@ export default function SaveCardScreen() {
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [checkoutReady, setCheckoutReady] = useState(false);
   const [saved, setSaved] = useState<StorageConfirmResponse | null>(null);
   const confirmedRef = useRef(false);
+  const webViewRef = useRef<import('react-native-webview').WebView | null>(null);
 
   const goBack = () => {
     if (router.canGoBack()) {
@@ -171,7 +173,7 @@ export default function SaveCardScreen() {
   }, [session]);
 
   const confirmStorage = async () => {
-    if (!session || confirmedRef.current || submitting) return;
+    if (!session || confirmedRef.current) return;
     confirmedRef.current = true;
     setSubmitting(true);
     try {
@@ -198,9 +200,46 @@ export default function SaveCardScreen() {
     }
   };
 
+  // Fields-type checkouts render inputs only — trigger submission via
+  // checkout.submit() inside the WebView. onPaymentComplete fires afterwards.
+  const submitCard = () => {
+    if (!checkoutReady || submitting || confirmedRef.current) return;
+    setSubmitting(true);
+    webViewRef.current?.injectJavaScript(`
+      (function() {
+        try {
+          if (window.checkout && typeof window.checkout.submit === 'function') {
+            Promise.resolve(window.checkout.submit()).catch(function(err) {
+              window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'submit-error', message: err && err.message ? err.message : 'Card details could not be submitted.' }));
+            });
+          } else {
+            window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'submit-error', message: 'North checkout API is not ready.' }));
+          }
+        } catch (err) {
+          window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'submit-error', message: err && err.message ? err.message : 'Card details could not be submitted.' }));
+        }
+      })();
+      true;
+    `);
+    // Validation errors keep the form open without firing onPaymentComplete —
+    // release the spinner if nothing completes shortly.
+    setTimeout(() => {
+      if (!confirmedRef.current) setSubmitting(false);
+    }, 8_000);
+  };
+
   const onMessage = (event: WebViewMessageEvent) => {
     try {
-      const data = JSON.parse(event.nativeEvent.data) as CheckoutMessage;
+      const data = JSON.parse(event.nativeEvent.data) as CheckoutMessage | { type: 'submit-error'; message?: string };
+      if (data.type === 'checkout-loaded') {
+        setCheckoutReady(true);
+        return;
+      }
+      if (data.type === 'submit-error') {
+        setSubmitting(false);
+        Alert.alert('Card not saved', data.message ?? 'Card details could not be submitted.');
+        return;
+      }
       if (data.type === 'checkout-error') {
         setError(data.message ?? 'Unable to open the card form.');
         return;
@@ -272,6 +311,7 @@ export default function SaveCardScreen() {
       ) : (
         <View style={styles.webviewWrap}>
           <WebViewComponent
+            ref={webViewRef}
             source={{ html, baseUrl: 'https://checkout.north.com' }}
             originWhitelist={['*']}
             onMessage={onMessage}
@@ -289,7 +329,14 @@ export default function SaveCardScreen() {
         ) : (
           <>
             <Button title="Cancel" variant="outline" onPress={goBack} disabled={submitting} />
-            <Button title="Saving…" onPress={() => undefined} loading={submitting} disabled={!submitting} style={styles.confirmBtn} />
+            <Button
+              title={submitting ? 'Saving…' : 'Save Card'}
+              variant="success"
+              onPress={submitCard}
+              loading={submitting}
+              disabled={!checkoutReady || submitting}
+              style={styles.confirmBtn}
+            />
           </>
         )}
       </View>
@@ -363,5 +410,4 @@ const styles = StyleSheet.create({
     color: colors.danger,
   },
 });
-
 

@@ -16,6 +16,7 @@ declare global {
   interface Window {
     checkout?: {
       mount?: (sessionToken: string, hostId: string) => Promise<void> | void;
+      submit?: () => Promise<void>;
       onPaymentComplete?: (callback: (payload: Record<string, unknown>) => void) => (() => void) | void;
     };
   }

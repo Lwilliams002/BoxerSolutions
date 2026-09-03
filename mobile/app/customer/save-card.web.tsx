@@ -18,6 +18,7 @@ declare global {
   interface Window {
     checkout?: {
       mount?: (sessionToken: string, hostId: string) => Promise<void> | void;
+      submit?: () => Promise<void>;
       onPaymentComplete?: (callback: (payload: Record<string, unknown>) => void) => (() => void) | void;
     };
   }
@@ -134,7 +135,7 @@ export default function SaveCardWebScreen() {
   }, [customerId]);
 
   const confirmStorage = async () => {
-    if (!session || confirmedRef.current || submitting) return;
+    if (!session || confirmedRef.current) return;
     confirmedRef.current = true;
     setSubmitting(true);
     try {
@@ -157,6 +158,29 @@ export default function SaveCardWebScreen() {
       setError(message);
     } finally {
       setSubmitting(false);
+    }
+  };
+
+  // Fields-type checkouts render inputs only — the integrator triggers
+  // submission via checkout.submit(). onPaymentComplete fires afterwards.
+  const submitCard = async () => {
+    if (!checkoutReady || submitting || confirmedRef.current) return;
+    setSubmitting(true);
+    try {
+      if (typeof window.checkout?.submit !== 'function') {
+        throw new Error('North checkout API is not ready.');
+      }
+      await window.checkout.submit();
+      // confirmStorage runs from onPaymentComplete; stop the spinner if the
+      // completion callback has not fired shortly (validation errors keep the
+      // form open without completing).
+      setTimeout(() => {
+        if (!confirmedRef.current) setSubmitting(false);
+      }, 8_000);
+    } catch (e) {
+      setSubmitting(false);
+      const message = e instanceof Error && e.message ? e.message : 'Card details could not be submitted.';
+      if (typeof window !== 'undefined') window.alert(message);
     }
   };
 
@@ -252,7 +276,14 @@ export default function SaveCardWebScreen() {
         ) : (
           <>
             <Button title="Cancel" variant="outline" onPress={goBack} disabled={submitting} />
-            <Button title="Saving…" onPress={() => undefined} loading={submitting} disabled={!submitting} style={styles.confirmBtn} />
+            <Button
+              title={submitting ? 'Saving…' : 'Save Card'}
+              variant="success"
+              onPress={submitCard}
+              loading={submitting}
+              disabled={!checkoutReady || submitting}
+              style={styles.confirmBtn}
+            />
           </>
         )}
       </View>
@@ -329,4 +360,8 @@ const styles = StyleSheet.create({
     color: colors.danger,
   },
 });
+
+
+
+
 
