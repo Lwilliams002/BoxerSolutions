@@ -67,29 +67,48 @@ export default function CustomerPortalRequestServiceScreen() {
     onError: (e) => Alert.alert('Unable to submit request', (e as Error).message),
   });
 
+  const MAX_PHOTOS = 8; // matches the backend's photoFileIds limit
+
   const addPhoto = async () => {
     const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
     if (!perm.granted) {
       Alert.alert('Permission required', 'Please allow photo access to attach images.');
       return;
     }
+    const remaining = MAX_PHOTOS - photos.length;
+    if (remaining <= 0) {
+      Alert.alert('Photo limit reached', `You can attach up to ${MAX_PHOTOS} photos per request.`);
+      return;
+    }
+    // allowsMultipleSelection shows the native checkmark selection UI and
+    // lets the customer pick several photos at once.
     const pick = await ImagePicker.launchImageLibraryAsync({
       mediaTypes: ImagePicker.MediaTypeOptions.Images,
       quality: 0.85,
-      allowsMultipleSelection: false,
+      allowsMultipleSelection: true,
+      selectionLimit: remaining,
+      orderedSelection: true,
     });
     if (pick.canceled || !pick.assets.length) return;
-    const asset = pick.assets[0];
-    const guessedType = asset.mimeType || 'image/jpeg';
-    const ext = guessedType === 'image/png' ? 'png' : 'jpg';
-    setPhotos((prev) => [
-      ...prev,
-      {
-        uri: asset.uri,
-        mimeType: guessedType,
-        fileName: asset.fileName ?? `request-photo-${Date.now()}.${ext}`,
-      },
-    ]);
+    setPhotos((prev) => {
+      const next = [...prev];
+      for (const asset of pick.assets) {
+        if (next.length >= MAX_PHOTOS) break;
+        if (next.some((p) => p.uri === asset.uri)) continue;
+        const guessedType = asset.mimeType || 'image/jpeg';
+        const ext = guessedType === 'image/png' ? 'png' : 'jpg';
+        next.push({
+          uri: asset.uri,
+          mimeType: guessedType,
+          fileName: asset.fileName ?? `request-photo-${Date.now()}-${next.length}.${ext}`,
+        });
+      }
+      return next;
+    });
+  };
+
+  const removePhoto = (uri: string) => {
+    setPhotos((prev) => prev.filter((p) => p.uri !== uri));
   };
 
   const submittedCount = useMemo(
@@ -111,13 +130,25 @@ export default function CustomerPortalRequestServiceScreen() {
           onChangeText={setDescription}
           textAlignVertical="top"
         />
-        <Button title="Add Photo" variant="outline" onPress={() => void addPhoto()} />
+        <Button
+          title={photos.length ? `Add Photos (${photos.length}/${MAX_PHOTOS})` : 'Add Photos'}
+          variant="outline"
+          onPress={() => void addPhoto()}
+        />
         {photos.length > 0 ? (
-          <View style={styles.photoStrip}>
-            {photos.map((p, idx) => (
-              <Image key={`${p.uri}-${idx}`} source={{ uri: p.uri }} style={styles.photo} />
-            ))}
-          </View>
+          <>
+            <Text style={styles.photoHint}>Tap a photo to remove it.</Text>
+            <View style={styles.photoStrip}>
+              {photos.map((p, idx) => (
+                <TouchableOpacity key={`${p.uri}-${idx}`} onPress={() => removePhoto(p.uri)} style={styles.photoWrap}>
+                  <Image source={{ uri: p.uri }} style={styles.photo} />
+                  <View style={styles.photoRemoveBadge}>
+                    <Text style={styles.photoRemoveText}>✕</Text>
+                  </View>
+                </TouchableOpacity>
+              ))}
+            </View>
+          </>
         ) : null}
         <Button
           title="Submit Request"
@@ -162,7 +193,21 @@ const styles = StyleSheet.create({
     marginBottom: 10,
   },
   photoStrip: { flexDirection: 'row', flexWrap: 'wrap', marginBottom: 10 },
-  photo: { width: 72, height: 72, borderRadius: 10, marginRight: 8, marginBottom: 8 },
+  photoHint: { color: colors.textMuted, fontSize: 12, marginTop: 6, marginBottom: 6 },
+  photoWrap: { position: 'relative', marginRight: 8, marginBottom: 8 },
+  photo: { width: 72, height: 72, borderRadius: 10 },
+  photoRemoveBadge: {
+    position: 'absolute',
+    top: -6,
+    right: -6,
+    width: 20,
+    height: 20,
+    borderRadius: 10,
+    backgroundColor: colors.danger,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  photoRemoveText: { color: '#FFFFFF', fontSize: 11, fontWeight: '800' },
   requestRow: { flexDirection: 'row', alignItems: 'center', marginTop: 10, paddingTop: 10, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: colors.border },
   requestText: { color: colors.text, fontWeight: '600', marginRight: 8 },
   requestMeta: { color: colors.textMuted, fontSize: 12, marginTop: 2 },
