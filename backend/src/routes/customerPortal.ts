@@ -7,6 +7,8 @@ import { ok, parsePagination } from '../utils/http';
 import { ApiError } from '../utils/errors';
 import { fileService } from '../services/fileService';
 import { recordAudit } from '../services/auditService';
+import { notifications } from '../integrations/notifications';
+import { logger } from '../utils/logger';
 
 const router = Router();
 
@@ -207,6 +209,36 @@ router.post(
       newValue: { customerId: session.customerId },
     });
 
+    // Notify owners/admins that a new request is waiting for review.
+    try {
+      const customer = await pool.query(
+        `SELECT first_name, last_name, company FROM customers WHERE id = $1`,
+        [session.customerId],
+      );
+      const name = customer.rows[0]?.company
+        ?? `${customer.rows[0]?.first_name ?? ''} ${customer.rows[0]?.last_name ?? ''}`.trim();
+      const owners = await pool.query(
+        `SELECT DISTINCT u.id
+         FROM users u
+         JOIN user_roles ur ON ur.user_id = u.id
+         JOIN roles r ON r.id = ur.role_id
+         WHERE r.code = 'OWNER' AND u.deleted_at IS NULL AND u.is_active = true`,
+      );
+      for (const owner of owners.rows) {
+        await notifications.send({
+          userId: owner.id,
+          customerId: session.customerId,
+          channel: 'push',
+          type: 'service_request_submitted',
+          title: 'New service request',
+          body: `${name || 'A customer'} submitted a service request: ${body.description.trim().slice(0, 120)}`,
+          data: { serviceRequestId: requestId, customerId: session.customerId },
+        });
+      }
+    } catch (err) {
+      logger.error({ err, requestId }, 'failed to notify owners of new service request');
+    }
+
     ok(res, created.rows[0], 'Service request submitted', 201);
   }),
 );
@@ -225,6 +257,7 @@ router.get(
     const { rows } = await pool.query(
       `SELECT sr.id, sr.description, sr.status, sr.quoted_price, sr.owner_notes, sr.requested_at, sr.reviewed_at,
               sr.assigned_technician_id, u.first_name AS technician_first_name, u.last_name AS technician_last_name,
+              a.scheduled_date, a.window_start, a.window_end,
               COALESCE(
                 json_agg(
                   DISTINCT jsonb_build_object(
@@ -236,12 +269,13 @@ router.get(
                 '[]'::json
               ) AS files
        FROM service_requests sr
+       LEFT JOIN appointments a ON a.id = sr.appointment_id
        LEFT JOIN employees e ON e.id = sr.assigned_technician_id
        LEFT JOIN users u ON u.id = e.user_id
        LEFT JOIN service_request_files srf ON srf.service_request_id = sr.id
        LEFT JOIN files f ON f.id = srf.file_id AND f.deleted_at IS NULL
        WHERE sr.customer_id = $1
-       GROUP BY sr.id, u.first_name, u.last_name
+       GROUP BY sr.id, a.scheduled_date, a.window_start, a.window_end, u.first_name, u.last_name
        ORDER BY sr.requested_at DESC
        LIMIT $2 OFFSET $3`,
       [session.customerId, limit, offset],

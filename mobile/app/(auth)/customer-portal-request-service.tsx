@@ -170,6 +170,11 @@ export default function CustomerPortalRequestServiceScreen() {
             <View style={{ flex: 1 }}>
               <Text style={styles.requestText} numberOfLines={2}>{r.description}</Text>
               <Text style={styles.requestMeta}>{fmtDate(r.requested_at)} · {r.files.length} photo(s)</Text>
+              {(r as any).scheduled_date ? (
+                <Text style={styles.visit}>
+                  Visit scheduled: {fmtDate((r as any).scheduled_date)} · {String((r as any).window_start ?? '').slice(0, 5)}–{String((r as any).window_end ?? '').slice(0, 5)}
+                </Text>
+              ) : null}
               {r.quoted_price != null ? <Text style={styles.quote}>Quoted: {money(r.quoted_price)}</Text> : null}
             </View>
             <StatusBadge status={r.status} />
@@ -215,4 +220,5 @@ const styles = StyleSheet.create({
   requestText: { color: colors.text, fontWeight: '600', marginRight: 8 },
   requestMeta: { color: colors.textMuted, fontSize: 12, marginTop: 2 },
   quote: { color: colors.success, fontSize: 12, marginTop: 3, fontWeight: '700' },
+  visit: { color: colors.primary, fontSize: 12, marginTop: 3, fontWeight: '700' },
 });
