@@ -762,7 +762,14 @@ export default function CustomerScreen() {
               </Card>
             ))}
             {canCollectPaymentInfo && (
-              <Button title="+ Add Payment Method" onPress={() => setShowAddCard(true)} />
+              <>
+                <Button
+                  title="Save Card via Secure Checkout"
+                  variant="success"
+                  onPress={() => router.push({ pathname: '/customer/save-card', params: { customerId: id } })}
+                />
+                <Button title="+ Add Payment Method" variant="outline" onPress={() => setShowAddCard(true)} />
+              </>
             )}
             {(methods ?? []).length === 0 && !(promptPayment === '1') && (
               <EmptyState title="No payment methods" subtitle="Add a card to enable payment collection and AutoPay." />

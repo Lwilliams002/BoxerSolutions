@@ -130,3 +130,83 @@ export async function waitForApprovedNorthSession(sessionToken: string): Promise
   return { transactionId, amount: approvedAmount, sessionStatus };
 }
 
+export interface NorthStorageResult {
+  bric: string;
+  brand: string;
+  last4: string | null;
+  expirationMonth: number | null;
+  expirationYear: number | null;
+  sessionStatus: Record<string, unknown>;
+}
+
+function pickString(...candidates: unknown[]): string | null {
+  const found = candidates.find((v) => typeof v === 'string' && v.trim().length > 0);
+  return (found as string | undefined)?.trim() ?? null;
+}
+
+/**
+ * Waits for an Embedded Checkout STORAGE session to complete and extracts the
+ * BRIC (stored payment token) plus display metadata. The BRIC is returned by
+ * EPX as AUTH_GUID on storage transactions.
+ */
+export async function waitForNorthStorageResult(sessionToken: string): Promise<NorthStorageResult> {
+  await new Promise((resolve) => setTimeout(resolve, 5_000));
+  const deadline = Date.now() + 30_000;
+  let sessionStatus = await northGatewayService.getEmbeddedSessionStatus(sessionToken);
+  let statusData = asRecord(sessionStatus.data) ?? sessionStatus;
+  let status = String(statusData.status ?? '').toLowerCase();
+  while (!['approved', 'completed', 'complete', 'success'].includes(status)
+    && !['declined', 'failed', 'error', 'expired', 'cancelled', 'canceled'].includes(status)
+    && Date.now() < deadline) {
+    await new Promise((resolve) => setTimeout(resolve, 3_000));
+    sessionStatus = await northGatewayService.getEmbeddedSessionStatus(sessionToken);
+    statusData = asRecord(sessionStatus.data) ?? sessionStatus;
+    status = String(statusData.status ?? '').toLowerCase();
+  }
+  if (!['approved', 'completed', 'complete', 'success'].includes(status)) {
+    throw new ApiError(409, `North storage session is ${status || 'not complete'}.`);
+  }
+
+  const body = asRecord(statusData.body) ?? asRecord(sessionStatus.body);
+  const fullResponse = body ? asRecord(body.fullResponse) : null;
+  const bric = pickString(
+    body?.bric, body?.BRIC, body?.token,
+    body?.auth_guid, body?.AUTH_GUID,
+    fullResponse?.BRIC, fullResponse?.bric, fullResponse?.AUTH_GUID, fullResponse?.auth_guid,
+    statusData.bric, statusData.token,
+  );
+  if (!bric) {
+    throw new ApiError(502, 'North storage response did not include a BRIC token.');
+  }
+
+  const brand = pickString(
+    body?.card_type, body?.cardType, body?.auth_card_type, body?.card_brand,
+    fullResponse?.AUTH_CARD_TYPE, fullResponse?.card_type,
+  ) ?? 'Card';
+  const masked = pickString(
+    body?.masked_pan, body?.maskedPan, body?.account_number, body?.last_four, body?.lastFour,
+    fullResponse?.AUTH_MASKED_ACCOUNT_NBR, fullResponse?.masked_pan,
+  );
+  const last4 = masked ? masked.replace(/\D/g, '').slice(-4) || null : null;
+
+  // Expiry may arrive as YYMM (EPX) or MM/YY.
+  let expirationMonth: number | null = null;
+  let expirationYear: number | null = null;
+  const expRaw = pickString(body?.exp_date, body?.expDate, fullResponse?.AUTH_EXP_DATE, fullResponse?.exp_date);
+  if (expRaw) {
+    const digits = expRaw.replace(/\D/g, '');
+    if (digits.length === 4) {
+      const a = Number(digits.slice(0, 2));
+      const b = Number(digits.slice(2));
+      if (a >= 1 && a <= 12) {
+        expirationMonth = a;
+        expirationYear = 2000 + b;
+      } else {
+        expirationYear = 2000 + a;
+        expirationMonth = b >= 1 && b <= 12 ? b : null;
+      }
+    }
+  }
+  return { bric, brand, last4, expirationMonth, expirationYear, sessionStatus };
+}
+

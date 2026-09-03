@@ -136,8 +136,49 @@ export const paymentService = {
     });
   },
 
-  async setDefaultMethod(methodId: string, userId: string) {
+  /**
+   * Stores a payment method that was already tokenized upstream (e.g. a BRIC
+   * returned by a North Embedded Checkout STORAGE transaction). No card data
+   * ever reaches this service — only the provider token + display metadata.
+   */
+  async addVaultedMethod(
+    customerId: string,
+    method: {
+      providerPaymentMethodId: string;
+      provider?: string;
+      brand: string;
+      last4: string | null;
+      expirationMonth: number | null;
+      expirationYear: number | null;
+    },
+    setDefault: boolean,
+    userId: string,
+  ) {
+    const now = new Date();
     return withTransaction(async (tx) => {
+      // Idempotency: re-confirming the same storage session must not duplicate.
+      const existing = await tx.query(
+        `SELECT id, customer_id, payment_provider, brand, last4, expiration_month, expiration_year, is_default
+         FROM payment_methods
+         WHERE customer_id = $1 AND provider_payment_method_id = $2 AND deleted_at IS NULL`,
+        [customerId, method.providerPaymentMethodId],
+      );
+      if (existing.rows[0]) return { ...toCamel(existing.rows[0]), duplicate: true };
+      if (setDefault) {
+        await tx.query('UPDATE payment_methods SET is_default = false, updated_at = now() WHERE customer_id = $1', [customerId]);
+      }
+      const { rows } = await tx.query(
+        `INSERT INTO payment_methods (customer_id, payment_provider, provider_payment_method_id, brand, last4, expiration_month, expiration_year, is_default)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8) RETURNING id, customer_id, payment_provider, brand, last4, expiration_month, expiration_year, is_default`,
+        [customerId, method.provider ?? 'north', method.providerPaymentMethodId, method.brand,
+         normalizeLast4(method.last4), method.expirationMonth ?? 12, method.expirationYear ?? now.getFullYear() + 10, setDefault],
+      );
+      await recordAudit({ userId, action: 'payment_method.added', entityType: 'payment_method', entityId: rows[0].id, newValue: { brand: method.brand, last4: method.last4, via: 'north_embedded_storage' } }, tx);
+      return { ...toCamel(rows[0]), duplicate: false };
+    });
+  },
+
+  async setDefaultMethod(methodId: string, userId: string) {    return withTransaction(async (tx) => {
       const { rows } = await tx.query('SELECT customer_id FROM payment_methods WHERE id = $1 AND deleted_at IS NULL', [methodId]);
       if (!rows[0]) throw ApiError.notFound('Payment method not found');
       await tx.query('UPDATE payment_methods SET is_default = false, updated_at = now() WHERE customer_id = $1', [rows[0].customer_id]);

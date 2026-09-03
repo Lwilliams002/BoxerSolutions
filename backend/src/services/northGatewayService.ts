@@ -1,6 +1,7 @@
 import crypto from 'crypto';
 import { config } from '../config';
 import { ApiError } from '../utils/errors';
+import { northCertLog } from '../utils/northCertLog';
 
 interface NorthAuthResponse {
   accountId: number;
@@ -81,6 +82,10 @@ interface CreateEmbeddedSessionInput {
   products?: NorthEmbeddedProduct[];
   orderId?: string;
   customerEmail?: string | null;
+  /** North Embedded Checkout transaction type, e.g. 'SALE' (default) or 'STORAGE'. */
+  transactionType?: string;
+  /** Extra session fields (first_name, last_name, address, industry_type, …). */
+  additionalFields?: Record<string, string>;
 }
 
 function assertNorthConfig() {
@@ -178,24 +183,44 @@ class NorthGatewayService {
   private authAt = 0;
 
   private async postEmbeddedSession(payload: Record<string, unknown>) {
-    const res = await fetch(`${config.north.embeddedBaseUrl}/api/sessions`, {
+    const url = `${config.north.embeddedBaseUrl}/api/sessions`;
+    const headers = {
+      Authorization: `Bearer ${config.north.embeddedPrivateApiKey}`,
+      'Content-Type': 'application/json',
+      'User-Agent': 'ServiceFinance Embedded Checkout',
+    };
+    const res = await fetch(url, {
       method: 'POST',
-      headers: {
-        Authorization: `Bearer ${config.north.embeddedPrivateApiKey}`,
-        'Content-Type': 'application/json',
-        'User-Agent': 'ServiceFinance Embedded Checkout',
-      },
+      headers,
       body: jsonBody(payload),
     });
+    const rawText = await res.text().catch(() => '');
+    let data: Record<string, unknown> | null = null;
+    try {
+      data = rawText ? (JSON.parse(rawText) as Record<string, unknown>) : null;
+    } catch {
+      data = null;
+    }
+    northCertLog({
+      api: 'Embedded Checkout',
+      label: `${String(payload.transactionType ?? 'SALE')} session create`,
+      method: 'POST',
+      url,
+      requestHeaders: headers,
+      requestBody: payload,
+      status: res.status,
+      statusText: res.statusText,
+      responseBody: data ?? rawText,
+    });
     if (!res.ok) {
-      const err = await readNorthErrorResponse(res, `North embedded session failed: ${res.statusText || `HTTP ${res.status}`}`);
-      throw new ApiError(502, err.message, {
-        upstream: err.details,
+      const err = describeNorthError(data, `North embedded session failed: ${res.statusText || `HTTP ${res.status}`}`);
+      const requestId = res.headers.get('x-request-id');
+      throw new ApiError(502, requestId ? `${err} (North request id: ${requestId})` : err, {
+        upstream: data ?? { status: res.status, statusText: res.statusText, requestId, body: rawText || null },
         config: embeddedConfigDiagnostics(),
         request: embeddedPayloadDiagnostics(payload),
       });
     }
-    const data = (await res.json().catch(() => null)) as Record<string, unknown> | null;
     if (!data) {
       const requestId = res.headers.get('x-request-id');
       throw new ApiError(
@@ -248,18 +273,30 @@ class NorthGatewayService {
   private async northFetch(path: string, payload: unknown, baseUrl = config.north.billingBaseUrl) {
     const auth = await this.requestAuth();
     const body = jsonBody(payload);
+    const headers = {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${auth.token}`,
+      'x-nabwss-appsource': config.north.appSource,
+      'EPI-Id': auth.mid,
+      'EPI-Signature': this.signature(path, payload),
+    };
     const res = await fetch(`${baseUrl}${path}`, {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${auth.token}`,
-        'x-nabwss-appsource': config.north.appSource,
-        'EPI-Id': auth.mid,
-        'EPI-Signature': this.signature(path, payload),
-      },
+      headers,
       body,
     });
     const data = await res.json().catch(() => null);
+    northCertLog({
+      api: 'Recurring Billing',
+      label: path,
+      method: 'POST',
+      url: `${baseUrl}${path}`,
+      requestHeaders: headers,
+      requestBody: payload,
+      status: res.status,
+      statusText: res.statusText,
+      responseBody: data,
+    });
     if (!res.ok) {
       throw ApiError.badGateway(`North request failed: ${(data as { message?: string } | null)?.message ?? res.statusText}`);
     }
@@ -373,13 +410,15 @@ class NorthGatewayService {
    */
   private async postTransactionAction(payload: Record<string, unknown>) {
     const auth = await this.requestAuth();
-    const res = await fetch(`${config.north.functionsBaseUrl}/accounts/${auth.accountId}/transactions`, {
+    const url = `${config.north.functionsBaseUrl}/accounts/${auth.accountId}/transactions`;
+    const headers = {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${auth.token}`,
+      'x-nabwss-appsource': config.north.appSource,
+    };
+    const res = await fetch(url, {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${auth.token}`,
-        'x-nabwss-appsource': config.north.appSource,
-      },
+      headers,
       body: jsonBody(payload),
     });
     const data = (await res.json().catch(() => null)) as {
@@ -389,6 +428,17 @@ class NorthGatewayService {
       status_message?: string;
       message?: string;
     } | null;
+    northCertLog({
+      api: 'Gateway Functions',
+      label: payload.type === 'void' ? 'REVERSAL (VOID)' : 'REFUND',
+      method: 'POST',
+      url,
+      requestHeaders: headers,
+      requestBody: payload,
+      status: res.status,
+      statusText: res.statusText,
+      responseBody: data,
+    });
     if (!res.ok) {
       throw new ApiError(502, `North ${String(payload.type)} failed: ${data?.message ?? data?.status_message ?? res.statusText}`);
     }
@@ -432,8 +482,10 @@ class NorthGatewayService {
 
   async createEmbeddedSession(input: CreateEmbeddedSessionInput): Promise<string> {
     assertNorthEmbeddedConfig();
+    const transactionType = input.transactionType?.toUpperCase();
+    const isStorage = transactionType === 'STORAGE';
     const amount = Number(input.amount.toFixed(2));
-    if (!Number.isFinite(amount) || amount <= 0) {
+    if (!Number.isFinite(amount) || (!isStorage && amount <= 0) || amount < 0) {
       throw ApiError.badRequest('Embedded checkout amount must be greater than 0.');
     }
     const payload: Record<string, unknown> = {
@@ -441,6 +493,10 @@ class NorthGatewayService {
       profileId: config.north.embeddedProfileId,
       amount,
     };
+    if (transactionType) payload.transactionType = transactionType;
+    if (input.additionalFields && Object.keys(input.additionalFields).length) {
+      payload.additionalFields = input.additionalFields;
+    }
     if (input.products?.length) payload.products = input.products;
     if (input.orderId) payload.orderId = input.orderId;
     if (input.customerEmail) payload.email = input.customerEmail;
@@ -449,11 +505,13 @@ class NorthGatewayService {
       data = await this.postEmbeddedSession(payload);
     } catch (error) {
       const hasOptionalFields = Boolean(payload.products || payload.orderId || payload.email);
-      if (!hasOptionalFields) throw error;
+      if (!hasOptionalFields || isStorage) throw error;
       data = await this.postEmbeddedSession({
         checkoutId: config.north.embeddedCheckoutId,
         profileId: config.north.embeddedProfileId,
         amount,
+        ...(transactionType ? { transactionType } : {}),
+        ...(payload.additionalFields ? { additionalFields: payload.additionalFields } : {}),
       });
     }
     const tokenCandidate = [
@@ -487,6 +545,16 @@ class NorthGatewayService {
       throw new ApiError(502, err.message, err.details);
     }
     const data = (await res.json().catch(() => null)) as Record<string, unknown> | null;
+    northCertLog({
+      api: 'Embedded Checkout',
+      label: 'session status',
+      method: 'GET',
+      url: `${config.north.embeddedBaseUrl}/api/sessions/status`,
+      requestHeaders: { SessionToken: sessionToken },
+      status: res.status,
+      statusText: res.statusText,
+      responseBody: data,
+    });
     if (!data) {
       const requestId = res.headers.get('x-request-id');
       throw new ApiError(

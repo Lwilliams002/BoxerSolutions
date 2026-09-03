@@ -15,7 +15,7 @@ import { northGatewayService } from '../services/northGatewayService';
 import { ApiError } from '../utils/errors';
 import { notifications } from '../integrations/notifications';
 import { logger } from '../utils/logger';
-import { waitForApprovedNorthSession } from '../utils/northEmbedded';
+import { waitForApprovedNorthSession, waitForNorthStorageResult } from '../utils/northEmbedded';
 
 const router = Router();
 
@@ -186,10 +186,92 @@ router.post(
   }),
 );
 
+/**
+ * Creates an Embedded Checkout STORAGE session (amount 0.00) so a card can be
+ * saved as a BRIC token without any card data touching our servers. Per North
+ * certification guidance, use a "Fields" type checkout for this flow.
+ */
+router.post(
+  '/north/embedded/storage-session',
+  authorize('payments:collect_info', 'payments:collect', 'payments:write'),
+  asyncHandler(async (req, res) => {
+    const body = z.object({ customerId: z.string().uuid() }).parse(req.body);
+    const scope = technicianScope(req, 'payments:collect');
+    if (scope) await assertCustomerAccess(scope, body.customerId);
+    const custRes = await pool.query(
+      `SELECT c.first_name, c.last_name, c.email,
+              sl.address_line1, sl.city, sl.state, sl.postal_code
+       FROM customers c
+       LEFT JOIN LATERAL (
+         SELECT address_line1, city, state, postal_code
+         FROM service_locations
+         WHERE customer_id = c.id AND deleted_at IS NULL
+         ORDER BY is_primary DESC, created_at ASC
+         LIMIT 1
+       ) sl ON true
+       WHERE c.id = $1 AND c.deleted_at IS NULL`,
+      [body.customerId],
+    );
+    const cust = custRes.rows[0];
+    if (!cust) throw ApiError.notFound('Customer not found');
+    const additionalFields: Record<string, string> = {
+      first_name: cust.first_name ?? '',
+      last_name: cust.last_name ?? '',
+      industry_type: 'E',
+    };
+    if (cust.address_line1) additionalFields.address = cust.address_line1;
+    if (cust.city) additionalFields.city = cust.city;
+    if (cust.state) additionalFields.state = cust.state;
+    if (cust.postal_code) additionalFields.zip_code = cust.postal_code;
+    const sessionToken = await northGatewayService.createEmbeddedSession({
+      amount: 0,
+      transactionType: 'STORAGE',
+      additionalFields,
+      customerEmail: cust.email,
+    });
+    ok(res, {
+      sessionToken,
+      checkoutId: config.north.embeddedCheckoutId,
+      scriptUrl: `${config.north.embeddedBaseUrl}/checkout.js`,
+      customerId: body.customerId,
+    }, 'North storage session created', 201);
+  }),
+);
+
+router.post(
+  '/north/embedded/storage-confirm',
+  authorize('payments:collect_info', 'payments:collect', 'payments:write'),
+  asyncHandler(async (req, res) => {
+    const body = z.object({
+      customerId: z.string().uuid(),
+      sessionToken: z.string().min(10),
+      setDefault: z.boolean().optional(),
+    }).parse(req.body);
+    const scope = technicianScope(req, 'payments:collect');
+    if (scope) await assertCustomerAccess(scope, body.customerId);
+
+    const result = await waitForNorthStorageResult(body.sessionToken);
+    logger.info({ northStorageStatus: result.sessionStatus }, 'north embedded storage payload');
+    const method = await paymentService.addVaultedMethod(
+      body.customerId,
+      {
+        providerPaymentMethodId: result.bric,
+        provider: 'north',
+        brand: result.brand,
+        last4: result.last4,
+        expirationMonth: result.expirationMonth,
+        expirationYear: result.expirationYear,
+      },
+      body.setDefault ?? true,
+      req.user!.id,
+    );
+    ok(res, method, method.duplicate ? 'Card already on file' : 'Card stored on file', 201);
+  }),
+);
+
 router.get(
   '/',
-  authorize('payments:read', 'payments:collect', 'payments:collect_info'),
-  asyncHandler(async (req, res) => {
+  authorize('payments:read', 'payments:collect', 'payments:collect_info'),  asyncHandler(async (req, res) => {
     const scope = technicianScope(req, 'customers:read');
     const customerId = req.query.customerId as string | undefined;
     const invoiceId = req.query.invoiceId as string | undefined;

@@ -1,4 +1,5 @@
 import { northGatewayService } from '../../services/northGatewayService';
+import { epxServerPostService } from '../../services/epxServerPostService';
 import type { ChargeResult, PaymentProvider, TokenizedPaymentMethod } from './index';
 
 /**
@@ -157,14 +158,38 @@ export class NorthPaymentProvider implements PaymentProvider {
   }
 
   async charge(providerPaymentMethodId: string, amountCents: number): Promise<ChargeResult> {
-    const paymentMethodID = Number(providerPaymentMethodId);
-    if (!Number.isInteger(paymentMethodID) || paymentMethodID <= 0) {
-      return { success: false, transactionId: null, failureReason: 'This payment method was not vaulted with North and cannot be charged.' };
-    }
     if (amountCents <= 0) {
       return { success: false, transactionId: null, failureReason: 'Invalid amount' };
     }
     const amount = Number((amountCents / 100).toFixed(2));
+    const paymentMethodID = Number(providerPaymentMethodId);
+
+    // Non-numeric ids are BRICs from Embedded Checkout STORAGE — charge them
+    // as a TOKEN SALE via the EPX Server Post API (per North certification,
+    // the Recurring Billing API is unavailable).
+    if (!Number.isInteger(paymentMethodID) || paymentMethodID <= 0) {
+      if (!epxServerPostService.isConfigured()) {
+        return {
+          success: false,
+          transactionId: null,
+          failureReason: 'This card is stored as a North BRIC token. Configure EPX Server Post (EPX_CUST_NBR/EPX_MERCH_NBR/EPX_DBA_NBR/EPX_TERMINAL_NBR) to charge it.',
+        };
+      }
+      try {
+        const result = await epxServerPostService.tokenSale(providerPaymentMethodId, amount);
+        if (!result.approved) {
+          return {
+            success: false,
+            transactionId: result.authGuid,
+            failureReason: result.responseText || `Declined (code ${result.responseCode ?? 'unknown'})`,
+          };
+        }
+        return { success: true, transactionId: result.authGuid ?? `north_${Date.now()}`, failureReason: null };
+      } catch (error) {
+        return { success: false, transactionId: null, failureReason: (error as Error).message || 'North token sale failed.' };
+      }
+    }
+
     interface NorthChargeResponse { successful?: boolean; code?: string; text?: string; GUID?: string }
     let response: NorthChargeResponse | null = null;
     try {
