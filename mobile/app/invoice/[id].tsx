@@ -49,6 +49,12 @@ interface PaymentRow {
   paymentSource?: string | null;
   parentPaymentId?: string | null;
   remainingRefundableAmount?: string | null;
+  paymentProvider?: string | null;
+  providerTransactionId?: string | null;
+  providerRefundId?: string | null;
+  payment_provider?: string | null;
+  provider_transaction_id?: string | null;
+  provider_refund_id?: string | null;
 }
 
 function maskedLast4(value: unknown) {
@@ -321,6 +327,9 @@ export default function InvoiceScreen() {
             const refundable = !isRefund && p.status === 'succeeded' && Number(p.remainingRefundableAmount ?? 0) > 0;
             const defaultRefundAmount = String(Number(p.remainingRefundableAmount ?? p.amount).toFixed(2));
             const refundText = refundAmountByPayment[p.id] ?? defaultRefundAmount;
+            const processor = String(p.paymentProvider ?? p.payment_provider ?? '').trim();
+            const transactionId = String(p.providerTransactionId ?? p.provider_transaction_id ?? '').trim();
+            const refundId = String(p.providerRefundId ?? p.provider_refund_id ?? '').trim();
             return (
               <Card key={p.id}>
                 <Row>
@@ -332,6 +341,9 @@ export default function InvoiceScreen() {
                       {fmtDate(p.processedAt ?? p.createdAt)}{p.receiptNumber ? ` · ${p.receiptNumber}` : ''}
                       {p.failureReason ? ` · ${p.failureReason}` : ''}
                     </Text>
+                    {processor ? <Text style={styles.itemMeta}>Processor: {processor}</Text> : null}
+                    {transactionId ? <Text style={styles.itemMeta}>Txn: {transactionId}</Text> : null}
+                    {refundId ? <Text style={styles.itemMeta}>Refund Txn: {refundId}</Text> : null}
                   </View>
                   <StatusBadge status={isRefund ? 'refunded' : p.status} />
                 </Row>
