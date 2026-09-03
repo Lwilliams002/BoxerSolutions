@@ -170,9 +170,9 @@ export default function CustomerPortalRequestServiceScreen() {
             <View style={{ flex: 1 }}>
               <Text style={styles.requestText} numberOfLines={2}>{r.description}</Text>
               <Text style={styles.requestMeta}>{fmtDate(r.requested_at)} · {r.files.length} photo(s)</Text>
-              {(r as any).scheduled_date ? (
+              {r.scheduled_date ? (
                 <Text style={styles.visit}>
-                  Visit scheduled: {fmtDate((r as any).scheduled_date)} · {String((r as any).window_start ?? '').slice(0, 5)}–{String((r as any).window_end ?? '').slice(0, 5)}
+                  Visit scheduled: {fmtDate(r.scheduled_date)} · {String(r.window_start ?? '').slice(0, 5)}–{String(r.window_end ?? '').slice(0, 5)}
                 </Text>
               ) : null}
               {r.quoted_price != null ? <Text style={styles.quote}>Quoted: {money(r.quoted_price)}</Text> : null}

@@ -1,5 +1,6 @@
 import React, { useMemo, useState } from 'react';
-import { Alert, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
+import { Alert, Platform, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
+import DateTimePicker, { type DateTimePickerEvent } from '@react-native-community/datetimepicker';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api } from '../../src/lib/api';
 import { useAuth } from '../../src/lib/authStore';
@@ -13,13 +14,53 @@ interface Tech {
   lastName: string;
 }
 
-const TIME_WINDOWS = [
-  { label: '8–10 AM', start: '08:00', end: '10:00' },
-  { label: '10–12 PM', start: '10:00', end: '12:00' },
-  { label: '12–2 PM', start: '12:00', end: '14:00' },
-  { label: '2–4 PM', start: '14:00', end: '16:00' },
-  { label: '4–6 PM', start: '16:00', end: '18:00' },
-];
+const START_HOUR = 8;
+const END_HOUR = 18;
+
+function pad2(value: number) {
+  return String(value).padStart(2, '0');
+}
+
+function formatHourLabel(hour24: number) {
+  const hour12 = hour24 % 12 || 12;
+  return `${hour12}:00 ${hour24 < 12 ? 'AM' : 'PM'}`;
+}
+
+function hourWindow(hour24: number) {
+  const endHour = Math.min(hour24 + 1, END_HOUR);
+  return {
+    start: `${pad2(hour24)}:00`,
+    end: `${pad2(endHour)}:00`,
+    label: `${formatHourLabel(hour24)} – ${formatHourLabel(endHour)}`,
+  };
+}
+
+function dateFromIso(iso?: string) {
+  if (!iso) return new Date();
+  const [y, m, d] = iso.split('-').map(Number);
+  const dt = new Date();
+  dt.setFullYear(y || dt.getFullYear(), (m || 1) - 1, d || 1);
+  dt.setHours(12, 0, 0, 0);
+  return dt;
+}
+
+function dateToIso(date: Date) {
+  return `${date.getFullYear()}-${pad2(date.getMonth() + 1)}-${pad2(date.getDate())}`;
+}
+
+function timeFromWindow(start?: string) {
+  const dt = new Date();
+  const [h = '08', m = '00'] = String(start ?? '08:00').split(':');
+  dt.setHours(Number(h), Number(m), 0, 0);
+  return dt;
+}
+
+function snapToHourWindow(date: Date) {
+  let hour = date.getMinutes() >= 30 ? date.getHours() + 1 : date.getHours();
+  if (hour < START_HOUR) hour = START_HOUR;
+  if (hour >= END_HOUR) hour = END_HOUR - 1;
+  return hourWindow(hour);
+}
 
 export default function ServiceRequestsAdminScreen() {
   const qc = useQueryClient();
@@ -29,6 +70,7 @@ export default function ServiceRequestsAdminScreen() {
   const [techById, setTechById] = useState<Record<string, string | null>>({});
   const [dateById, setDateById] = useState<Record<string, string>>({});
   const [windowById, setWindowById] = useState<Record<string, { start: string; end: string } | null>>({});
+  const [picker, setPicker] = useState<{ requestId: string; mode: 'date' | 'time' } | null>(null);
 
   const requests = useQuery({
     queryKey: ['owner-service-requests'],
@@ -70,7 +112,7 @@ export default function ServiceRequestsAdminScreen() {
         body.windowStart = window.start;
         body.windowEnd = window.end;
       } else {
-        body.status = selectedTech && quotedPrice != null ? 'scheduled' : 'reviewed';
+        body.status = 'reviewed';
       }
       await api(`/service-requests/${requestId}`, { method: 'PATCH', body });
       return Boolean(date && window);
@@ -100,6 +142,22 @@ export default function ServiceRequestsAdminScreen() {
     ]);
   };
 
+  const onPickerChange = (event: DateTimePickerEvent, value?: Date) => {
+    if (!picker) return;
+    if (event.type === 'dismissed') {
+      setPicker(null);
+      return;
+    }
+    if (!value) return;
+    if (picker.mode === 'date') {
+      setDateById((prev) => ({ ...prev, [picker.requestId]: dateToIso(value) }));
+    } else {
+      const nextWindow = snapToHourWindow(value);
+      setWindowById((prev) => ({ ...prev, [picker.requestId]: { start: nextWindow.start, end: nextWindow.end } }));
+    }
+    if (Platform.OS !== 'ios') setPicker(null);
+  };
+
   const rows = useMemo(() => requests.data?.items ?? [], [requests.data?.items]);
 
   if (!canManage) {
@@ -122,7 +180,10 @@ export default function ServiceRequestsAdminScreen() {
         const notesText = notesById[r.id] ?? (r.owner_notes ?? '');
         const dateText = dateById[r.id] ?? '';
         const selectedWindow = windowById[r.id] ?? null;
-        const alreadyScheduled = Boolean((r as any).appointment_id);
+        const alreadyScheduled = Boolean(r.appointment_id);
+        const selectedWindowLabel = selectedWindow
+          ? `${formatHourLabel(Number(selectedWindow.start.slice(0, 2)))} – ${formatHourLabel(Number(selectedWindow.end.slice(0, 2)))}`
+          : null;
         return (
           <Card key={r.id}>
             <View style={styles.rowHeader}>
@@ -136,7 +197,7 @@ export default function ServiceRequestsAdminScreen() {
             <Text style={styles.desc}>{r.description}</Text>
             {alreadyScheduled ? (
               <Text style={styles.scheduledBanner}>
-                Visit scheduled: {fmtDate((r as any).scheduled_date)} · {String((r as any).window_start ?? '').slice(0, 5)}–{String((r as any).window_end ?? '').slice(0, 5)}
+                Visit scheduled: {fmtDate(r.scheduled_date)} · {String(r.window_start ?? '').slice(0, 5)}–{String(r.window_end ?? '').slice(0, 5)}
               </Text>
             ) : null}
             <TouchableOpacity style={styles.assignBtn} onPress={() => pickTech(r.id)}>
@@ -155,30 +216,17 @@ export default function ServiceRequestsAdminScreen() {
             {quoteText ? <Text style={styles.quotePreview}>Quote: {money(quoteText)}</Text> : null}
             {!alreadyScheduled ? (
               <>
-                <TextInput
-                  style={styles.input}
-                  value={dateText}
-                  onChangeText={(text) => setDateById((prev) => ({ ...prev, [r.id]: text }))}
-                  placeholder="Visit date (YYYY-MM-DD)"
-                  placeholderTextColor={colors.textMuted}
-                  autoCapitalize="none"
-                />
-                <View style={styles.windowRow}>
-                  {TIME_WINDOWS.map((w) => {
-                    const active = selectedWindow?.start === w.start;
-                    return (
-                      <TouchableOpacity
-                        key={w.start}
-                        style={[styles.windowChip, active && styles.windowChipActive]}
-                        onPress={() =>
-                          setWindowById((prev) => ({ ...prev, [r.id]: active ? null : { start: w.start, end: w.end } }))
-                        }
-                      >
-                        <Text style={[styles.windowChipText, active && styles.windowChipTextActive]}>{w.label}</Text>
-                      </TouchableOpacity>
-                    );
-                  })}
+                <View style={styles.pickerRow}>
+                  <TouchableOpacity style={styles.pickerBtn} onPress={() => setPicker({ requestId: r.id, mode: 'date' })}>
+                    <Text style={styles.pickerLabel}>Visit Date</Text>
+                    <Text style={styles.pickerValue}>{dateText ? fmtDate(dateText) : 'Pick a date'}</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity style={styles.pickerBtn} onPress={() => setPicker({ requestId: r.id, mode: 'time' })}>
+                    <Text style={styles.pickerLabel}>Visit Time</Text>
+                    <Text style={styles.pickerValue}>{selectedWindowLabel ?? 'Pick a time'}</Text>
+                  </TouchableOpacity>
                 </View>
+                <Text style={styles.intervalHint}>Time selections snap to 1-hour intervals between 8:00 AM and 6:00 PM.</Text>
               </>
             ) : null}
             <TextInput
@@ -199,6 +247,23 @@ export default function ServiceRequestsAdminScreen() {
       })}
       {requests.isLoading ? <Text style={styles.loading}>Loading requests...</Text> : null}
       {!requests.isLoading && !rows.length ? <Text style={styles.loading}>No service requests yet.</Text> : null}
+      {picker ? (
+        <View style={styles.pickerDock}>
+          <Card>
+            <Text style={styles.pickerDockTitle}>{picker.mode === 'date' ? 'Select visit date' : 'Select visit time'}</Text>
+            <DateTimePicker
+              value={picker.mode === 'date' ? dateFromIso(dateById[picker.requestId]) : timeFromWindow(windowById[picker.requestId]?.start)}
+              mode={picker.mode}
+              display={Platform.OS === 'ios' ? 'spinner' : 'default'}
+              minuteInterval={picker.mode === 'time' ? 30 : 1}
+              onChange={onPickerChange}
+            />
+            {Platform.OS === 'ios' ? (
+              <Button title="Done" onPress={() => setPicker(null)} />
+            ) : null}
+          </Card>
+        </View>
+      ) : null}
     </ScrollView>
   );
 }
@@ -225,17 +290,20 @@ const styles = StyleSheet.create({
   notes: { minHeight: 72, textAlignVertical: 'top' },
   quotePreview: { color: colors.success, fontWeight: '700', marginBottom: 8 },
   scheduledBanner: { color: colors.primaryDark, fontWeight: '800', marginBottom: 8 },
-  windowRow: { flexDirection: 'row', flexWrap: 'wrap', marginBottom: 8, gap: 6 },
-  windowChip: {
+  pickerRow: { flexDirection: 'row', gap: 8, marginBottom: 8 },
+  pickerBtn: {
+    flex: 1,
     borderWidth: 1,
     borderColor: colors.border,
-    borderRadius: 16,
-    paddingVertical: 6,
-    paddingHorizontal: 10,
+    borderRadius: 12,
+    paddingVertical: 10,
+    paddingHorizontal: 12,
     backgroundColor: '#fff',
   },
-  windowChipActive: { borderColor: colors.primary, backgroundColor: '#E8FBF6' },
-  windowChipText: { color: colors.text, fontSize: 12, fontWeight: '700' },
-  windowChipTextActive: { color: colors.primaryDark },
+  pickerLabel: { color: colors.textMuted, fontSize: 11, fontWeight: '700', marginBottom: 3, textTransform: 'uppercase' },
+  pickerValue: { color: colors.text, fontSize: 14, fontWeight: '700' },
+  intervalHint: { color: colors.textMuted, fontSize: 12, marginBottom: 8 },
+  pickerDock: { marginTop: 12 },
+  pickerDockTitle: { color: colors.text, fontSize: 15, fontWeight: '800', marginBottom: 6 },
   loading: { textAlign: 'center', color: colors.textMuted, marginTop: 24 },
 });

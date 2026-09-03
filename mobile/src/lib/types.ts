@@ -241,6 +241,9 @@ export interface CustomerPortalServiceRequest {
   requested_at: string;
   reviewed_at: string | null;
   assigned_technician_id: string | null;
+  scheduled_date?: string | null;
+  window_start?: string | null;
+  window_end?: string | null;
   technician_first_name?: string | null;
   technician_last_name?: string | null;
   files: CustomerPortalServiceRequestFile[];
@@ -259,6 +262,10 @@ export interface OwnerServiceRequest {
   owner_notes: string | null;
   requested_at: string;
   reviewed_at: string | null;
+  appointment_id?: string | null;
+  scheduled_date?: string | null;
+  window_start?: string | null;
+  window_end?: string | null;
   technician_id?: string | null;
   technician_first_name?: string | null;
   technician_last_name?: string | null;

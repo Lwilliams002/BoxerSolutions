@@ -48,7 +48,8 @@
         {
           "locationWhenInUsePermission": "Show your position on the route map."
         }
-      ]
+      ],
+      "@react-native-community/datetimepicker"
     ],
     "scheme": "boxersolutionspestcontrol",
     "splash": {
