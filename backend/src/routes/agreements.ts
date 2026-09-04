@@ -6,6 +6,7 @@ import { asyncHandler } from '../utils/asyncHandler';
 import { ok } from '../utils/http';
 import { config } from '../config';
 import { agreementSigningService } from '../services/agreementSigningService';
+import { logger } from '../utils/logger';
 
 const router = Router();
 
@@ -441,6 +442,7 @@ function payClientScript() {
   var activeSessionToken = null;
   var confirming = false;
   var scriptLoaded = false;
+  var lastCompletion = null;
 
   function setStatus(message) {
     statusEl.textContent = message || '';
@@ -507,7 +509,8 @@ function payClientScript() {
     try {
       var result = await postJson('/api/v1/agreements/sign/pay/confirm', {
         payToken: payToken,
-        sessionToken: activeSessionToken
+        sessionToken: activeSessionToken,
+        completion: lastCompletion || undefined
       });
       showSuccess(result);
     } catch (err) {
@@ -544,7 +547,22 @@ function payClientScript() {
       if (!window.checkout || typeof window.checkout.mount !== 'function' || typeof window.checkout.onPaymentComplete !== 'function') {
         throw new Error('The payment form did not load correctly.');
       }
-      window.checkout.onPaymentComplete(function () { confirmPayment(); });
+      window.checkout.onPaymentComplete(function (payload) {
+        lastCompletion = payload || null;
+        var completionStatus = '';
+        var completionMessage = '';
+        try {
+          var p = payload || {};
+          var inner = p.payload || p.data || p;
+          completionStatus = String(inner.status || p.status || '').toLowerCase();
+          completionMessage = String(inner.message || inner.auth_resp_text || inner.responseText || p.message || '');
+        } catch (_) {}
+        if (completionStatus && ['declined', 'failed', 'error', 'cancelled', 'canceled'].indexOf(completionStatus) !== -1) {
+          showError('The card was declined' + (completionMessage ? ' — ' + completionMessage : '') + '. Please try a different card.');
+          return;
+        }
+        confirmPayment();
+      });
       var rootEl = document.getElementById('checkout-root');
       if (rootEl) rootEl.innerHTML = '';
       await Promise.resolve(window.checkout.mount(activeSessionToken, 'checkout-root'));
@@ -586,7 +604,12 @@ router.post(
     const body = z.object({
       payToken: z.string().min(20),
       sessionToken: z.string().min(10),
+      completion: z.unknown().optional(),
     }).parse(req.body);
+    if (body.completion !== undefined) {
+      // North's onPaymentComplete payload — logged for decline diagnostics.
+      logger.info({ northCompletionPayload: body.completion }, 'agreement pay onPaymentComplete payload');
+    }
     const result = await agreementSigningService.confirmInitialPayment(body.payToken, body.sessionToken);
     ok(res, result, result.duplicate ? 'Payment already recorded' : 'Payment recorded', 201);
   }),
@@ -781,7 +804,7 @@ router.post(
       <p style="color:#30433F;line-height:1.5;">${message}</p>
       ${paymentSection}
     </div>
-    ${paymentToken ? '<script src="/api/v1/agreements/sign/pay/client.js?v=4"></script>' : ''}
+    ${paymentToken ? '<script src="/api/v1/agreements/sign/pay/client.js?v=5"></script>' : ''}
   </body>
 </html>`);
   }),

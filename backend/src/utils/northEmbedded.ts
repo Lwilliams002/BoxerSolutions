@@ -103,7 +103,7 @@ export interface ApprovedNorthSession {
  */
 export async function waitForApprovedNorthSession(sessionToken: string): Promise<ApprovedNorthSession> {
   await new Promise((resolve) => setTimeout(resolve, 5_000));
-  const deadline = Date.now() + 30_000;
+  const deadline = Date.now() + 45_000;
   let sessionStatus = await northGatewayService.getEmbeddedSessionStatus(sessionToken);
   let statusData = asRecord(sessionStatus.data) ?? sessionStatus;
   let status = String(statusData.status ?? '').toLowerCase();
@@ -114,7 +114,19 @@ export async function waitForApprovedNorthSession(sessionToken: string): Promise
     status = String(statusData.status ?? '').toLowerCase();
   }
   if (status !== 'approved') {
-    throw new ApiError(409, `North checkout session is ${status || 'not approved'}.`);
+    // "verified"/"active"/"open" mean the session is valid but no approved
+    // transaction was registered — typically a processor decline inside the
+    // checkout iframe, or the payment was never submitted.
+    if (['declined', 'failed', 'error'].includes(status)) {
+      throw new ApiError(402, 'The card was declined by the payment processor. Please try a different card.');
+    }
+    if (['expired', 'cancelled', 'canceled'].includes(status)) {
+      throw new ApiError(409, 'The checkout session has expired or was cancelled. Please reload the page and try again.');
+    }
+    throw new ApiError(
+      409,
+      `The payment has not completed (North session status: ${status || 'unknown'}). If the card was declined in the payment form, please try again with a different card.`,
+    );
   }
 
   const responseBody = asRecord(statusData.body) ?? asRecord(sessionStatus.body);
