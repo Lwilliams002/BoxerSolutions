@@ -8,7 +8,7 @@ import { invoiceService } from './invoiceService';
 import { paymentService } from './paymentService';
 import { recurringChargeService } from './recurringChargeService';
 import { northGatewayService } from './northGatewayService';
-import { waitForApprovedNorthSession, extractNorthCardOnFile } from '../utils/northEmbedded';
+import { waitForNorthStorageResult } from '../utils/northEmbedded';
 import { logger } from '../utils/logger';
 
 const SIGNING_TOKEN_TTL_SECONDS = 60 * 60 * 24 * 7;
@@ -703,6 +703,13 @@ export const agreementSigningService = {
     };
   },
 
+  /**
+   * Creates the Embedded Checkout session for the post-signing initial
+   * payment. Per EPX guidance this uses a Fields/STORAGE session: the card is
+   * tokenized in the browser (BRIC), then the sale is executed server-side via
+   * POST /api/payments/token/sale — giving us EPX's real approval/decline
+   * response and saving the card on file for AutoPay/recurring in one step.
+   */
   async createInitialPaymentSession(paymentToken: string) {
     const payload = parseInitialPaymentToken(paymentToken);
     const { rows } = await pool.query(
@@ -726,15 +733,17 @@ export const agreementSigningService = {
     if (invoice.status === 'void') throw ApiError.badRequest('This invoice has been voided.');
     const amount = Number((Number(invoice.total) - Number(invoice.amount_paid)).toFixed(2));
     if (amount <= 0) throw ApiError.badRequest('This invoice has already been paid.');
+    // STORAGE (Fields) session — amount 0, no charge happens in the browser.
+    // No additionalFields: North's sessions endpoint 500s on invalid prefill
+    // values, and the form collects what it needs.
     const sessionToken = await northGatewayService.createEmbeddedSession({
-      amount,
-      orderId: invoice.invoice_number,
+      amount: 0,
+      transactionType: 'STORAGE',
       customerEmail: invoice.customer_email,
-      products: [{ name: 'Initial service agreement charge', quantity: 1, price: amount }],
     });
     return {
       sessionToken,
-      checkoutId: config.north.embeddedCheckoutId,
+      checkoutId: config.north.embeddedFieldsCheckoutId || config.north.embeddedCheckoutId,
       scriptUrl: `${config.north.embeddedBaseUrl}/checkout.js`,
       amount,
       invoiceNumber: invoice.invoice_number,
@@ -743,7 +752,7 @@ export const agreementSigningService = {
 
   async getInitialPaymentStatus(paymentToken: string, northSessionToken: string) {
     const payload = parseInitialPaymentToken(paymentToken);
-    const sessionStatus = await northGatewayService.getEmbeddedSessionStatus(northSessionToken);
+    const sessionStatus = await northGatewayService.getEmbeddedSessionStatus(northSessionToken, 'storage');
     const statusData = (sessionStatus.data && typeof sessionStatus.data === 'object'
       ? sessionStatus.data as Record<string, unknown>
       : sessionStatus) as Record<string, unknown>;
@@ -762,58 +771,59 @@ export const agreementSigningService = {
     if (!ownerUserId) {
       throw ApiError.badRequest('Owner account not available to record the initial payment.');
     }
-    const approved = await waitForApprovedNorthSession(northSessionToken);
-    const recorded = await paymentService.recordExternalInvoicePayment(
-      payload.invoiceId,
-      approved.amount,
-      'north_embedded',
-      approved.transactionId,
+
+    // 1. The STORAGE session tokenized the card — collect the BRIC + metadata.
+    const stored = await waitForNorthStorageResult(northSessionToken);
+
+    // 2. Save the card on file (idempotent — re-confirming reuses the method).
+    const method = (await paymentService.addVaultedMethod(
+      payload.customerId,
+      {
+        providerPaymentMethodId: stored.bric,
+        provider: 'north',
+        brand: stored.brand,
+        last4: stored.last4,
+        expirationMonth: stored.expirationMonth,
+        expirationYear: stored.expirationYear,
+      },
+      true,
       ownerUserId,
-      null,
-    );
+    )) as { id?: string };
+    if (!method.id) throw ApiError.badRequest('The card could not be saved on file.');
 
-    // Save the card the customer just used on file (BRIC token) so future
-    // recurring/AutoPay charges can run against it. The card data itself never
-    // touches our servers — only the token + display metadata. Best effort:
-    // a vaulting hiccup must not fail the recorded payment.
-    let savedCard: { brand: string; last4: string | null } | null = null;
+    // 3. Charge the initial invoice via the EPX token sale (CIT — the customer
+    //    is initiating this payment, so no aci_ext per EPX guidance).
     try {
-      const card = extractNorthCardOnFile(approved.sessionStatus);
-      if (card) {
-        await paymentService.addVaultedMethod(
-          payload.customerId,
-          {
-            providerPaymentMethodId: card.bric,
-            provider: 'north',
-            brand: card.brand,
-            last4: card.last4,
-            expirationMonth: card.expirationMonth,
-            expirationYear: card.expirationYear,
-          },
-          true,
-          ownerUserId,
-        );
-        savedCard = { brand: card.brand, last4: card.last4 };
-      } else {
-        logger.warn(
-          { customerId: payload.customerId, invoiceId: payload.invoiceId },
-          'agreement initial payment approved but session had no BRIC to store on file',
-        );
-      }
-    } catch (error) {
-      logger.warn(
-        { err: error, customerId: payload.customerId, invoiceId: payload.invoiceId },
-        'failed to store agreement payment card on file',
+      const result = await paymentService.chargeInvoice(
+        payload.invoiceId,
+        method.id,
+        null,
+        ownerUserId,
+        null,
+        { source: 'manual', mit: false },
       );
+      return {
+        status: 'approved' as const,
+        amount: result.receipt.amount,
+        transactionId: result.receipt.transactionId,
+        duplicate: false,
+        receipt: result.receipt,
+        savedCard: { brand: stored.brand, last4: stored.last4 },
+      };
+    } catch (error) {
+      // Re-confirming after a successful charge: report as duplicate instead
+      // of failing the thank-you page.
+      if (error instanceof ApiError && /already paid/i.test(error.message)) {
+        return {
+          status: 'approved' as const,
+          amount: null,
+          transactionId: null,
+          duplicate: true,
+          receipt: null,
+          savedCard: { brand: stored.brand, last4: stored.last4 },
+        };
+      }
+      throw error;
     }
-
-    return {
-      status: 'approved' as const,
-      amount: approved.amount,
-      transactionId: approved.transactionId,
-      duplicate: recorded.duplicate ?? false,
-      receipt: recorded.receipt,
-      savedCard,
-    };
   },
 };

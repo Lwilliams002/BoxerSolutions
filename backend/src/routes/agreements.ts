@@ -433,6 +433,7 @@ function payClientScript() {
   var statusEl = document.getElementById('payStatus');
   var errorEl = document.getElementById('payError');
   var retryBtn = document.getElementById('payRetry');
+  var payBtn = document.getElementById('payNow');
   var checkoutWrap = document.getElementById('checkoutWrap');
   var successEl = document.getElementById('paySuccess');
   var successDetailEl = document.getElementById('paySuccessDetail');
@@ -441,6 +442,7 @@ function payClientScript() {
   var payToken = String(payTokenEl.value || '');
   var activeSessionToken = null;
   var confirming = false;
+  var submitting = false;
   var scriptLoaded = false;
   var lastCompletion = null;
 
@@ -451,6 +453,8 @@ function payClientScript() {
 
   function showError(message) {
     setStatus('');
+    submitting = false;
+    if (payBtn) payBtn.disabled = false;
     errorEl.textContent = message || 'Unable to process the payment.';
     errorEl.style.display = 'block';
     if (retryBtn) retryBtn.style.display = 'inline-block';
@@ -465,6 +469,7 @@ function payClientScript() {
     setStatus('');
     clearError();
     checkoutWrap.style.display = 'none';
+    if (payBtn) payBtn.style.display = 'none';
     successEl.style.display = 'block';
     if (successDetailEl) {
       var parts = [];
@@ -505,7 +510,7 @@ function payClientScript() {
     if (confirming || !activeSessionToken) return;
     confirming = true;
     clearError();
-    setStatus('Verifying your payment… This can take a few seconds.');
+    setStatus('Processing your payment… This can take a few seconds.');
     try {
       var result = await postJson('/api/v1/agreements/sign/pay/confirm', {
         payToken: payToken,
@@ -515,30 +520,13 @@ function payClientScript() {
       showSuccess(result);
     } catch (err) {
       confirming = false;
-      showError(err && err.message ? err.message : 'We could not verify the payment. Please try again.');
+      showError(err && err.message ? err.message : 'We could not process the payment. Please try again.');
     }
-  }
-
-  var statusPolls = 0;
-  function pollStatus() {
-    // Diagnostic + resilience: record North's session state server-side and
-    // recover if onPaymentComplete never fires but the payment was approved.
-    if (confirming || !activeSessionToken || statusPolls >= 40) return;
-    statusPolls += 1;
-    postJson('/api/v1/agreements/sign/pay/status', {
-      payToken: payToken,
-      sessionToken: activeSessionToken
-    }).then(function (data) {
-      var s = String((data && data.status) || '').toLowerCase();
-      if (s === 'approved') { confirmPayment(); return; }
-      setTimeout(pollStatus, 15000);
-    }).catch(function () {
-      setTimeout(pollStatus, 15000);
-    });
   }
 
   async function startCheckout() {
     clearError();
+    if (payBtn) payBtn.disabled = true;
     setStatus('Loading secure payment form…');
     try {
       var session = await postJson('/api/v1/agreements/sign/pay/session', { payToken: payToken });
@@ -549,33 +537,49 @@ function payClientScript() {
       }
       window.checkout.onPaymentComplete(function (payload) {
         lastCompletion = payload || null;
-        var completionStatus = '';
-        var completionMessage = '';
-        try {
-          var p = payload || {};
-          var inner = p.payload || p.data || p;
-          completionStatus = String(inner.status || p.status || '').toLowerCase();
-          completionMessage = String(inner.message || inner.auth_resp_text || inner.responseText || p.message || '');
-        } catch (_) {}
-        if (completionStatus && ['declined', 'failed', 'error', 'cancelled', 'canceled'].indexOf(completionStatus) !== -1) {
-          showError('The card was declined' + (completionMessage ? ' — ' + completionMessage : '') + '. Please try a different card.');
-          return;
-        }
         confirmPayment();
       });
       var rootEl = document.getElementById('checkout-root');
       if (rootEl) rootEl.innerHTML = '';
       await Promise.resolve(window.checkout.mount(activeSessionToken, 'checkout-root'));
       setStatus('');
-      setTimeout(pollStatus, 20000);
+      if (payBtn) { payBtn.disabled = false; payBtn.style.display = 'inline-block'; }
     } catch (err) {
       showError(err && err.message ? err.message : 'Unable to start the payment.');
     }
   }
 
+  // Fields-type checkouts render card inputs only — submission is triggered by
+  // our own Pay button via checkout.submit(); onPaymentComplete fires after.
+  async function submitPayment() {
+    if (submitting || confirming || !activeSessionToken) return;
+    submitting = true;
+    clearError();
+    if (payBtn) payBtn.disabled = true;
+    setStatus('Securing your card details…');
+    try {
+      if (!window.checkout || typeof window.checkout.submit !== 'function') {
+        throw new Error('The payment form is not ready.');
+      }
+      await Promise.resolve(window.checkout.submit());
+      // If validation errors keep the form open, re-enable the button.
+      setTimeout(function () {
+        if (!confirming) {
+          submitting = false;
+          if (payBtn) payBtn.disabled = false;
+          setStatus('');
+        }
+      }, 8000);
+    } catch (err) {
+      showError(err && err.message ? err.message : 'Card details could not be submitted.');
+    }
+  }
+
+  if (payBtn) payBtn.addEventListener('click', submitPayment);
   if (retryBtn) {
     retryBtn.addEventListener('click', function () {
       confirming = false;
+      submitting = false;
       startCheckout();
     });
   }
@@ -742,15 +746,16 @@ router.post(
       <div style="margin-top:16px;border-top:1px solid #D5EDE9;padding-top:14px;">
         <h3 style="margin:0 0 6px 0;color:#0D0D0D;font-size:16px;">Pay Your Initial Service Charge</h3>
         <p style="margin:0 0 10px 0;color:#30433F;font-size:14px;">
-          To complete your agreement, please pay your initial service charge${amountDue != null ? ` of <strong>${money(Number(amountDue))}</strong>` : ''} using the secure payment form below. Your invoice has been added to your account.
+          To complete your agreement, enter your card below and press Pay${amountDue != null ? ` <strong>${money(Number(amountDue))}</strong>` : ''}. Your card is tokenized securely by our payment processor — the number never touches our systems — and it will be saved on file for your recurring service charges.
         </p>
         <input id="payToken" type="hidden" value="${htmlEscape(paymentToken)}" />
         <p id="payStatus" style="color:#607D78;font-size:14px;margin:10px 0;">Loading secure payment form…</p>
         <p id="payError" style="color:#B3261E;font-size:14px;margin:10px 0;display:none;"></p>
         <button type="button" id="payRetry" style="display:none;margin:0 0 12px 0;padding:8px 12px;border:1px solid #CBD7D4;border-radius:8px;background:#fff;cursor:pointer;">Try Again</button>
         <div id="checkoutWrap" style="border:1px solid #D5EDE9;border-radius:14px;background:#fff;padding:12px;">
-          <div id="checkout-root" style="width:100%;min-height:760px;background:#FFFFFF;"></div>
+          <div id="checkout-root" style="width:100%;min-height:520px;background:#FFFFFF;"></div>
         </div>
+        <button type="button" id="payNow" disabled style="display:inline-block;margin-top:12px;padding:12px 18px;background:#2DC4A2;color:#0D0D0D;border:none;border-radius:8px;font-weight:700;font-size:15px;cursor:pointer;">Pay ${amountDue != null ? money(Number(amountDue)) : 'Now'}</button>
         <div id="paySuccess" style="display:none;border:1px solid #BFE8DF;background:#EAF8F5;border-radius:10px;padding:14px;">
           <h3 style="margin:0 0 6px 0;color:#0D0D0D;font-size:15px;">Payment received — thank you!</h3>
           <p style="margin:0;color:#30433F;font-size:13px;">Your initial service charge has been paid and your payment method was securely saved on file for future service charges. A copy of the invoice and receipt is available in your account.</p>
@@ -796,7 +801,7 @@ router.post(
       .send(`<!doctype html>
 <html>
   <head><meta charset="utf-8"/><meta name="viewport" content="width=device-width, initial-scale=1"/><title>${title}</title><style>
-    #checkout-root iframe { width: 100% !important; min-height: 760px; border: 0; display: block; }
+    #checkout-root iframe { width: 100% !important; min-height: 520px; border: 0; display: block; }
   </style></head>
   <body style="font-family:Arial,sans-serif;background:#F5FAF8;padding:24px;">
     <div style="max-width:620px;margin:0 auto;background:#fff;border:1px solid #D5EDE9;border-radius:12px;padding:20px;">
@@ -804,7 +809,7 @@ router.post(
       <p style="color:#30433F;line-height:1.5;">${message}</p>
       ${paymentSection}
     </div>
-    ${paymentToken ? '<script src="/api/v1/agreements/sign/pay/client.js?v=5"></script>' : ''}
+    ${paymentToken ? '<script src="/api/v1/agreements/sign/pay/client.js?v=6"></script>' : ''}
   </body>
 </html>`);
   }),
