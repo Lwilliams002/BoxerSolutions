@@ -8,7 +8,7 @@ import { invoiceService } from './invoiceService';
 import { paymentService } from './paymentService';
 import { recurringChargeService } from './recurringChargeService';
 import { northGatewayService } from './northGatewayService';
-import { waitForApprovedNorthSession } from '../utils/northEmbedded';
+import { waitForApprovedNorthSession, extractNorthCardOnFile } from '../utils/northEmbedded';
 import { logger } from '../utils/logger';
 
 const SIGNING_TOKEN_TTL_SECONDS = 60 * 60 * 24 * 7;
@@ -771,12 +771,49 @@ export const agreementSigningService = {
       ownerUserId,
       null,
     );
+
+    // Save the card the customer just used on file (BRIC token) so future
+    // recurring/AutoPay charges can run against it. The card data itself never
+    // touches our servers — only the token + display metadata. Best effort:
+    // a vaulting hiccup must not fail the recorded payment.
+    let savedCard: { brand: string; last4: string | null } | null = null;
+    try {
+      const card = extractNorthCardOnFile(approved.sessionStatus);
+      if (card) {
+        await paymentService.addVaultedMethod(
+          payload.customerId,
+          {
+            providerPaymentMethodId: card.bric,
+            provider: 'north',
+            brand: card.brand,
+            last4: card.last4,
+            expirationMonth: card.expirationMonth,
+            expirationYear: card.expirationYear,
+          },
+          true,
+          ownerUserId,
+        );
+        savedCard = { brand: card.brand, last4: card.last4 };
+      } else {
+        logger.warn(
+          { customerId: payload.customerId, invoiceId: payload.invoiceId },
+          'agreement initial payment approved but session had no BRIC to store on file',
+        );
+      }
+    } catch (error) {
+      logger.warn(
+        { err: error, customerId: payload.customerId, invoiceId: payload.invoiceId },
+        'failed to store agreement payment card on file',
+      );
+    }
+
     return {
       status: 'approved' as const,
       amount: approved.amount,
       transactionId: approved.transactionId,
       duplicate: recorded.duplicate ?? false,
       receipt: recorded.receipt,
+      savedCard,
     };
   },
 };

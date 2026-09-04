@@ -15,7 +15,7 @@ import { northGatewayService } from '../services/northGatewayService';
 import { ApiError } from '../utils/errors';
 import { notifications } from '../integrations/notifications';
 import { logger } from '../utils/logger';
-import { waitForApprovedNorthSession, waitForNorthStorageResult } from '../utils/northEmbedded';
+import { waitForApprovedNorthSession, waitForNorthStorageResult, extractNorthCardOnFile } from '../utils/northEmbedded';
 
 const router = Router();
 
@@ -180,12 +180,43 @@ router.post(
       req.user!.id,
       req.user!.employeeId,
     );
+
+    // Save the card used at checkout on file (BRIC token) so it can be reused
+    // for AutoPay / recurring billing. Best effort — never fails the payment.
+    let savedCard: { brand: string; last4: string | null } | null = null;
+    try {
+      const card = extractNorthCardOnFile(approved.sessionStatus);
+      if (card) {
+        const invCust = await pool.query('SELECT customer_id FROM invoices WHERE id = $1', [body.invoiceId]);
+        const customerId = invCust.rows[0]?.customer_id as string | undefined;
+        if (customerId) {
+          await paymentService.addVaultedMethod(
+            customerId,
+            {
+              providerPaymentMethodId: card.bric,
+              provider: 'north',
+              brand: card.brand,
+              last4: card.last4,
+              expirationMonth: card.expirationMonth,
+              expirationYear: card.expirationYear,
+            },
+            true,
+            req.user!.id,
+          );
+          savedCard = { brand: card.brand, last4: card.last4 };
+        }
+      }
+    } catch (error) {
+      logger.warn({ err: error, invoiceId: body.invoiceId }, 'failed to store embedded checkout card on file');
+    }
+
     ok(res, {
       status: 'approved',
       transactionId,
       amount: approvedAmount,
       payment: recorded.payment,
       duplicate: recorded.duplicate,
+      savedCard,
     }, recorded.duplicate ? 'North payment already recorded' : 'North payment recorded', 201);
   }),
 );

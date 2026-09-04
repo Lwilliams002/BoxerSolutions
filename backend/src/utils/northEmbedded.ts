@@ -150,29 +150,23 @@ function pickString(...candidates: unknown[]): string | null {
   return (found as string | undefined)?.trim() ?? null;
 }
 
-/**
- * Waits for an Embedded Checkout STORAGE session to complete and extracts the
- * BRIC (stored payment token) plus display metadata. The BRIC is returned by
- * EPX as AUTH_GUID on storage transactions.
- */
-export async function waitForNorthStorageResult(sessionToken: string): Promise<NorthStorageResult> {
-  await new Promise((resolve) => setTimeout(resolve, 5_000));
-  const deadline = Date.now() + 30_000;
-  let sessionStatus = await northGatewayService.getEmbeddedSessionStatus(sessionToken, 'storage');
-  let statusData = asRecord(sessionStatus.data) ?? sessionStatus;
-  let status = String(statusData.status ?? '').toLowerCase();
-  while (!['approved', 'completed', 'complete', 'success'].includes(status)
-    && !['declined', 'failed', 'error', 'expired', 'cancelled', 'canceled'].includes(status)
-    && Date.now() < deadline) {
-    await new Promise((resolve) => setTimeout(resolve, 3_000));
-    sessionStatus = await northGatewayService.getEmbeddedSessionStatus(sessionToken, 'storage');
-    statusData = asRecord(sessionStatus.data) ?? sessionStatus;
-    status = String(statusData.status ?? '').toLowerCase();
-  }
-  if (!['approved', 'completed', 'complete', 'success'].includes(status)) {
-    throw new ApiError(409, `North storage session is ${status || 'not complete'}.`);
-  }
+export interface NorthCardOnFile {
+  bric: string;
+  brand: string;
+  last4: string | null;
+  expirationMonth: number | null;
+  expirationYear: number | null;
+}
 
+/**
+ * Extracts the BRIC (stored payment token) and card display metadata from an
+ * Embedded Checkout session status payload. Works for both STORAGE sessions
+ * and approved SALE sessions — EPX returns the BRIC as AUTH_GUID on both, and
+ * a sale AUTH_GUID is reusable as a token for subsequent token transactions
+ * (card on file / AutoPay). Returns null when no BRIC is present.
+ */
+export function extractNorthCardOnFile(sessionStatus: Record<string, unknown>): NorthCardOnFile | null {
+  const statusData = asRecord(sessionStatus.data) ?? sessionStatus;
   const body = asRecord(statusData.body) ?? asRecord(sessionStatus.body);
   const fullResponse = body ? asRecord(body.fullResponse) : null;
   const bric = pickString(
@@ -181,9 +175,7 @@ export async function waitForNorthStorageResult(sessionToken: string): Promise<N
     fullResponse?.BRIC, fullResponse?.bric, fullResponse?.AUTH_GUID, fullResponse?.auth_guid,
     statusData.bric, statusData.token,
   );
-  if (!bric) {
-    throw new ApiError(502, 'North storage response did not include a BRIC token.');
-  }
+  if (!bric) return null;
 
   // EPX AUTH_CARD_TYPE is a single-letter code.
   const CARD_TYPE_NAMES: Record<string, string> = {
@@ -225,6 +217,36 @@ export async function waitForNorthStorageResult(sessionToken: string): Promise<N
       }
     }
   }
-  return { bric, brand, last4, expirationMonth, expirationYear, sessionStatus };
+  return { bric, brand, last4, expirationMonth, expirationYear };
+}
+
+/**
+ * Waits for an Embedded Checkout STORAGE session to complete and extracts the
+ * BRIC (stored payment token) plus display metadata. The BRIC is returned by
+ * EPX as AUTH_GUID on storage transactions.
+ */
+export async function waitForNorthStorageResult(sessionToken: string): Promise<NorthStorageResult> {
+  await new Promise((resolve) => setTimeout(resolve, 5_000));
+  const deadline = Date.now() + 30_000;
+  let sessionStatus = await northGatewayService.getEmbeddedSessionStatus(sessionToken, 'storage');
+  let statusData = asRecord(sessionStatus.data) ?? sessionStatus;
+  let status = String(statusData.status ?? '').toLowerCase();
+  while (!['approved', 'completed', 'complete', 'success'].includes(status)
+    && !['declined', 'failed', 'error', 'expired', 'cancelled', 'canceled'].includes(status)
+    && Date.now() < deadline) {
+    await new Promise((resolve) => setTimeout(resolve, 3_000));
+    sessionStatus = await northGatewayService.getEmbeddedSessionStatus(sessionToken, 'storage');
+    statusData = asRecord(sessionStatus.data) ?? sessionStatus;
+    status = String(statusData.status ?? '').toLowerCase();
+  }
+  if (!['approved', 'completed', 'complete', 'success'].includes(status)) {
+    throw new ApiError(409, `North storage session is ${status || 'not complete'}.`);
+  }
+
+  const card = extractNorthCardOnFile(sessionStatus);
+  if (!card) {
+    throw new ApiError(502, 'North storage response did not include a BRIC token.');
+  }
+  return { ...card, sessionStatus };
 }
 

@@ -3,11 +3,9 @@ import { View, Text, ScrollView, StyleSheet, TouchableOpacity, Alert, TextInput,
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { api, newIdempotencyKey } from '../../src/lib/api';
-import { confirmAction } from '../../src/lib/confirm';
 import { useAuth } from '../../src/lib/authStore';
 import { colors, money, fmtDate, fmtTime } from '../../src/lib/theme';
 import { Card, Button, StatusBadge, Loading, Row, Value, Label, EmptyState } from '../../src/components/ui';
-import { AddPaymentMethodModal } from '../../src/components/AddPaymentMethodModal';
 
 const TABS = ['Overview', 'Plan', 'Appointments', 'Invoices', 'Payments', 'Comms', 'Notes', 'Documents', 'Payment Methods', 'History'] as const;
 type Tab = (typeof TABS)[number];
@@ -31,7 +29,6 @@ export default function CustomerScreen() {
   const hasPermission = useAuth((s) => s.hasPermission);
   const [tab, setTab] = useState<Tab>(TABS.includes(tabParam as Tab) ? (tabParam as Tab) : 'Overview');
   const [noteText, setNoteText] = useState('');
-  const [showAddCard, setShowAddCard] = useState(promptInitialCharge === '1' && !!initialInvoiceId);
   const [busy, setBusy] = useState(false);
   const [customInvoiceDescription, setCustomInvoiceDescription] = useState('Additional service');
   const [customInvoiceAmount, setCustomInvoiceAmount] = useState('');
@@ -127,7 +124,7 @@ export default function CustomerScreen() {
     if (!cust.autopayEnabled && !defaultMethod) {
       Alert.alert('Payment method required', 'Add a default payment method before enabling AutoPay.', [
         { text: 'Cancel', style: 'cancel' },
-        { text: 'Add Method', onPress: () => { setTab('Payment Methods'); setShowAddCard(true); } },
+        { text: 'Add Method', onPress: () => { setTab('Payment Methods'); openSaveCard(); } },
       ]);
       return;
     }
@@ -258,47 +255,8 @@ export default function CustomerScreen() {
     );
   };
 
-  const addCard = async (token: string) => {
-    setBusy(true);
-    try {
-      const method = await api<{ id: string }>('/payment-methods', {
-        method: 'POST',
-        body: { customerId: id, token, setDefault: true },
-      });
-      setShowAddCard(false);
-      void qc.invalidateQueries({ queryKey: ['paymentMethods', id] });
-      if (promptInitialCharge === '1' && initialInvoiceId) {
-        try {
-          const result = await api<{ receipt?: { receiptNumber?: string } }>('/payments/charge', {
-            method: 'POST',
-            body: { invoiceId: initialInvoiceId, paymentMethodId: method.id },
-            idempotencyKey: newIdempotencyKey(),
-          });
-          void qc.invalidateQueries({ queryKey: ['customer', id] });
-          void qc.invalidateQueries({ queryKey: ['customerInvoices', id] });
-          void qc.invalidateQueries({ queryKey: ['customerPayments', id] });
-          void qc.invalidateQueries({ queryKey: ['invoice', initialInvoiceId] });
-          void qc.invalidateQueries({ queryKey: ['invoicePayments', initialInvoiceId] });
-          void qc.invalidateQueries({ queryKey: ['invoices'] });
-          confirmAction({
-            title: 'Payment method saved and charged',
-            message: `Payment was collected${result.receipt?.receiptNumber ? ` (receipt ${result.receipt.receiptNumber})` : ''} and this payment method is now on file for future charges.`,
-            confirmText: 'View Invoice',
-            onConfirm: () => router.replace(`/invoice/${initialInvoiceId}`),
-          });
-          return;
-        } catch (e) {
-          Alert.alert(
-            'Payment method saved',
-            `The payment method was saved, but the charge could not be completed: ${(e as Error).message}\n\nYou can retry from the invoice using the saved method.`,
-          );
-        }
-      }
-    } catch (e) {
-      Alert.alert('Error', (e as Error).message);
-    } finally {
-      setBusy(false);
-    }
+  const openSaveCard = () => {
+    router.push({ pathname: '/customer/save-card', params: { customerId: id } });
   };
 
   const setDefault = async (methodId: string) => {
@@ -762,14 +720,11 @@ export default function CustomerScreen() {
               </Card>
             ))}
             {canCollectPaymentInfo && (
-              <>
-                <Button
-                  title="Save Card via Secure Checkout"
-                  variant="success"
-                  onPress={() => router.push({ pathname: '/customer/save-card', params: { customerId: id } })}
-                />
-                <Button title="+ Add Payment Method" variant="outline" onPress={() => setShowAddCard(true)} />
-              </>
+              <Button
+                title="Save Card via Secure Checkout"
+                variant="success"
+                onPress={openSaveCard}
+              />
             )}
             {(methods ?? []).length === 0 && !(promptPayment === '1') && (
               <EmptyState title="No payment methods" subtitle="Add a card to enable payment collection and AutoPay." />
@@ -848,12 +803,6 @@ export default function CustomerScreen() {
             </>
           )}
       </ScrollView>
-      <AddPaymentMethodModal
-        visible={showAddCard}
-        saving={busy}
-        onClose={() => setShowAddCard(false)}
-        onSubmit={addCard}
-      />
     </View>
   );
 }

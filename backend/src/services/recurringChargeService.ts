@@ -117,7 +117,9 @@ export const recurringChargeService = {
     }
 
     try {
-      const result = await paymentService.chargeInvoice(invoiceId, methodId, null, userId, null);
+      // Recurring billing charges are Merchant-Initiated (MIT) — the token
+      // sale includes aci_ext=RB per EPX guidance.
+      const result = await paymentService.chargeInvoice(invoiceId, methodId, null, userId, null, { mit: true });
       await pool.query(
         `UPDATE recurring_charges
          SET last_charged_invoice_id = $2, last_charged_at = now(), updated_at = now()

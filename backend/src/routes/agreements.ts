@@ -468,6 +468,7 @@ function payClientScript() {
       var parts = [];
       if (result && typeof result.amount === 'number') parts.push('Amount paid: $' + result.amount.toFixed(2));
       if (result && result.receipt && result.receipt.receiptNumber) parts.push('Receipt: ' + result.receipt.receiptNumber);
+      if (result && result.savedCard && result.savedCard.last4) parts.push('Saved on file: ' + (result.savedCard.brand || 'Card') + ' ending in ' + result.savedCard.last4);
       successDetailEl.textContent = parts.join('  ·  ');
     }
   }
@@ -729,7 +730,7 @@ router.post(
         </div>
         <div id="paySuccess" style="display:none;border:1px solid #BFE8DF;background:#EAF8F5;border-radius:10px;padding:14px;">
           <h3 style="margin:0 0 6px 0;color:#0D0D0D;font-size:15px;">Payment received — thank you!</h3>
-          <p style="margin:0;color:#30433F;font-size:13px;">Your initial service charge has been paid. A copy of the invoice and receipt is available in your account.</p>
+          <p style="margin:0;color:#30433F;font-size:13px;">Your initial service charge has been paid and your payment method was securely saved on file for future service charges. A copy of the invoice and receipt is available in your account.</p>
           <p id="paySuccessDetail" style="margin:8px 0 0 0;color:#30433F;font-size:13px;"></p>
         </div>
       </div>`;
@@ -780,7 +781,7 @@ router.post(
       <p style="color:#30433F;line-height:1.5;">${message}</p>
       ${paymentSection}
     </div>
-    ${paymentToken ? '<script src="/api/v1/agreements/sign/pay/client.js?v=3"></script>' : ''}
+    ${paymentToken ? '<script src="/api/v1/agreements/sign/pay/client.js?v=4"></script>' : ''}
   </body>
 </html>`);
   }),

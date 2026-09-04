@@ -23,17 +23,23 @@ export type CheckoutMessage =
   | { type: 'payment-complete'; payload?: { status?: string; transactionId?: string; amount?: number; [key: string]: unknown } }
   | { type: 'checkout-error'; message?: string };
 
-export const NORTH_SANDBOX_TEST_CARDS = [
-  { brand: 'Visa', number: '4111 1111 1111 1111', result: 'Successful transaction' },
-  { brand: 'Amex', number: '3700 000000 00002', result: 'Successful transaction' },
-] as const;
+// Sandbox test-card hints are shown in development builds only — production
+// builds render a clean checkout with no test data.
+export const NORTH_SANDBOX_TEST_CARDS: readonly { brand: string; number: string; result: string }[] = __DEV__
+  ? [
+      { brand: 'Visa', number: '4111 1111 1111 1111', result: 'Successful transaction' },
+      { brand: 'Amex', number: '3700 000000 00002', result: 'Successful transaction' },
+    ]
+  : [];
 
-export const NORTH_SANDBOX_TEST_DETAILS = [
-  'Draft Mode uses North Sandbox automatically.',
-  'Expiration: any future date, e.g. 12/30',
-  'CVV: any 3 digits, or 4 digits for Amex',
-  'ZIP: any 5 digits, e.g. 12345',
-] as const;
+export const NORTH_SANDBOX_TEST_DETAILS: readonly string[] = __DEV__
+  ? [
+      'Draft Mode uses North Sandbox automatically.',
+      'Expiration: any future date, e.g. 12/30',
+      'CVV: any 3 digits, or 4 digits for Amex',
+      'ZIP: any 5 digits, e.g. 12345',
+    ]
+  : [];
 
 export function formatEmbeddedCheckoutError(error: unknown) {
   if (!(error instanceof ApiRequestError)) {

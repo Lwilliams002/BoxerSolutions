@@ -1,6 +1,6 @@
 import { northGatewayService } from '../../services/northGatewayService';
-import { epxServerPostService } from '../../services/epxServerPostService';
-import type { ChargeResult, PaymentProvider, TokenizedPaymentMethod } from './index';
+import { epxEmbeddedPaymentsService } from '../../services/epxEmbeddedPaymentsService';
+import type { ChargeOptions, ChargeResult, PaymentProvider, TokenizedPaymentMethod } from './index';
 
 /**
  * North (Payments Hub) card-on-file provider.
@@ -164,7 +164,7 @@ export class NorthPaymentProvider implements PaymentProvider {
     };
   }
 
-  async charge(providerPaymentMethodId: string, amountCents: number): Promise<ChargeResult> {
+  async charge(providerPaymentMethodId: string, amountCents: number, _currency?: string, _description?: string, options: ChargeOptions = {}): Promise<ChargeResult> {
     if (amountCents <= 0) {
       return { success: false, transactionId: null, failureReason: 'Invalid amount' };
     }
@@ -172,18 +172,19 @@ export class NorthPaymentProvider implements PaymentProvider {
     const paymentMethodID = Number(providerPaymentMethodId);
 
     // Non-numeric ids are BRICs from Embedded Checkout STORAGE — charge them
-    // as a TOKEN SALE via the EPX Server Post API (per North certification,
-    // the Recurring Billing API is unavailable).
+    // as a TOKEN SALE via the Embedded Checkout Payments API
+    // (POST /api/payments/token/sale). Per EPX, Merchant-Initiated (MIT)
+    // transactions include aci_ext (RB); Customer-Initiated (CIT) omit it.
     if (!Number.isInteger(paymentMethodID) || paymentMethodID <= 0) {
-      if (!epxServerPostService.isConfigured()) {
+      if (!epxEmbeddedPaymentsService.isConfigured()) {
         return {
           success: false,
           transactionId: null,
-          failureReason: 'This card is stored as a North BRIC token. Configure EPX Server Post (EPX_CUST_NBR/EPX_MERCH_NBR/EPX_DBA_NBR/EPX_TERMINAL_NBR) to charge it.',
+          failureReason: 'This card is stored as a North BRIC token. Configure North Embedded Checkout (NORTH_EMBEDDED_CHECKOUT_ID/NORTH_EMBEDDED_PROFILE_ID/NORTH_EMBEDDED_PRIVATE_API_KEY) to charge it.',
         };
       }
       try {
-        const result = await epxServerPostService.tokenSale(providerPaymentMethodId, amount);
+        const result = await epxEmbeddedPaymentsService.tokenSale(providerPaymentMethodId, amount, { mit: options.mit === true });
         if (!result.approved) {
           return {
             success: false,
@@ -220,35 +221,65 @@ export class NorthPaymentProvider implements PaymentProvider {
   }
 
   /**
-   * Refunds via North's Gateway Functions transactions endpoint.
+   * Refunds.
    *
-   * North rules: unsettled transactions must be VOIDED (Reversal); settled
-   * transactions must be REFUNDED. We attempt a refund first; if that is
+   * Embedded Checkout (EPX) transactions — identified by a non-numeric
+   * AUTH_GUID — are refunded via PUT /api/payments/refund; if the refund is
    * rejected (typically because the transaction has not settled yet) and the
-   * full amount is being returned, we fall back to a Reversal (Void).
+   * full amount is being returned, we fall back to PUT /api/payments/reversal
+   * (Void).
+   *
+   * North gateway transactions (numeric ids, e.g. "ccs_87654321") continue to
+   * use the Gateway Functions transactions endpoint with the same
+   * refund-then-void strategy.
    */
   async refund(transactionId: string, amountCents: number): Promise<ChargeResult> {
-    // The gateway wants the numeric portion of the transactionUniqueId
-    // (e.g. "ccs_87654321" → 87654321).
-    const numericId = Number(String(transactionId).replace(/^ccs_/i, '').replace(/\D/g, ''));
-    if (!Number.isInteger(numericId) || numericId <= 0) {
-      return {
-        success: false,
-        transactionId: null,
-        failureReason: 'This transaction does not have a North gateway transaction id; issue the refund from the Payments Hub portal.',
-      };
-    }
     if (amountCents <= 0) {
       return { success: false, transactionId: null, failureReason: 'Invalid refund amount' };
     }
     const amount = Number((amountCents / 100).toFixed(2));
 
+    // Embedded Checkout / EPX transaction GUIDs are alphanumeric BRIC-style
+    // strings; North gateway ids are numeric (optionally "ccs_"-prefixed).
+    const gatewayId = Number(String(transactionId).replace(/^ccs_/i, ''));
+    const isGatewayTransaction = Number.isInteger(gatewayId) && gatewayId > 0;
+
+    if (!isGatewayTransaction) {
+      if (!epxEmbeddedPaymentsService.isConfigured()) {
+        return {
+          success: false,
+          transactionId: null,
+          failureReason: 'North Embedded Checkout is not configured; issue the refund from the Payments Hub portal.',
+        };
+      }
+      let refundError: string | null = null;
+      try {
+        const res = await epxEmbeddedPaymentsService.refund(transactionId, amount);
+        if (res.approved) {
+          return { success: true, transactionId: res.authGuid ?? transactionId, failureReason: null };
+        }
+        refundError = formatNorthFailure(res);
+      } catch (error) {
+        refundError = (error as Error).message || 'North refund request failed.';
+      }
+      // Reversal (Void) fallback — only valid before settlement.
+      try {
+        const res = await epxEmbeddedPaymentsService.reversal(transactionId);
+        if (res.approved) {
+          return { success: true, transactionId: res.authGuid ?? transactionId, failureReason: null };
+        }
+      } catch {
+        // Fall through to report the original refund error.
+      }
+      return { success: false, transactionId: null, failureReason: refundError };
+    }
+
     interface TxActionResponse { refund_id?: number; void_id?: number; status_code?: string; status_message?: string }
     let refundError: string | null = null;
     try {
-      const res = (await northGatewayService.refundTransaction(numericId, amount)) as TxActionResponse | null;
+      const res = (await northGatewayService.refundTransaction(gatewayId, amount)) as TxActionResponse | null;
       if (res?.status_code === '00' || typeof res?.refund_id === 'number') {
-        return { success: true, transactionId: String(res.refund_id ?? numericId), failureReason: null };
+        return { success: true, transactionId: String(res.refund_id ?? gatewayId), failureReason: null };
       }
       refundError = res?.status_message ?? 'Refund was not approved.';
     } catch (error) {
@@ -258,9 +289,9 @@ export class NorthPaymentProvider implements PaymentProvider {
     // Reversal (Void) fallback — only valid for the full transaction amount
     // and only before settlement.
     try {
-      const res = (await northGatewayService.voidTransaction(numericId)) as TxActionResponse | null;
+      const res = (await northGatewayService.voidTransaction(gatewayId)) as TxActionResponse | null;
       if (res?.status_code === '00' || typeof res?.void_id === 'number') {
-        return { success: true, transactionId: String(res.void_id ?? numericId), failureReason: null };
+        return { success: true, transactionId: String(res.void_id ?? gatewayId), failureReason: null };
       }
     } catch {
       // Fall through to report the original refund error.

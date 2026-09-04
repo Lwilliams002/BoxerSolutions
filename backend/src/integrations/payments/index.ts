@@ -21,11 +21,20 @@ export interface ChargeResult {
   failureReason: string | null;
 }
 
+export interface ChargeOptions {
+  /**
+   * Merchant-Initiated Transaction (AutoPay / recurring billing). Per EPX,
+   * MIT token sales must include aci_ext (e.g. RB for Recurring Billing);
+   * Customer-Initiated (CIT) transactions omit it.
+   */
+  mit?: boolean;
+}
+
 export interface PaymentProvider {
   name: string;
   /** Exchange a client-side token for a stored payment method reference. */
   attachPaymentMethod(token: string): Promise<TokenizedPaymentMethod>;
-  charge(providerPaymentMethodId: string, amountCents: number, currency: string, description: string): Promise<ChargeResult>;
+  charge(providerPaymentMethodId: string, amountCents: number, currency: string, description: string, options?: ChargeOptions): Promise<ChargeResult>;
   refund(transactionId: string, amountCents: number): Promise<ChargeResult>;
 }
 

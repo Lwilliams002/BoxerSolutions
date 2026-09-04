@@ -533,15 +533,43 @@ class NorthGatewayService {
     try {
       data = await this.postEmbeddedSession(payload, creds.apiKey);
     } catch (error) {
-      const hasOptionalFields = Boolean(payload.products || payload.orderId || payload.email);
-      if (!hasOptionalFields || isStorage) throw error;
-      data = await this.postEmbeddedSession({
-        checkoutId: creds.checkoutId,
-        profileId: creds.profileId,
-        amount,
-        ...(transactionType ? { transactionType } : {}),
-        ...(payload.additionalFields ? { additionalFields: payload.additionalFields } : {}),
-      }, creds.apiKey);
+      const hasOptionalFields = Boolean(payload.products || payload.orderId || payload.email || payload.additionalFields);
+      if (!hasOptionalFields && !isStorage) throw error;
+      // North's sessions endpoint can 500 on optional fields (products, email,
+      // additionalFields) depending on the checkout configuration — retry with
+      // the minimal payload before giving up. This applies to STORAGE sessions
+      // too: prefill fields are a nicety, a saved card is not.
+      try {
+        data = await this.postEmbeddedSession({
+          checkoutId: creds.checkoutId,
+          profileId: creds.profileId,
+          amount,
+          ...(transactionType ? { transactionType } : {}),
+        }, creds.apiKey);
+      } catch (minimalError) {
+        // Some checkout configurations reject amount 0.00 on STORAGE sessions —
+        // final attempt without the amount field.
+        if (!isStorage || amount > 0) throw minimalError;
+        try {
+          data = await this.postEmbeddedSession({
+            checkoutId: creds.checkoutId,
+            profileId: creds.profileId,
+            transactionType: 'STORAGE',
+          }, creds.apiKey);
+        } catch (finalError) {
+          // STORAGE requires a "Fields"-type checkout. If the dedicated Fields
+          // checkout is not configured we fell back to the main checkout, which
+          // typically 500s on STORAGE — surface an actionable message.
+          if (!config.north.embeddedFieldsCheckoutId || config.north.embeddedFieldsCheckoutId === config.north.embeddedCheckoutId) {
+            throw new ApiError(
+              502,
+              `${(finalError as Error).message} — STORAGE (save card) sessions require a Fields-type Embedded Checkout. Create one in the North portal and set NORTH_EMBEDDED_FIELDS_CHECKOUT_ID, NORTH_EMBEDDED_FIELDS_PROFILE_ID, and NORTH_EMBEDDED_FIELDS_PRIVATE_API_KEY.`,
+              (finalError as ApiError).details,
+            );
+          }
+          throw finalError;
+        }
+      }
     }
     const tokenCandidate = [
       data.sessionToken,

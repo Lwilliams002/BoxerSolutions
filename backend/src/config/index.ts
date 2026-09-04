@@ -67,16 +67,6 @@ export const config = {
     // Raw request/response certification logging (text file North asks for).
     certLogEnabled: (process.env.NORTH_CERT_LOG_ENABLED ?? 'true') === 'true',
     certLogPath: normalizedOptional('NORTH_CERT_LOG_PATH', 'logs/north-cert.log'),
-    // EPX Server Post API — used for BRIC Token Sales (Storage token charging).
-    serverPost: {
-      baseUrl: normalizedOptional('EPX_SERVER_POST_URL', 'https://secure.epxuap.com'),
-      custNbr: normalizedOptional('EPX_CUST_NBR'),
-      merchNbr: normalizedOptional('EPX_MERCH_NBR'),
-      dbaNbr: normalizedOptional('EPX_DBA_NBR'),
-      terminalNbr: normalizedOptional('EPX_TERMINAL_NBR'),
-      // Confirm exact TRAN_TYPE codes with North certification.
-      tranTypeSale: normalizedOptional('EPX_TRAN_TYPE_SALE', 'CCE1'),
-    },
   },
   cognito: {
     employeeAuthEnabled: (process.env.COGNITO_EMPLOYEE_AUTH_ENABLED ?? 'false') === 'true',

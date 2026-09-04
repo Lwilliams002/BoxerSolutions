@@ -205,9 +205,13 @@ export const paymentService = {
     amount: number | null,
     userId: string,
     employeeId: string | null,
-    options: { source?: ChargeSource; sendFailureCommunication?: boolean; autopayAttemptDate?: string } = {},
+    options: { source?: ChargeSource; sendFailureCommunication?: boolean; autopayAttemptDate?: string; mit?: boolean } = {},
   ) {
     const source = options.source ?? 'manual';
+    // Merchant-Initiated (MIT) card-on-file charges (AutoPay / recurring
+    // billing) must include aci_ext=RB per EPX; staff-collected charges with
+    // the customer present are Customer-Initiated (CIT).
+    const mit = options.mit ?? source === 'autopay';
     const attemptDate = options.autopayAttemptDate ?? (source === 'autopay' ? todayIso() : null);
     const invRes = await pool.query(
       `SELECT i.*, c.id AS cust_id FROM invoices i JOIN customers c ON c.id = i.customer_id
@@ -253,6 +257,7 @@ export const paymentService = {
       Math.round(chargeAmount * 100),
       'usd',
       `Invoice ${invoice.invoice_number}`,
+      { mit },
     );
 
     if (!result.success) {

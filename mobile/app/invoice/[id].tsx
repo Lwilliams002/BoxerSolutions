@@ -191,18 +191,13 @@ export default function InvoiceScreen() {
     router.push({ pathname: '/invoice/embedded-checkout', params: { invoiceId: id } });
   };
 
-  // Vault-then-charge: collects new card/bank details, saves them on file for
-  // future charges (AutoPay, repeat billing), then charges this invoice.
-  const payWithNewMethod = () => {
+  // Saves a new card on file via North Embedded Checkout (Fields/STORAGE) —
+  // card details never touch our servers. The saved method can then be
+  // charged for this invoice and future AutoPay/recurring billing.
+  const saveNewMethod = () => {
     router.push({
-      pathname: '/customer/[id]',
-      params: {
-        id: inv!.customerId,
-        tab: 'Payment Methods',
-        promptPayment: '1',
-        promptInitialCharge: '1',
-        initialInvoiceId: id,
-      },
+      pathname: '/customer/save-card',
+      params: { customerId: inv!.customerId },
     });
   };
 
@@ -307,10 +302,7 @@ export default function InvoiceScreen() {
 
       <Button title={inv.pdfFileId ? 'View PDF' : 'Generate PDF'} variant="outline" onPress={openPdf} loading={busy === 'pdf'} />
       {unpaid && (canCollect || hasPermission('payments:write')) ? (
-        <>
-          <Button title="Pay with New Card / Bank (saves on file)" variant="success" onPress={payWithNewMethod} />
-          <Button title="Pay with North Embedded Checkout (one-time)" variant="secondary" onPress={openNorthEmbeddedCheckout} />
-        </>
+        <Button title="Pay with Card (Secure Checkout)" variant="success" onPress={openNorthEmbeddedCheckout} />
       ) : null}
       {canCollect || hasPermission('payments:write') ? (
         <Button title="Create North Payment Link" variant="secondary" onPress={createNorthInvoiceLink} loading={busy === 'north-link'} />
@@ -397,9 +389,9 @@ export default function InvoiceScreen() {
             <Card>
               <Value>No saved payment methods.</Value>
               <Text style={styles.itemMeta}>
-                Use “Pay with New Card / Bank” above to save a payment method and collect this invoice in one step.
+                Save a card securely on file to collect this invoice and enable AutoPay, or use “Pay with Card (Secure Checkout)” above for a one-time payment.
               </Text>
-              <Button title="Add & Charge New Method" variant="success" onPress={payWithNewMethod} />
+              <Button title="Save Card on File" variant="success" onPress={saveNewMethod} />
             </Card>
           )}
         </>
