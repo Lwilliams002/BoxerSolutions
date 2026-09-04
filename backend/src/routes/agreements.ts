@@ -614,7 +614,7 @@ router.post(
       // North's onPaymentComplete payload — logged for decline diagnostics.
       logger.info({ northCompletionPayload: body.completion }, 'agreement pay onPaymentComplete payload');
     }
-    const result = await agreementSigningService.confirmInitialPayment(body.payToken, body.sessionToken);
+    const result = await agreementSigningService.confirmInitialPayment(body.payToken, body.sessionToken, body.completion);
     ok(res, result, result.duplicate ? 'Payment already recorded' : 'Payment recorded', 201);
   }),
 );

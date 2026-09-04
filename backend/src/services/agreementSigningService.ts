@@ -8,7 +8,7 @@ import { invoiceService } from './invoiceService';
 import { paymentService } from './paymentService';
 import { recurringChargeService } from './recurringChargeService';
 import { northGatewayService } from './northGatewayService';
-import { waitForNorthStorageResult } from '../utils/northEmbedded';
+import { asRecord, extractNorthCardOnFile, waitForNorthStorageResult } from '../utils/northEmbedded';
 import { logger } from '../utils/logger';
 
 const SIGNING_TOKEN_TTL_SECONDS = 60 * 60 * 24 * 7;
@@ -765,26 +765,36 @@ export const agreementSigningService = {
     };
   },
 
-  async confirmInitialPayment(paymentToken: string, northSessionToken: string) {
+  async confirmInitialPayment(paymentToken: string, northSessionToken: string, completion?: unknown) {
     const payload = parseInitialPaymentToken(paymentToken);
     const ownerUserId = await getOwnerUserId();
     if (!ownerUserId) {
       throw ApiError.badRequest('Owner account not available to record the initial payment.');
     }
 
-    // 1. The STORAGE session tokenized the card — collect the BRIC + metadata.
-    const stored = await waitForNorthStorageResult(northSessionToken);
+    // Prefer the completion payload from North: it often carries the BRIC/token
+    // directly, which lets us vault and charge without waiting on the status
+    // poll. Fall back to polling the storage session if the completion payload
+    // is missing the token fields.
+    const completionRecord = asRecord(completion);
+    const completionPayload = completionRecord ? (asRecord(completionRecord.payload) ?? asRecord(completionRecord.data) ?? completionRecord) : null;
+    const stored = completionPayload ? extractNorthCardOnFile(completionPayload) : null;
+    const storageResult = stored ? null : await waitForNorthStorageResult(northSessionToken);
+    const card = stored ?? storageResult;
+    if (!card) {
+      throw ApiError.badGateway('North did not return a stored payment token for this checkout.');
+    }
 
     // 2. Save the card on file (idempotent — re-confirming reuses the method).
     const method = (await paymentService.addVaultedMethod(
       payload.customerId,
       {
-        providerPaymentMethodId: stored.bric,
+        providerPaymentMethodId: card.bric,
         provider: 'north',
-        brand: stored.brand,
-        last4: stored.last4,
-        expirationMonth: stored.expirationMonth,
-        expirationYear: stored.expirationYear,
+        brand: card.brand,
+        last4: card.last4,
+        expirationMonth: card.expirationMonth,
+        expirationYear: card.expirationYear,
       },
       true,
       ownerUserId,
@@ -808,7 +818,7 @@ export const agreementSigningService = {
         transactionId: result.receipt.transactionId,
         duplicate: false,
         receipt: result.receipt,
-        savedCard: { brand: stored.brand, last4: stored.last4 },
+        savedCard: { brand: card.brand, last4: card.last4 },
       };
     } catch (error) {
       // Re-confirming after a successful charge: report as duplicate instead
@@ -820,7 +830,7 @@ export const agreementSigningService = {
           transactionId: null,
           duplicate: true,
           receipt: null,
-          savedCard: { brand: stored.brand, last4: stored.last4 },
+          savedCard: { brand: card.brand, last4: card.last4 },
         };
       }
       throw error;
