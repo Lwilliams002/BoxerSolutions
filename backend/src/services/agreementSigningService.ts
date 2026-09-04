@@ -8,7 +8,7 @@ import { invoiceService } from './invoiceService';
 import { paymentService } from './paymentService';
 import { recurringChargeService } from './recurringChargeService';
 import { northGatewayService } from './northGatewayService';
-import { asRecord, extractNorthCardOnFile, waitForNorthStorageResult } from '../utils/northEmbedded';
+import { asRecord, extractNorthCardOnFile, waitForApprovedNorthSession } from '../utils/northEmbedded';
 import { logger } from '../utils/logger';
 
 const SIGNING_TOKEN_TTL_SECONDS = 60 * 60 * 24 * 7;
@@ -705,10 +705,9 @@ export const agreementSigningService = {
 
   /**
    * Creates the Embedded Checkout session for the post-signing initial
-   * payment. Per EPX guidance this uses a Fields/STORAGE session: the card is
-   * tokenized in the browser (BRIC), then the sale is executed server-side via
-   * POST /api/payments/token/sale — giving us EPX's real approval/decline
-   * response and saving the card on file for AutoPay/recurring in one step.
+   * payment. This is a one-time customer-initiated SALE; after approval we
+   * save the approved card token on file so AutoPay/recurring billing can use
+   * it later.
    */
   async createInitialPaymentSession(paymentToken: string) {
     const payload = parseInitialPaymentToken(paymentToken);
@@ -733,17 +732,16 @@ export const agreementSigningService = {
     if (invoice.status === 'void') throw ApiError.badRequest('This invoice has been voided.');
     const amount = Number((Number(invoice.total) - Number(invoice.amount_paid)).toFixed(2));
     if (amount <= 0) throw ApiError.badRequest('This invoice has already been paid.');
-    // STORAGE (Fields) session — amount 0, no charge happens in the browser.
-    // No additionalFields: North's sessions endpoint 500s on invalid prefill
-    // values, and the form collects what it needs.
+    // SALE session — the checkout charges the initial invoice amount.
     const sessionToken = await northGatewayService.createEmbeddedSession({
-      amount: 0,
-      transactionType: 'STORAGE',
+      amount,
+      orderId: invoice.invoice_number,
       customerEmail: invoice.customer_email,
+      products: [{ name: 'Initial service agreement charge', quantity: 1, price: amount }],
     });
     return {
       sessionToken,
-      checkoutId: config.north.embeddedFieldsCheckoutId || config.north.embeddedCheckoutId,
+      checkoutId: config.north.embeddedCheckoutId,
       scriptUrl: `${config.north.embeddedBaseUrl}/checkout.js`,
       amount,
       invoiceNumber: invoice.invoice_number,
@@ -752,7 +750,7 @@ export const agreementSigningService = {
 
   async getInitialPaymentStatus(paymentToken: string, northSessionToken: string) {
     const payload = parseInitialPaymentToken(paymentToken);
-    const sessionStatus = await northGatewayService.getEmbeddedSessionStatus(northSessionToken, 'storage');
+    const sessionStatus = await northGatewayService.getEmbeddedSessionStatus(northSessionToken);
     const statusData = (sessionStatus.data && typeof sessionStatus.data === 'object'
       ? sessionStatus.data as Record<string, unknown>
       : sessionStatus) as Record<string, unknown>;
@@ -772,15 +770,14 @@ export const agreementSigningService = {
       throw ApiError.badRequest('Owner account not available to record the initial payment.');
     }
 
-    // Prefer the completion payload from North: it often carries the BRIC/token
-    // directly, which lets us vault and charge without waiting on the status
-    // poll. Fall back to polling the storage session if the completion payload
-    // is missing the token fields.
+    // Prefer the completion payload from North: it often carries the approved
+    // transaction details directly. Fall back to the approved checkout session
+    // if the completion payload is missing the token fields.
     const completionRecord = asRecord(completion);
     const completionPayload = completionRecord ? (asRecord(completionRecord.payload) ?? asRecord(completionRecord.data) ?? completionRecord) : null;
     const stored = completionPayload ? extractNorthCardOnFile(completionPayload) : null;
-    const storageResult = stored ? null : await waitForNorthStorageResult(northSessionToken);
-    const card = stored ?? storageResult;
+    const approvalResult = stored ? null : await waitForApprovedNorthSession(northSessionToken);
+    const card = stored ?? extractNorthCardOnFile(approvalResult?.sessionStatus ?? {}) ?? null;
     if (!card) {
       throw ApiError.badGateway('North did not return a stored payment token for this checkout.');
     }
