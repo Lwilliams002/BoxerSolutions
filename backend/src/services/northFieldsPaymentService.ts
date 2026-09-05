@@ -161,10 +161,10 @@ async function assertNoPendingBankSession(invoiceId: string) {
   const { rows } = await pool.query(
     `SELECT id FROM north_checkout_sessions
      WHERE invoice_id = $1 AND mode = 'bank' AND confirmed_at IS NULL
-       AND created_at > now() - ($2 || ' minutes')::interval
-       AND created_at < now() - ($3 || ' seconds')::interval
+       AND created_at > now() - ($2::int * interval '1 minute')
+       AND created_at < now() - ($3::int * interval '1 second')
      LIMIT 1`,
-    [invoiceId, String(BANK_SESSION_LOOKBACK_MINUTES), String(BANK_SESSION_GRACE_SECONDS)],
+    [invoiceId, BANK_SESSION_LOOKBACK_MINUTES, BANK_SESSION_GRACE_SECONDS],
   );
   if (rows.length) {
     throw new ApiError(409, 'A bank payment for this invoice was already submitted and is awaiting verification. Please retry verification instead of paying again.');
