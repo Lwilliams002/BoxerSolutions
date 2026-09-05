@@ -184,7 +184,7 @@ export class NorthPaymentProvider implements PaymentProvider {
         };
       }
       try {
-        const result = await epxEmbeddedPaymentsService.tokenSale(providerPaymentMethodId, amount, { mit: options.mit === true });
+        const result = await epxEmbeddedPaymentsService.tokenSale({ authGuid: providerPaymentMethodId, amount, paymentMethod: 'credit', mit: options.mit === true });
         if (!result.approved) {
           return {
             success: false,
@@ -254,7 +254,7 @@ export class NorthPaymentProvider implements PaymentProvider {
       }
       let refundError: string | null = null;
       try {
-        const res = await epxEmbeddedPaymentsService.refund(transactionId, amount);
+        const res = await epxEmbeddedPaymentsService.refund({ authGuid: transactionId, amount, paymentMethod: 'credit' });
         if (res.approved) {
           return { success: true, transactionId: res.authGuid ?? transactionId, failureReason: null };
         }
@@ -264,7 +264,7 @@ export class NorthPaymentProvider implements PaymentProvider {
       }
       // Reversal (Void) fallback — only valid before settlement.
       try {
-        const res = await epxEmbeddedPaymentsService.reversal(transactionId);
+        const res = await epxEmbeddedPaymentsService.reversal({ authGuid: transactionId });
         if (res.approved) {
           return { success: true, transactionId: res.authGuid ?? transactionId, failureReason: null };
         }
