@@ -19,8 +19,10 @@ export function useFieldsCheckout(params: { flow: FieldsFlow; invoiceId?: string
   const [done, setDone] = useState<FieldsConfirmResult | FieldsStoredMethod | null>(null);
   const [sessionKey, setSessionKey] = useState(0);
   const confirmingRef = useRef(false);
+  const requestIdRef = useRef(0);
 
   const startSession = useCallback(async () => {
+    const requestId = ++requestIdRef.current;
     setLoading(true);
     setError(null);
     setSession(null);
@@ -30,16 +32,21 @@ export function useFieldsCheckout(params: { flow: FieldsFlow; invoiceId?: string
       if (params.flow === 'pay') {
         if (!params.invoiceId) throw new Error('Invoice ID is missing.');
         const data = await api<FieldsPaySession>('/payments/north/fields/session', { method: 'POST', body: { invoiceId: params.invoiceId, mode } });
+        if (requestIdRef.current !== requestId) return;
         setSession(data);
       } else {
         if (!params.customerId) throw new Error('Customer ID is missing.');
         const data = await api<FieldsStorageSession>('/payments/north/fields/storage-session', { method: 'POST', body: { customerId: params.customerId } });
+        if (requestIdRef.current !== requestId) return;
         setSession(data);
       }
+      if (requestIdRef.current !== requestId) return;
       setSessionKey((k) => k + 1);
     } catch (e) {
+      if (requestIdRef.current !== requestId) return;
       setError(formatEmbeddedCheckoutError(e));
     } finally {
+      if (requestIdRef.current !== requestId) return;
       setLoading(false);
     }
   }, [params.flow, params.invoiceId, params.customerId, mode]);

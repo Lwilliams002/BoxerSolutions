@@ -42,7 +42,7 @@ export function FieldsCheckoutLayout(p: Props) {
       {isPay ? (
         <View style={styles.tabs}>
           {(['card', 'bank'] as FieldsPayMode[]).map((m) => (
-            <Pressable key={m} onPress={() => p.onModeChange(m)} disabled={p.submitting || !!p.done}
+            <Pressable key={m} onPress={() => p.onModeChange(m)} disabled={p.loading || p.submitting || !!p.done}
               style={[styles.tab, p.mode === m && styles.tabActive]}>
               <Text style={[styles.tabText, p.mode === m && styles.tabTextActive]}>{m === 'card' ? 'Pay by Card' : 'Pay by Bank (ACH)'}</Text>
             </Pressable>
