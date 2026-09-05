@@ -506,8 +506,9 @@ function payClientScript() {
     return scriptPromise;
   }
 
-  async function startCheckout() {
-    clearError(); session = null; busy = true; updatePayButton();
+  async function startCheckout(keepError) {
+    if (!keepError) clearError();
+    session = null; busy = true; updatePayButton();
     setStatus('Loading secure payment form…');
     try {
       var created = await postJson('/api/v1/agreements/sign/pay/session', { payToken: payToken, mode: mode });
@@ -545,8 +546,8 @@ function payClientScript() {
     if (!result || result.type !== 'success') {
       var data = result && result.data ? result.data : {};
       showError(data.auth_resp_text || data.message || 'The payment was not approved. Please check your details and try again.');
-      // A submitted session cannot be reused — mount a fresh one for the retry.
-      startCheckout();
+      // A submitted session cannot be reused — mount a fresh one for the retry, but keep the decline message visible.
+      startCheckout(true);
       return;
     }
     setStatus('Processing your payment… This can take a few seconds.');
@@ -573,7 +574,7 @@ function payClientScript() {
   });
   if (consentBox) consentBox.addEventListener('change', updatePayButton);
   payBtn.addEventListener('click', submitPayment);
-  if (retryBtn) retryBtn.addEventListener('click', startCheckout);
+  if (retryBtn) retryBtn.addEventListener('click', function () { startCheckout(); });
 
   startCheckout();
 })();`;
@@ -818,7 +819,7 @@ router.post(
       <p style="color:#30433F;line-height:1.5;">${message}</p>
       ${paymentSection}
     </div>
-    ${paymentToken ? '<script src="/api/v1/agreements/sign/pay/client.js?v=7"></script>' : ''}
+    ${paymentToken ? '<script src="/api/v1/agreements/sign/pay/client.js?v=8"></script>' : ''}
   </body>
 </html>`);
   }),
