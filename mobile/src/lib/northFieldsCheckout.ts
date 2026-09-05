@@ -57,19 +57,24 @@ export function ensureCheckoutScript(scriptUrl: string): Promise<void> {
   if (scriptPromise && loadedScriptUrl === scriptUrl) return scriptPromise;
   loadedScriptUrl = scriptUrl;
   scriptPromise = new Promise<void>((resolve, reject) => {
-    const finish = () => (typeof window.checkout?.mount === 'function' ? resolve() : reject(new Error('North checkout API did not load correctly.')));
+    const fail = (message: string) => {
+      scriptPromise = null;
+      loadedScriptUrl = '';
+      reject(new Error(message));
+    };
+    const finish = () => (typeof window.checkout?.mount === 'function' ? resolve() : fail('North checkout API did not load correctly.'));
     const existing = Array.from(document.scripts).find((s) => s.src === scriptUrl);
     if (existing) {
       if (typeof window.checkout?.mount === 'function') return resolve();
       existing.addEventListener('load', finish, { once: true });
-      existing.addEventListener('error', () => reject(new Error('Unable to load North checkout script.')), { once: true });
+      existing.addEventListener('error', () => fail('Unable to load North checkout script.'), { once: true });
       return;
     }
     const script = document.createElement('script');
     script.src = scriptUrl;
     script.async = true;
     script.onload = finish;
-    script.onerror = () => { scriptPromise = null; reject(new Error('Unable to load North checkout script.')); };
+    script.onerror = () => fail('Unable to load North checkout script.');
     document.head.appendChild(script);
   });
   return scriptPromise;
