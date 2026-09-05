@@ -449,18 +449,40 @@ function payClientScript() {
   var session = null;
   var busy = false;
   var scriptPromise = null;
+  // Bank (ACH) money moves inside checkout.submit(). If our confirm call then
+  // fails, the session token stays valid and the ONLY safe recovery is to
+  // verify that same session again — starting a new one would debit twice.
+  var pendingResult = null;
+  var needsVerification = false;
 
   function money(n) { return '$' + Number(n).toFixed(2); }
   function setStatus(message) { statusEl.textContent = message || ''; statusEl.style.display = message ? 'block' : 'none'; }
   function clearError() { errorEl.style.display = 'none'; if (retryBtn) retryBtn.style.display = 'none'; }
+  function setModesDisabled(disabled) { modeButtons.forEach(function (b) { b.disabled = !!disabled; }); }
   function showError(message) {
     setStatus(''); busy = false; updatePayButton();
     errorEl.textContent = message || 'Unable to process the payment.'; errorEl.style.display = 'block';
-    if (retryBtn) retryBtn.style.display = 'inline-block';
+    if (retryBtn) {
+      retryBtn.textContent = needsVerification ? 'Retry verification' : 'Try Again';
+      retryBtn.style.display = 'inline-block';
+    }
   }
   function updatePayButton() {
     var consentOk = mode !== 'bank' || (consentBox && consentBox.checked);
-    payBtn.disabled = busy || !session || !consentOk;
+    payBtn.disabled = busy || !session || !consentOk || needsVerification;
+  }
+  function summarizeCompletion(result) {
+    if (!result || typeof result !== 'object') return undefined;
+    var data = result.data && typeof result.data === 'object' ? result.data : {};
+    var out = {};
+    if (typeof result.type === 'string') out.type = result.type.slice(0, 20);
+    if (typeof result.status === 'number') out.status = result.status;
+    var inner = {};
+    var has = false;
+    if (typeof data.auth_resp === 'string') { inner.auth_resp = data.auth_resp.slice(0, 10); has = true; }
+    if (typeof data.auth_resp_text === 'string') { inner.auth_resp_text = data.auth_resp_text.slice(0, 120); has = true; }
+    if (has) out.data = inner;
+    return out;
   }
   function renderBreakdown(b) {
     if (!breakdownEl || !b) return;
@@ -507,8 +529,9 @@ function payClientScript() {
   }
 
   async function startCheckout(keepError) {
+    if (needsVerification) return;
     if (!keepError) clearError();
-    session = null; busy = true; updatePayButton();
+    session = null; pendingResult = null; busy = true; updatePayButton();
     setStatus('Loading secure payment form…');
     try {
       var created = await postJson('/api/v1/agreements/sign/pay/session', { payToken: payToken, mode: mode });
@@ -531,8 +554,28 @@ function payClientScript() {
     }
   }
 
+  async function confirmPayment() {
+    if (!session || !pendingResult) return;
+    busy = true; clearError(); updatePayButton();
+    setStatus('Processing your payment… This can take a few seconds.');
+    try {
+      var confirmed = await postJson('/api/v1/agreements/sign/pay/confirm', {
+        payToken: payToken, mode: mode, sessionToken: session.sessionToken,
+        achConsent: mode === 'bank' ? true : undefined, completion: summarizeCompletion(pendingResult)
+      });
+      needsVerification = false; pendingResult = null;
+      setModesDisabled(false);
+      showSuccess(confirmed);
+    } catch (err) {
+      // The submit already went through: keep this session and verify it again.
+      needsVerification = true;
+      setModesDisabled(true);
+      showError((err && err.message ? err.message : 'We could not record the payment.') + ' Your payment may already have gone through — please retry verification instead of paying again.');
+    }
+  }
+
   async function submitPayment() {
-    if (busy || !session) return;
+    if (busy || !session || needsVerification) return;
     if (mode === 'bank' && !(consentBox && consentBox.checked)) { showError('Please accept the ACH authorization to continue.'); return; }
     busy = true; clearError(); updatePayButton();
     setStatus(mode === 'bank' ? 'Authorizing your bank payment…' : 'Securing your card details…');
@@ -546,25 +589,19 @@ function payClientScript() {
     if (!result || result.type !== 'success') {
       var data = result && result.data ? result.data : {};
       showError(data.auth_resp_text || data.message || 'The payment was not approved. Please check your details and try again.');
-      // A submitted session cannot be reused — mount a fresh one for the retry, but keep the decline message visible.
+      // Nothing moved and a submitted session cannot be reused — mount a fresh
+      // one for the retry, but keep the decline message visible. This is the
+      // only path allowed to start a new session after a submit.
       startCheckout(true);
       return;
     }
-    setStatus('Processing your payment… This can take a few seconds.');
-    try {
-      var confirmed = await postJson('/api/v1/agreements/sign/pay/confirm', {
-        payToken: payToken, mode: mode, sessionToken: session.sessionToken,
-        achConsent: mode === 'bank' ? true : undefined, completion: result
-      });
-      showSuccess(confirmed);
-    } catch (err) {
-      showError(err && err.message ? err.message : 'We could not record the payment. Please contact us before retrying.');
-    }
+    pendingResult = result;
+    await confirmPayment();
   }
 
   modeButtons.forEach(function (button) {
     button.addEventListener('click', function () {
-      if (busy) return;
+      if (busy || needsVerification) return;
       var next = button.getAttribute('data-mode') === 'bank' ? 'bank' : 'card';
       if (next === mode && session) return;
       mode = next;
@@ -574,7 +611,11 @@ function payClientScript() {
   });
   if (consentBox) consentBox.addEventListener('change', updatePayButton);
   payBtn.addEventListener('click', submitPayment);
-  if (retryBtn) retryBtn.addEventListener('click', function () { startCheckout(); });
+  if (retryBtn) retryBtn.addEventListener('click', function () {
+    if (busy) return;
+    if (needsVerification) { confirmPayment(); return; }
+    startCheckout();
+  });
 
   startCheckout();
 })();`;
@@ -603,7 +644,16 @@ router.post(
       mode: payModeSchema,
       sessionToken: z.string().min(10),
       achConsent: z.boolean().optional(),
-      completion: z.unknown().optional(),
+      // Diagnostics only, and never free-form: the client sends just these
+      // fields so an arbitrary client-supplied object cannot reach the logs.
+      completion: z.object({
+        type: z.string().max(20).optional(),
+        status: z.number().optional(),
+        data: z.object({
+          auth_resp: z.string().max(10).optional(),
+          auth_resp_text: z.string().max(120).optional(),
+        }).partial().optional(),
+      }).optional(),
     }).parse(req.body);
     if (body.completion !== undefined) {
       logger.info({ northCompletionPayload: body.completion }, 'agreement pay checkout.submit() result');
@@ -761,7 +811,7 @@ router.post(
           <pre id="achTermsText" style="white-space:pre-wrap;font-family:inherit;font-size:13px;color:#4A4A4A;margin:0 0 10px 0;"></pre>
           <label style="display:flex;gap:8px;align-items:flex-start;font-size:14px;color:#0D0D0D;cursor:pointer;">
             <input id="achConsent" type="checkbox" style="margin-top:3px;" />
-            <span>I have read the authorization above and authorize this one-time debit from my bank account.</span>
+            <span>I have read the ACH authorization above and authorize Boxer Solutions Pest Control to debit my bank account for this payment and, where I have recurring services, for future amounts due as described in those terms.</span>
           </label>
         </div>
         <button type="button" id="payNow" disabled style="display:inline-block;margin-top:12px;padding:12px 18px;background:#2DC4A2;color:#0D0D0D;border:none;border-radius:8px;font-weight:700;font-size:15px;cursor:pointer;">Pay ${amountDue != null ? money(Number(amountDue)) : 'Now'}</button>
@@ -819,7 +869,7 @@ router.post(
       <p style="color:#30433F;line-height:1.5;">${message}</p>
       ${paymentSection}
     </div>
-    ${paymentToken ? '<script src="/api/v1/agreements/sign/pay/client.js?v=8"></script>' : ''}
+    ${paymentToken ? '<script src="/api/v1/agreements/sign/pay/client.js?v=9"></script>' : ''}
   </body>
 </html>`);
   }),

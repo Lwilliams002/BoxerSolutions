@@ -77,7 +77,8 @@ export default function FieldsCheckoutScreen() {
         flow={flow} mode={c.mode} onModeChange={c.setMode} paySession={c.paySession}
         consent={c.consent} onConsentChange={c.setConsent}
         ready={ready} loading={c.loading} error={c.error} submitting={c.submitting} canSubmit={c.canSubmit} done={c.done}
-        onSubmit={onSubmit} onCancel={leave} onDone={leave} onRetry={() => void c.startSession()}
+        needsVerification={c.needsVerification}
+        onSubmit={onSubmit} onCancel={leave} onDone={leave} onRetry={() => void c.retry()}
       >
         {c.session ? (
           <WebViewComponent

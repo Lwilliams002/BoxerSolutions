@@ -111,8 +111,11 @@ export function describeFieldsFailure(result: FieldsSubmitResult): string {
  * posted back as FieldsWebViewMessage JSON strings.
  */
 export function buildFieldsWebViewHtml(sessionToken: string, scriptUrl: string): string {
-  const safeToken = JSON.stringify(sessionToken);
-  const safeScriptUrl = JSON.stringify(scriptUrl);
+  // Escape "<" so a value containing "</script>" cannot break out of the inline
+  // script tag below.
+  const jsLiteral = (value: string) => JSON.stringify(value).replace(/</g, '\\u003c');
+  const safeToken = jsLiteral(sessionToken);
+  const safeScriptUrl = jsLiteral(scriptUrl);
   return `<!doctype html>
 <html lang="en">
   <head>

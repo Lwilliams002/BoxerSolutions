@@ -20,6 +20,8 @@ interface Props {
   error: string | null;
   submitting: boolean;
   canSubmit: boolean;
+  /** Submit succeeded but our confirm call failed — retry verification, never re-pay. */
+  needsVerification?: boolean;
   done: FieldsConfirmResult | FieldsStoredMethod | null;
   onSubmit: () => void;
   onCancel: () => void;
@@ -42,7 +44,7 @@ export function FieldsCheckoutLayout(p: Props) {
       {isPay ? (
         <View style={styles.tabs}>
           {(['card', 'bank'] as FieldsPayMode[]).map((m) => (
-            <Pressable key={m} onPress={() => p.onModeChange(m)} disabled={p.loading || p.submitting || !!p.done}
+            <Pressable key={m} onPress={() => p.onModeChange(m)} disabled={p.loading || p.submitting || !!p.done || !!p.needsVerification}
               style={[styles.tab, p.mode === m && styles.tabActive]}>
               <Text style={[styles.tabText, p.mode === m && styles.tabTextActive]}>{m === 'card' ? 'Pay by Card' : 'Pay by Bank (ACH)'}</Text>
             </Pressable>
@@ -83,7 +85,7 @@ export function FieldsCheckoutLayout(p: Props) {
         <>
           {p.error ? (
             <Card style={styles.errorCard}><Value style={styles.errorTitle}>Something went wrong</Value><Text style={styles.muted}>{p.error}</Text>
-              <Button title="Try Again" variant="outline" onPress={p.onRetry} /></Card>
+              <Button title={p.needsVerification ? 'Retry verification' : 'Try Again'} variant="outline" onPress={p.onRetry} /></Card>
           ) : null}
           <View style={styles.host}>{(p.loading || !p.ready) && !p.error ? <Loading /> : null}{p.children}</View>
           {isPay && p.mode === 'bank' && p.paySession?.achTerms ? (
@@ -91,7 +93,7 @@ export function FieldsCheckoutLayout(p: Props) {
               <Text style={styles.terms}>{p.paySession.achTerms.text}</Text>
               <Pressable onPress={() => p.onConsentChange(!p.consent)} style={styles.consentRow} accessibilityRole="checkbox" accessibilityState={{ checked: p.consent }}>
                 <View style={[styles.checkbox, p.consent && styles.checkboxOn]}>{p.consent ? <Text style={styles.check}>✓</Text> : null}</View>
-                <Text style={styles.consentText}>I have read the authorization above and authorize this one-time debit from my bank account.</Text>
+                <Text style={styles.consentText}>I have read the ACH authorization above and authorize Boxer Solutions Pest Control to debit my bank account for this payment and, where I have recurring services, for future amounts due as described in those terms.</Text>
               </Pressable>
             </Card>
           ) : null}
@@ -109,7 +111,7 @@ export function FieldsCheckoutLayout(p: Props) {
           <Button title="Done" onPress={p.onDone} style={styles.grow} />
         ) : (
           <>
-            <Button title="Cancel" variant="outline" onPress={p.onCancel} disabled={p.submitting} />
+            <Button title={p.needsVerification ? 'Close' : 'Cancel'} variant="outline" onPress={p.onCancel} disabled={p.submitting} />
             <Button title={p.submitting ? 'Processing…' : submitTitle} onPress={p.onSubmit} loading={p.submitting} disabled={!p.canSubmit || !p.ready} style={styles.grow} />
           </>
         )}
