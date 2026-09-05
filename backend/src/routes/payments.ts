@@ -96,6 +96,22 @@ router.get(
   }),
 );
 
+// Compatibility shims for app builds that still call the pre-Fields Embedded
+// Checkout endpoints. Those flows no longer exist server-side; answering 410
+// (rather than 404, or worse a 401 from the auth middleware below) tells the
+// old client exactly what is wrong.
+const REMOVED_EMBEDDED_ROUTES = [
+  '/north/embedded/session',
+  '/north/embedded/confirm',
+  '/north/embedded/storage-session',
+  '/north/embedded/storage-confirm',
+];
+for (const removed of REMOVED_EMBEDDED_ROUTES) {
+  router.all(removed, () => {
+    throw new ApiError(410, 'This app version is out of date. Please update the app to continue taking payments.');
+  });
+}
+
 router.use(authenticate);
 
 router.post(

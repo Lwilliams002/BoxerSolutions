@@ -20,9 +20,27 @@ import { logger } from './logger';
 const SENSITIVE_KEYS = [
   // Credentials / secrets
   'password', 'developerKey', 'authorization', 'x-api-key',
+  // Session tokens grant access to the checkout session itself
+  'SessionToken', 'sessionToken', 'token',
   // Card / bank data (PCI) — never allowed in logs
   'AccountNumber', 'CVV', 'cvv', 'RoutingNumber', 'number', 'accountNumber', 'routingNumber',
+  'account_nbr', 'routing_nbr', 'auth_account_nbr', 'auth_card_nbr', 'cvv2', 'exp_date',
 ];
+
+/** Rotate the log once it passes this size so it cannot fill the disk. */
+const MAX_LOG_BYTES = 20 * 1024 * 1024;
+
+function rotateIfLarge(filePath: string) {
+  let size = 0;
+  try {
+    size = fs.statSync(filePath).size;
+  } catch {
+    return; // no file yet
+  }
+  if (size <= MAX_LOG_BYTES) return;
+  const stamp = new Date().toISOString().replace(/[-:T]/g, '').slice(0, 14); // yyyymmddHHMMSS
+  fs.renameSync(filePath, `${filePath}.${stamp}.log`);
+}
 
 function redactValue(key: string, value: unknown): unknown {
   if (SENSITIVE_KEYS.some((k) => k.toLowerCase() === key.toLowerCase())) {
@@ -49,7 +67,7 @@ function redact(value: unknown): unknown {
 function redactHeaders(headers: Record<string, string>): Record<string, string> {
   const out: Record<string, string> = {};
   for (const [k, v] of Object.entries(headers)) {
-    if (/authorization|api-key|password/i.test(k)) {
+    if (/authorization|api-key|password|session-?token/i.test(k)) {
       out[k] = v.startsWith('Bearer ') ? 'Bearer ***REDACTED***' : '***REDACTED***';
     } else {
       out[k] = v;
@@ -91,6 +109,7 @@ export function northCertLog(entry: NorthCertLogEntry) {
       ? config.north.certLogPath
       : path.resolve(process.cwd(), config.north.certLogPath);
     fs.mkdirSync(path.dirname(filePath), { recursive: true });
+    rotateIfLarge(filePath);
 
     const requestBody = typeof entry.requestBody === 'string'
       ? redactFormBody(entry.requestBody)

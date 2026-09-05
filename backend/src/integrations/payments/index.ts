@@ -157,5 +157,11 @@ export function providerFor(name: ProviderName): PaymentProvider {
   return instances[name]!;
 }
 
+// A typo in PAYMENT_PROVIDER used to fall back to the mock provider, which
+// silently "approves" every charge in production. Fail at boot instead.
+if (config.payments.provider !== 'north' && config.payments.provider !== 'mock') {
+  throw new Error(`Unknown payment provider: ${config.payments.provider}`);
+}
+
 /** Provider for the legacy raw-token /payment-methods route and dev fixtures. */
 export const paymentProvider: PaymentProvider = providerFor(config.payments.provider === 'north' ? 'north' : 'mock');

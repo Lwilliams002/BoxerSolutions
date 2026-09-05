@@ -11,6 +11,38 @@ function normalizedOptional(name: string, fallback = ''): string {
   return value.trim().replace(/^[<>"']+|[<>"']+$/g, '');
 }
 
+/**
+ * Embedded Checkout (Fields) credentials resolve as a SET, not per variable: a
+ * checkout id from one credential set must never be paired with the private API
+ * key of another. When the NORTH_EMBEDDED_FIELDS_* alias set is in use the key
+ * must come from that set too; only the profile id (the merchant, shared across
+ * checkouts) may fall back to the canonical name.
+ *
+ * console.warn rather than the app logger: utils/logger imports this module.
+ */
+function resolveEmbeddedCredentials() {
+  const aliasCheckoutId = normalizedOptional('NORTH_EMBEDDED_FIELDS_CHECKOUT_ID');
+  if (aliasCheckoutId) {
+    const privateApiKey = normalizedOptional('NORTH_EMBEDDED_FIELDS_PRIVATE_API_KEY');
+    if (!privateApiKey) throw new Error('Missing NORTH_EMBEDDED_FIELDS_PRIVATE_API_KEY for the Fields checkout');
+    let profileId = normalizedOptional('NORTH_EMBEDDED_FIELDS_PROFILE_ID');
+    if (!profileId) {
+      profileId = normalizedOptional('NORTH_EMBEDDED_PROFILE_ID');
+      if (profileId) {
+        console.warn('NORTH_EMBEDDED_FIELDS_PROFILE_ID is not set; falling back to NORTH_EMBEDDED_PROFILE_ID for the Fields checkout.');
+      }
+    }
+    return { checkoutId: aliasCheckoutId, profileId, privateApiKey };
+  }
+  return {
+    checkoutId: normalizedOptional('NORTH_EMBEDDED_CHECKOUT_ID'),
+    profileId: normalizedOptional('NORTH_EMBEDDED_PROFILE_ID'),
+    privateApiKey: normalizedOptional('NORTH_EMBEDDED_PRIVATE_API_KEY'),
+  };
+}
+
+const embeddedCredentials = resolveEmbeddedCredentials();
+
 export const config = {
   env: process.env.NODE_ENV ?? 'development',
   port: parseInt(process.env.PORT ?? '4000', 10),
@@ -52,12 +84,13 @@ export const config = {
     signatureSecret: normalizedOptional('NORTH_SIGNATURE_SECRET'),
     transactionsUsername: normalizedOptional('NORTH_TRANSACTIONS_USERNAME'),
     // One Embedded Checkout (Fields type) handles SALE and STORAGE sessions.
-    // The NORTH_EMBEDDED_FIELDS_* names are read first so deployments that
-    // already hold the Fields credentials there keep working without an env
-    // change; NORTH_EMBEDDED_* (no FIELDS) is the fallback for older setups.
-    embeddedCheckoutId: normalizedOptional('NORTH_EMBEDDED_FIELDS_CHECKOUT_ID', process.env.NORTH_EMBEDDED_CHECKOUT_ID ?? ''),
-    embeddedProfileId: normalizedOptional('NORTH_EMBEDDED_FIELDS_PROFILE_ID', process.env.NORTH_EMBEDDED_PROFILE_ID ?? ''),
-    embeddedPrivateApiKey: normalizedOptional('NORTH_EMBEDDED_FIELDS_PRIVATE_API_KEY', process.env.NORTH_EMBEDDED_PRIVATE_API_KEY ?? ''),
+    // The NORTH_EMBEDDED_FIELDS_* names are read first, as a complete set, so
+    // deployments that already hold the Fields credentials there keep working
+    // without an env change; NORTH_EMBEDDED_* (no FIELDS) is the fallback set
+    // for older setups. See resolveEmbeddedCredentials above.
+    embeddedCheckoutId: embeddedCredentials.checkoutId,
+    embeddedProfileId: embeddedCredentials.profileId,
+    embeddedPrivateApiKey: embeddedCredentials.privateApiKey,
     webhookSecret: normalizedOptional('NORTH_EMBEDDED_FIELDS_WEBHOOK_SECRET', process.env.NORTH_WEBHOOK_SECRET ?? process.env.NORTH_SIGNATURE_SECRET ?? ''),
     legacyWebhookSecret: normalizedOptional('NORTH_WEBHOOK_SECRET'),
     achTermsVersion: normalizedOptional('NORTH_ACH_TERMS_VERSION', '2026-09-05'),
