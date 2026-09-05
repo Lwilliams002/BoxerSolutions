@@ -55,6 +55,25 @@ test('declined and open statuses', () => {
   assert.equal(o.authGuid, null);
 });
 
+test('Approved status with a non-00 auth_resp is terminal but not approved', () => {
+  const r = extractNorthSessionResult({
+    status: 'Approved',
+    body: { auth_guid: 'G9', auth_card_type: 'V', auth_resp: '05', auth_resp_text: 'DO NOT HONOR', auth_amount: '25.00' },
+  });
+  assert.equal(r.approved, false);
+  assert.equal(r.declined, false);
+  assert.equal(r.terminal, true);
+  assert.equal(r.responseCode, '05');
+  assert.equal(r.responseText, 'DO NOT HONOR');
+});
+
+test('Approved status without an auth_resp stays approved', () => {
+  const r = extractNorthSessionResult({ status: 'Approved', body: { auth_guid: 'G10', auth_amount: '5.00' } });
+  assert.equal(r.responseCode, null);
+  assert.equal(r.approved, true);
+  assert.equal(r.terminal, true);
+});
+
 test('MM/YY expiry and Amex code', () => {
   const r = extractNorthSessionResult({ status: 'Approved', body: { auth_guid: 'A', auth_card_type: 'X', exp_date: '03/29' } });
   assert.equal(r.brand, 'American Express');

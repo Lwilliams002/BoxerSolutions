@@ -90,9 +90,14 @@ export function extractNorthSessionResult(payload: unknown, expected: NorthMetho
   const status = String(statusData.status ?? root.status ?? '').toLowerCase();
   const body = asRecord(statusData.body) ?? asRecord(root.body) ?? asRecord(statusData.transaction) ?? null;
 
-  const approved = APPROVED.includes(status);
+  // EPX can report an "Approved" session status while the transaction itself
+  // carries a non-approval auth_resp (only '00' is an approval), so the
+  // response code has the final say on `approved`. Such a session is still
+  // terminal — nothing more will happen to it.
+  const responseCode = findField(body, ['auth_resp']);
+  const approved = APPROVED.includes(status) && (responseCode == null || responseCode === '00');
   const declined = DECLINED.includes(status);
-  const terminal = approved || declined || ENDED.includes(status);
+  const terminal = APPROVED.includes(status) || declined || ENDED.includes(status);
 
   const authGuid = findField(body, ['auth_guid', 'bric', 'token']);
   const methodType = detectMethodType(body, expected);
@@ -119,7 +124,7 @@ export function extractNorthSessionResult(payload: unknown, expected: NorthMetho
     terminal,
     authGuid,
     amount: parseAmount(findField(body, ['auth_amount', 'amount', 'approvedAmount']) ?? (typeof statusData.amount === 'number' ? String(statusData.amount) : null)),
-    responseCode: findField(body, ['auth_resp']),
+    responseCode,
     responseText: findField(body, ['auth_resp_text', 'message']),
     methodType,
     brand,

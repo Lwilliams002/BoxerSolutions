@@ -488,7 +488,10 @@ export const paymentService = {
     const provider = providerFor(resolveProviderName(payment.payment_provider, config.payments.provider));
     const result = await provider.refund(payment.provider_transaction_id, Math.round(refundAmount * 100), {
       paymentMethod: payment.method_type === 'bank_account' ? 'ach' : 'credit',
-      fullAmount: refundAmount >= remaining - 0.001,
+      // A reversal/void returns the ORIGINAL transaction, so it is only valid
+      // when nothing has been refunded yet and the whole original amount is
+      // going back — not merely the remaining balance of a partial refund.
+      fullAmount: Number(payment.refunded_amount ?? 0) === 0 && refundAmount >= Number(payment.amount) - 0.001,
     });
     if (!result.success) throw new ApiError(402, `Refund failed: ${result.failureReason}`);
 
