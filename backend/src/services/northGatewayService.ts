@@ -2,6 +2,11 @@ import crypto from 'crypto';
 import { config } from '../config';
 import { ApiError } from '../utils/errors';
 import { northCertLog } from '../utils/northCertLog';
+import { logger } from '../utils/logger';
+
+function asRecordOrNull(value: unknown): Record<string, unknown> | null {
+  return value && typeof value === 'object' && !Array.isArray(value) ? (value as Record<string, unknown>) : null;
+}
 
 interface NorthAuthResponse {
   accountId: number;
@@ -79,12 +84,11 @@ interface NorthEmbeddedProduct {
 
 interface CreateEmbeddedSessionInput {
   amount: number;
+  transactionType: 'SALE' | 'STORAGE';
   products?: NorthEmbeddedProduct[];
   orderId?: string;
   customerEmail?: string | null;
-  /** North Embedded Checkout transaction type, e.g. 'SALE' (default) or 'STORAGE'. */
-  transactionType?: string;
-  /** Extra session fields (first_name, last_name, address, industry_type, …). */
+  /** Prefill / reference fields (first_name, last_name, address, city, state, zip_code, industry_type, invoice_nbr, order_nbr). */
   additionalFields?: Record<string, string>;
 }
 
@@ -114,19 +118,7 @@ interface EmbeddedCredentials {
   apiKey: string;
 }
 
-/**
- * Each North Embedded Checkout configuration has its own checkout id, profile
- * id, and private API key. STORAGE sessions use the "Fields"-type checkout
- * credentials when configured.
- */
-function embeddedCredentials(variant?: 'storage'): EmbeddedCredentials {
-  if (variant === 'storage' && config.north.embeddedFieldsCheckoutId) {
-    return {
-      checkoutId: config.north.embeddedFieldsCheckoutId,
-      profileId: config.north.embeddedFieldsProfileId || config.north.embeddedProfileId,
-      apiKey: config.north.embeddedFieldsPrivateApiKey || config.north.embeddedPrivateApiKey,
-    };
-  }
+function embeddedCredentials(): EmbeddedCredentials {
   return {
     checkoutId: config.north.embeddedCheckoutId,
     profileId: config.north.embeddedProfileId,
@@ -506,88 +498,50 @@ class NorthGatewayService {
     });
   }
 
-  async createEmbeddedSession(input: CreateEmbeddedSessionInput): Promise<string> {
+  async createEmbeddedSession(input: CreateEmbeddedSessionInput): Promise<{ sessionToken: string; sessionId: string | null }> {
     assertNorthEmbeddedConfig();
-    const transactionType = input.transactionType?.toUpperCase();
-    const isStorage = transactionType === 'STORAGE';
-    // North recommends a "Fields"-type checkout for STORAGE transactions —
-    // each checkout has its own id, profile, and private API key.
-    const creds = embeddedCredentials(isStorage ? 'storage' : undefined);
+    const creds = embeddedCredentials();
+    const isStorage = input.transactionType === 'STORAGE';
     const amount = Number(input.amount.toFixed(2));
-    if (!Number.isFinite(amount) || (!isStorage && amount <= 0) || amount < 0) {
-      throw ApiError.badRequest('Embedded checkout amount must be greater than 0.');
+    if (!Number.isFinite(amount) || amount < 0 || (!isStorage && amount <= 0)) {
+      throw ApiError.badRequest(isStorage ? 'Storage sessions use amount 0.00.' : 'Embedded checkout amount must be greater than 0.');
     }
-    const payload: Record<string, unknown> = {
+    const minimal: Record<string, unknown> = {
       checkoutId: creds.checkoutId,
       profileId: creds.profileId,
       amount,
+      transactionType: input.transactionType,
     };
-    if (transactionType) payload.transactionType = transactionType;
-    if (input.additionalFields && Object.keys(input.additionalFields).length) {
-      payload.additionalFields = input.additionalFields;
-    }
-    if (input.products?.length) payload.products = input.products;
-    if (input.orderId) payload.orderId = input.orderId;
-    if (input.customerEmail) payload.email = input.customerEmail;
-    let data: Record<string, unknown> | null = null;
+    const full: Record<string, unknown> = { ...minimal };
+    if (input.products?.length) full.products = input.products;
+    if (input.orderId) full.orderId = input.orderId;
+    if (input.customerEmail) full.email = input.customerEmail;
+    if (input.additionalFields && Object.keys(input.additionalFields).length) full.additionalFields = input.additionalFields;
+
+    let data: Record<string, unknown>;
     try {
-      data = await this.postEmbeddedSession(payload, creds.apiKey);
+      data = await this.postEmbeddedSession(full, creds.apiKey);
     } catch (error) {
-      const hasOptionalFields = Boolean(payload.products || payload.orderId || payload.email || payload.additionalFields);
-      if (!hasOptionalFields && !isStorage) throw error;
-      // North's sessions endpoint can 500 on optional fields (products, email,
-      // additionalFields) depending on the checkout configuration — retry with
-      // the minimal payload before giving up. This applies to STORAGE sessions
-      // too: prefill fields are a nicety, a saved card is not.
-      try {
-        data = await this.postEmbeddedSession({
-          checkoutId: creds.checkoutId,
-          profileId: creds.profileId,
-          amount,
-          ...(transactionType ? { transactionType } : {}),
-        }, creds.apiKey);
-      } catch (minimalError) {
-        // Some checkout configurations reject amount 0.00 on STORAGE sessions —
-        // final attempt without the amount field.
-        if (!isStorage || amount > 0) throw minimalError;
-        try {
-          data = await this.postEmbeddedSession({
-            checkoutId: creds.checkoutId,
-            profileId: creds.profileId,
-            transactionType: 'STORAGE',
-          }, creds.apiKey);
-        } catch (finalError) {
-          // STORAGE requires a "Fields"-type checkout. If the dedicated Fields
-          // checkout is not configured we fell back to the main checkout, which
-          // typically 500s on STORAGE — surface an actionable message.
-          if (!config.north.embeddedFieldsCheckoutId || config.north.embeddedFieldsCheckoutId === config.north.embeddedCheckoutId) {
-            throw new ApiError(
-              502,
-              `${(finalError as Error).message} — STORAGE (save card) sessions require a Fields-type Embedded Checkout. Create one in the North portal and set NORTH_EMBEDDED_FIELDS_CHECKOUT_ID, NORTH_EMBEDDED_FIELDS_PROFILE_ID, and NORTH_EMBEDDED_FIELDS_PRIVATE_API_KEY.`,
-              (finalError as ApiError).details,
-            );
-          }
-          throw finalError;
-        }
-      }
+      // North's sessions endpoint has returned 500 on optional fields for some
+      // checkout configurations. Prefill is a nicety; retry once without it.
+      if (Object.keys(full).length === Object.keys(minimal).length) throw error;
+      logger.warn({ err: error }, 'north session create with optional fields failed; retrying minimal payload');
+      data = await this.postEmbeddedSession(minimal, creds.apiKey);
     }
-    const tokenCandidate = [
-      data.sessionToken,
-      data.session_token,
-      data.token,
-      (data.data as Record<string, unknown> | undefined)?.sessionToken,
-      (data.data as Record<string, unknown> | undefined)?.token,
-    ].find((value) => typeof value === 'string' && value.length > 10) as string | undefined;
-    if (!tokenCandidate) {
-      throw new ApiError(502, 'North embedded session response did not include a session token.');
-    }
-    return tokenCandidate;
+    const nested = asRecordOrNull(data.data);
+    const session = asRecordOrNull(data.session) ?? asRecordOrNull(nested?.session);
+    const sessionToken = [data.token, data.sessionToken, data.session_token, nested?.token, nested?.sessionToken]
+      .find((v): v is string => typeof v === 'string' && v.length > 10);
+    if (!sessionToken) throw new ApiError(502, 'North embedded session response did not include a session token.');
+    const sessionId = typeof session?.id === 'string' ? session.id : null;
+    return { sessionToken, sessionId };
   }
 
-  async getEmbeddedSessionStatus(sessionToken: string, variant?: 'storage') {
+  async getEmbeddedSessionStatus(sessionToken: string): Promise<Record<string, unknown>> {
     assertNorthEmbeddedConfig();
-    const creds = embeddedCredentials(variant);
-    const res = await fetch(`${config.north.embeddedBaseUrl}/api/sessions/status`, {
+    const creds = embeddedCredentials();
+    const url = `${config.north.embeddedBaseUrl}/api/sessions/status`;
+    const res = await fetch(url, {
       method: 'GET',
       headers: {
         Authorization: `Bearer ${creds.apiKey}`,
@@ -598,29 +552,25 @@ class NorthGatewayService {
         'User-Agent': 'ServiceFinance Embedded Checkout',
       },
     });
-    if (!res.ok) {
-      const err = await readNorthErrorResponse(res, `North embedded session status failed: ${res.statusText || `HTTP ${res.status}`}`);
-      throw new ApiError(502, err.message, err.details);
-    }
-    const data = (await res.json().catch(() => null)) as Record<string, unknown> | null;
+    const text = await res.text().catch(() => '');
+    let data: Record<string, unknown> | null = null;
+    try { data = text ? (JSON.parse(text) as Record<string, unknown>) : null; } catch { data = null; }
     northCertLog({
       api: 'Embedded Checkout',
       label: 'session status',
       method: 'GET',
-      url: `${config.north.embeddedBaseUrl}/api/sessions/status`,
-      requestHeaders: { SessionToken: sessionToken },
+      url,
+      requestHeaders: { SessionToken: sessionToken, CheckoutId: creds.checkoutId },
       status: res.status,
       statusText: res.statusText,
-      responseBody: data,
+      responseBody: data ?? text,
     });
-    if (!data) {
+    if (!res.ok) {
+      const err = describeNorthError(data, `North embedded session status failed: ${res.statusText || `HTTP ${res.status}`}`);
       const requestId = res.headers.get('x-request-id');
-      throw new ApiError(
-        502,
-        `North embedded session status failed: North returned an empty response${requestId ? ` (North request id: ${requestId})` : ''}`,
-        { status: res.status, statusText: res.statusText, requestId },
-      );
+      throw new ApiError(502, requestId ? `${err} (North request id: ${requestId})` : err, data ?? { status: res.status, body: text || null });
     }
+    if (!data) throw new ApiError(502, 'North embedded session status failed: empty response');
     return data;
   }
 }

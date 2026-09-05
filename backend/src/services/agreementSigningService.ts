@@ -733,8 +733,9 @@ export const agreementSigningService = {
     const amount = Number((Number(invoice.total) - Number(invoice.amount_paid)).toFixed(2));
     if (amount <= 0) throw ApiError.badRequest('This invoice has already been paid.');
     // SALE session — the checkout charges the initial invoice amount.
-    const sessionToken = await northGatewayService.createEmbeddedSession({
+    const { sessionToken } = await northGatewayService.createEmbeddedSession({
       amount,
+      transactionType: 'SALE',
       orderId: invoice.invoice_number,
       customerEmail: invoice.customer_email,
       products: [{ name: 'Initial service agreement charge', quantity: 1, price: amount }],

@@ -141,8 +141,9 @@ router.post(
     const products = itemizedProducts.length && itemizedTotal === Number(amount.toFixed(2))
       ? itemizedProducts
       : [{ name: `Invoice ${invoice.invoice_number} balance`, quantity: 1, price: Number(amount.toFixed(2)) }];
-    const sessionToken = await northGatewayService.createEmbeddedSession({
+    const { sessionToken } = await northGatewayService.createEmbeddedSession({
       amount,
+      transactionType: 'SALE',
       orderId: invoice.invoice_number,
       customerEmail: invoice.customer_email,
       products,
@@ -258,7 +259,7 @@ router.post(
     if (cust.city) additionalFields.city = cust.city;
     if (cust.state) additionalFields.state = cust.state;
     if (cust.postal_code) additionalFields.zip_code = cust.postal_code;
-    const sessionToken = await northGatewayService.createEmbeddedSession({
+    const { sessionToken } = await northGatewayService.createEmbeddedSession({
       amount: 0,
       transactionType: 'STORAGE',
       additionalFields,
