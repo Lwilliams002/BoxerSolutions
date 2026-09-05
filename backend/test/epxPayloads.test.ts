@@ -31,6 +31,11 @@ test('token sale rejects amounts below one cent', () => {
   assert.throws(() => buildTokenSaleBody({ authGuid: 'ABC', amount: 0, paymentMethod: 'credit', mit: false }), /0\.01/);
 });
 
+test('refund rejects amounts below one cent', () => {
+  assert.throws(() => buildRefundBody({ authGuid: 'G1', amount: 0, paymentMethod: 'credit', tranNbr: '1', batchId: '2' }), /0\.01/);
+  assert.throws(() => buildRefundBody({ authGuid: 'G1', amount: 0.004, paymentMethod: 'credit', tranNbr: '1', batchId: '2' }), /0\.01/);
+});
+
 test('refund, reversal and void bodies', () => {
   assert.deepEqual(buildRefundBody({ authGuid: 'G1', amount: 3.25, paymentMethod: 'ach', tranNbr: '7', batchId: '8' }),
     { payment_method: 'ach', amount: 3.25, orig_auth_guid: 'G1', tran_nbr: '7', batch_id: '8' });
