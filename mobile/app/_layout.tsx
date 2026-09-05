@@ -69,7 +69,7 @@ export default function RootLayout() {
             <Stack.Screen name="route/new" options={{ title: 'New Route', presentation: 'modal' }} />
             <Stack.Screen name="stop/[id]" options={{ title: 'Service Stop' }} />
             <Stack.Screen name="invoice/[id]" options={{ title: 'Invoice' }} />
-            <Stack.Screen name="invoice/embedded-checkout" options={{ title: 'Embedded Checkout' }} />
+            <Stack.Screen name="payments/fields-checkout" options={{ title: 'Secure Checkout' }} />
             <Stack.Screen name="notifications" options={{ title: 'Notifications' }} />
             <Stack.Screen name="reports" options={{ title: 'Reports' }} />
             <Stack.Screen name="admin/services" options={{ title: 'Service Catalog Admin' }} />

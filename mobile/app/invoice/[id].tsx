@@ -28,6 +28,7 @@ interface InvoiceDetail {
 
 interface Method {
   id: string;
+  methodType: 'card' | 'bank_account';
   brand: string;
   last4: string;
   expirationMonth: number;
@@ -61,6 +62,12 @@ function maskedLast4(value: unknown) {
   const digits = String(value ?? '').replace(/\D/g, '');
   const last4 = digits.slice(-4);
   return last4 || '••••';
+}
+
+function describeMethod(method: Method) {
+  return method.methodType === 'bank_account'
+    ? `Bank Account ••••${maskedLast4(method.last4)} · ACH`
+    : `${method.brand} ••••${maskedLast4(method.last4)} · Expires ${String(method.expirationMonth).padStart(2, '0')}/${String(method.expirationYear).slice(-2)}`;
 }
 
 export default function InvoiceScreen() {
@@ -111,7 +118,7 @@ export default function InvoiceScreen() {
   const charge = async (method: Method) => {
     confirmAction({
       title: 'Collect Payment',
-      message: `Charge ${money(inv!.balanceDue)} to ${method.brand} ****${maskedLast4(method.last4)}?`,
+      message: `Charge ${money(inv!.balanceDue)} to ${describeMethod(method)}?`,
       confirmText: `Charge ${money(inv!.balanceDue)}`,
       onConfirm: async () => {
         setBusy(method.id);
@@ -188,17 +195,14 @@ export default function InvoiceScreen() {
   };
 
   const openNorthEmbeddedCheckout = () => {
-    router.push({ pathname: '/invoice/embedded-checkout', params: { invoiceId: id } });
+    router.push({ pathname: '/payments/fields-checkout', params: { flow: 'pay', invoiceId: id } });
   };
 
-  // Saves a new card on file via North Embedded Checkout (Fields/STORAGE) —
-  // card details never touch our servers. The saved method can then be
-  // charged for this invoice and future AutoPay/recurring billing.
+  // Saves a new card or bank account on file via North Fields (STORAGE) —
+  // details never touch our servers. The saved method can then be charged
+  // for this invoice and future AutoPay/recurring billing.
   const saveNewMethod = () => {
-    router.push({
-      pathname: '/customer/save-card',
-      params: { customerId: inv!.customerId },
-    });
+    router.push({ pathname: '/payments/fields-checkout', params: { flow: 'store', customerId: inv!.customerId } });
   };
 
   const refund = (payment: PaymentRow) => {
@@ -368,11 +372,8 @@ export default function InvoiceScreen() {
               <Row>
                 <View>
                   <Value style={{ fontWeight: '700' }}>
-                    {m.brand} **** {maskedLast4(m.last4)} {m.isDefault ? ' · DEFAULT' : ''}
+                    {describeMethod(m)}{m.isDefault ? ' · DEFAULT' : ''}
                   </Value>
-                  <Text style={styles.itemMeta}>
-                    Expires {String(m.expirationMonth).padStart(2, '0')}/{String(m.expirationYear).slice(-2)}
-                  </Text>
                   <Text style={styles.chargeAmount}>Due {money(inv.balanceDue)}</Text>
                 </View>
                 <Button

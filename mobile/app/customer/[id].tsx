@@ -256,7 +256,7 @@ export default function CustomerScreen() {
   };
 
   const openSaveCard = () => {
-    router.push({ pathname: '/customer/save-card', params: { customerId: id } });
+    router.push({ pathname: '/payments/fields-checkout', params: { flow: 'store', customerId: id } });
   };
 
   const setDefault = async (methodId: string) => {
@@ -697,10 +697,10 @@ export default function CustomerScreen() {
                 <Row>
                   <View>
                     <Value style={{ fontWeight: '700' }}>
-                      {m.brand === 'Bank Account' ? 'Bank Account' : m.brand} •••• {maskedLast4(m.last4)}
+                      {m.methodType === 'bank_account' || m.brand === 'Bank Account' ? 'Bank Account' : m.brand} •••• {maskedLast4(m.last4)}
                     </Value>
                     <Text style={styles.metaText}>
-                      {m.brand === 'Bank Account'
+                      {m.methodType === 'bank_account' || m.brand === 'Bank Account'
                         ? 'ACH'
                         : `Expires ${String(m.expirationMonth).padStart(2, '0')}/${String(m.expirationYear).slice(-2)}`}
                       {m.isDefault ? '  ·  DEFAULT' : ''}
