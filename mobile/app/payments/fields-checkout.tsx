@@ -1,4 +1,4 @@
-import React, { useMemo, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { StyleSheet, Text, View } from 'react-native';
 import { Stack, useLocalSearchParams, useRouter } from 'expo-router';
 import type { WebViewMessageEvent } from 'react-native-webview';
@@ -28,6 +28,10 @@ export default function FieldsCheckoutScreen() {
   const c = useFieldsCheckout({ flow, invoiceId, customerId });
   const [ready, setReady] = useState(false);
   const webViewRef = useRef<import('react-native-webview').WebView | null>(null);
+
+  useEffect(() => {
+    setReady(false);
+  }, [c.sessionKey]);
 
   const html = useMemo(() => (c.session ? buildFieldsWebViewHtml(c.session.sessionToken, c.session.scriptUrl) : ''), [c.session]);
 
@@ -73,7 +77,7 @@ export default function FieldsCheckoutScreen() {
         flow={flow} mode={c.mode} onModeChange={c.setMode} paySession={c.paySession}
         consent={c.consent} onConsentChange={c.setConsent}
         ready={ready} loading={c.loading} error={c.error} submitting={c.submitting} canSubmit={c.canSubmit} done={c.done}
-        onSubmit={onSubmit} onCancel={leave} onDone={leave} onRetry={() => { setReady(false); void c.startSession(); }}
+        onSubmit={onSubmit} onCancel={leave} onDone={leave} onRetry={() => void c.startSession()}
       >
         {c.session ? (
           <WebViewComponent
