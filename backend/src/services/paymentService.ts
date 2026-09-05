@@ -4,7 +4,10 @@ import { pool, withTransaction, Queryable } from '../config/db';
 import { ApiError } from '../utils/errors';
 import { recordAudit } from './auditService';
 import { rowsToCamel, toCamel } from './customerService';
-import { paymentProvider } from '../integrations/payments';
+import { paymentProvider, providerFor } from '../integrations/payments';
+import { resolveProviderName } from '../integrations/payments/resolveProvider';
+import type { EpxCustomer, EpxPaymentMethod } from './epx/epxPayloads';
+import { config } from '../config';
 import { communicationService, safelyQueueCommunication } from './communicationService';
 import { storage } from '../integrations/storage';
 import { fileService } from './fileService';
@@ -136,6 +139,29 @@ export const paymentService = {
     });
   },
 
+  /** Name + primary service address for EPX AVS / receipts. Never card data. */
+  async loadCustomerBillingInfo(customerId: string): Promise<EpxCustomer & { email: string | null }> {
+    const { rows } = await pool.query(
+      `SELECT c.first_name, c.last_name, c.email,
+              sl.address_line1, sl.city, sl.state, sl.postal_code
+       FROM customers c
+       LEFT JOIN LATERAL (
+         SELECT address_line1, city, state, postal_code
+         FROM service_locations
+         WHERE customer_id = c.id AND deleted_at IS NULL
+         ORDER BY is_primary DESC, created_at ASC
+         LIMIT 1
+       ) sl ON true
+       WHERE c.id = $1`,
+      [customerId],
+    );
+    const r = rows[0] ?? {};
+    return {
+      firstName: r.first_name ?? null, lastName: r.last_name ?? null, email: r.email ?? null,
+      address: r.address_line1 ?? null, city: r.city ?? null, state: r.state ?? null, zipCode: r.postal_code ?? null,
+    };
+  },
+
   /**
    * Stores a payment method that was already tokenized upstream (e.g. a BRIC
    * returned by a North Embedded Checkout STORAGE transaction). No card data
@@ -146,6 +172,7 @@ export const paymentService = {
     method: {
       providerPaymentMethodId: string;
       provider?: string;
+      methodType?: 'card' | 'bank_account';
       brand: string;
       last4: string | null;
       expirationMonth: number | null;
@@ -158,7 +185,7 @@ export const paymentService = {
     return withTransaction(async (tx) => {
       // Idempotency: re-confirming the same storage session must not duplicate.
       const existing = await tx.query(
-        `SELECT id, customer_id, payment_provider, brand, last4, expiration_month, expiration_year, is_default
+        `SELECT id, customer_id, payment_provider, method_type, brand, last4, expiration_month, expiration_year, is_default
          FROM payment_methods
          WHERE customer_id = $1 AND provider_payment_method_id = $2 AND deleted_at IS NULL`,
         [customerId, method.providerPaymentMethodId],
@@ -168,12 +195,13 @@ export const paymentService = {
         await tx.query('UPDATE payment_methods SET is_default = false, updated_at = now() WHERE customer_id = $1', [customerId]);
       }
       const { rows } = await tx.query(
-        `INSERT INTO payment_methods (customer_id, payment_provider, provider_payment_method_id, brand, last4, expiration_month, expiration_year, is_default)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8) RETURNING id, customer_id, payment_provider, brand, last4, expiration_month, expiration_year, is_default`,
-        [customerId, method.provider ?? 'north', method.providerPaymentMethodId, method.brand,
+        `INSERT INTO payment_methods (customer_id, payment_provider, provider_payment_method_id, method_type, brand, last4, expiration_month, expiration_year, is_default)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
+         RETURNING id, customer_id, payment_provider, method_type, brand, last4, expiration_month, expiration_year, is_default`,
+        [customerId, method.provider ?? 'north', method.providerPaymentMethodId, method.methodType ?? 'card', method.brand,
          normalizeLast4(method.last4), method.expirationMonth ?? 12, method.expirationYear ?? now.getFullYear() + 10, setDefault],
       );
-      await recordAudit({ userId, action: 'payment_method.added', entityType: 'payment_method', entityId: rows[0].id, newValue: { brand: method.brand, last4: method.last4, via: 'north_embedded_storage' } }, tx);
+      await recordAudit({ userId, action: 'payment_method.added', entityType: 'payment_method', entityId: rows[0].id, newValue: { brand: method.brand, last4: method.last4, via: 'north_embedded_fields' } }, tx);
       return { ...toCamel(rows[0]), duplicate: false };
     });
   },
@@ -252,12 +280,15 @@ export const paymentService = {
     }
     if (!methodRow) throw ApiError.badRequest('No payment method available for this customer');
 
-    const result = await paymentProvider.charge(
+    const provider = providerFor(resolveProviderName(methodRow.payment_provider, config.payments.provider));
+    const customer = await paymentService.loadCustomerBillingInfo(invoice.customer_id);
+    const paymentMethod: EpxPaymentMethod = methodRow.method_type === 'bank_account' ? 'ach' : 'credit';
+    const result = await provider.charge(
       methodRow.provider_payment_method_id,
       Math.round(chargeAmount * 100),
       'usd',
       `Invoice ${invoice.invoice_number}`,
-      { mit },
+      { mit, paymentMethod, customer, invoiceNumber: invoice.invoice_number },
     );
 
     if (!result.success) {
@@ -265,7 +296,7 @@ export const paymentService = {
         `INSERT INTO payments (customer_id, invoice_id, payment_method_id, amount, status, payment_provider, failure_reason,
            collected_by, processed_at, payment_source, autopay_attempt_date)
          VALUES ($1,$2,$3,$4,'failed',$5,$6,$7,now(),$8,$9)`,
-        [invoice.customer_id, invoiceId, methodRow.id, chargeAmount, paymentProvider.name, result.failureReason, employeeId, source, attemptDate],
+        [invoice.customer_id, invoiceId, methodRow.id, chargeAmount, provider.name, result.failureReason, employeeId, source, attemptDate],
       );
       await recordAudit({ userId, action: 'payment.failed', entityType: 'invoice', entityId: invoiceId, newValue: { amount: chargeAmount, reason: result.failureReason, source } });
       if (options.sendFailureCommunication !== false) {
@@ -285,7 +316,7 @@ export const paymentService = {
         `INSERT INTO payments (customer_id, invoice_id, payment_method_id, amount, status, payment_provider,
            provider_transaction_id, collected_by, receipt_number, processed_at, payment_source, autopay_attempt_date)
          VALUES ($1,$2,$3,$4,'succeeded',$5,$6,$7,$8,now(),$9,$10) RETURNING *`,
-        [invoice.customer_id, invoiceId, methodRow.id, chargeAmount, paymentProvider.name,
+        [invoice.customer_id, invoiceId, methodRow.id, chargeAmount, provider.name,
          result.transactionId, employeeId, receiptNumber, source, attemptDate],
       );
 
@@ -333,6 +364,7 @@ export const paymentService = {
     providerTransactionId: string,
     userId: string,
     employeeId: string | null,
+    options: { paymentMethodId?: string | null; brand?: string | null; last4?: string | null } = {},
   ) {
     const invRes = await pool.query(
       `SELECT i.*, c.id AS cust_id
@@ -378,9 +410,9 @@ export const paymentService = {
            customer_id, invoice_id, payment_method_id, amount, status, payment_provider,
            provider_transaction_id, collected_by, receipt_number, processed_at, payment_source
          )
-         VALUES ($1,$2,NULL,$3,'succeeded',$4,$5,$6,$7,now(),'manual')
+         VALUES ($1,$2,$3,$4,'succeeded',$5,$6,$7,$8,now(),'manual')
          RETURNING *`,
-        [invoice.customer_id, invoiceId, chargeAmount, providerName, providerTransactionId, employeeId, receiptNumber],
+        [invoice.customer_id, invoiceId, options.paymentMethodId ?? null, chargeAmount, providerName, providerTransactionId, employeeId, receiptNumber],
       );
 
       const newPaid = Number(invoice.amount_paid) + chargeAmount;
@@ -420,8 +452,8 @@ export const paymentService = {
           amount: chargeAmount,
           transactionId: providerTransactionId,
           invoiceNumber: invoice.invoice_number,
-          brand: null,
-          last4: null,
+          brand: options.brand ?? null,
+          last4: options.last4 ?? null,
           paidInFull: fullyPaid,
           fileId: receiptFile.fileId,
         },
@@ -434,9 +466,11 @@ export const paymentService = {
 
   async refundPayment(paymentId: string, amount: number | null, userId: string, employeeId: string | null) {
     const paymentRes = await pool.query(
-      `SELECT p.*, i.total AS invoice_total, i.amount_paid, i.status AS invoice_status, i.due_date
+      `SELECT p.*, i.total AS invoice_total, i.amount_paid, i.status AS invoice_status, i.due_date,
+              pm.method_type AS method_type
        FROM payments p
        LEFT JOIN invoices i ON i.id = p.invoice_id
+       LEFT JOIN payment_methods pm ON pm.id = p.payment_method_id
        WHERE p.id = $1`,
       [paymentId],
     );
@@ -451,7 +485,11 @@ export const paymentService = {
       throw ApiError.badRequest(`Refund amount must be between $0.01 and $${remaining.toFixed(2)}`);
     }
 
-    const result = await paymentProvider.refund(payment.provider_transaction_id, Math.round(refundAmount * 100));
+    const provider = providerFor(resolveProviderName(payment.payment_provider, config.payments.provider));
+    const result = await provider.refund(payment.provider_transaction_id, Math.round(refundAmount * 100), {
+      paymentMethod: payment.method_type === 'bank_account' ? 'ach' : 'credit',
+      fullAmount: refundAmount >= remaining - 0.001,
+    });
     if (!result.success) throw new ApiError(402, `Refund failed: ${result.failureReason}`);
 
     const data = await withTransaction(async (tx) => {

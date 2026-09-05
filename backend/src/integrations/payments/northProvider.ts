@@ -1,6 +1,6 @@
 import { northGatewayService } from '../../services/northGatewayService';
 import { epxEmbeddedPaymentsService } from '../../services/epxEmbeddedPaymentsService';
-import type { ChargeOptions, ChargeResult, PaymentProvider, TokenizedPaymentMethod } from './index';
+import type { ChargeOptions, ChargeResult, PaymentProvider, RefundOptions, TokenizedPaymentMethod } from './index';
 
 /**
  * North (Payments Hub) card-on-file provider.
@@ -184,7 +184,14 @@ export class NorthPaymentProvider implements PaymentProvider {
         };
       }
       try {
-        const result = await epxEmbeddedPaymentsService.tokenSale({ authGuid: providerPaymentMethodId, amount, paymentMethod: 'credit', mit: options.mit === true });
+        const result = await epxEmbeddedPaymentsService.tokenSale({
+          authGuid: providerPaymentMethodId,
+          amount,
+          paymentMethod: options.paymentMethod ?? 'credit',
+          mit: options.mit === true,
+          customer: options.customer,
+          invoiceNumber: options.invoiceNumber ?? null,
+        });
         if (!result.approved) {
           return {
             success: false,
@@ -233,7 +240,7 @@ export class NorthPaymentProvider implements PaymentProvider {
    * use the Gateway Functions transactions endpoint with the same
    * refund-then-void strategy.
    */
-  async refund(transactionId: string, amountCents: number): Promise<ChargeResult> {
+  async refund(transactionId: string, amountCents: number, options: RefundOptions = {}): Promise<ChargeResult> {
     if (amountCents <= 0) {
       return { success: false, transactionId: null, failureReason: 'Invalid refund amount' };
     }
@@ -252,24 +259,26 @@ export class NorthPaymentProvider implements PaymentProvider {
           failureReason: 'North Embedded Checkout is not configured; issue the refund from the Payments Hub portal.',
         };
       }
-      let refundError: string | null = null;
+      const paymentMethod = options.paymentMethod ?? 'credit';
+      let refundError: string;
       try {
-        const res = await epxEmbeddedPaymentsService.refund({ authGuid: transactionId, amount, paymentMethod: 'credit' });
-        if (res.approved) {
-          return { success: true, transactionId: res.authGuid ?? transactionId, failureReason: null };
-        }
+        const res = await epxEmbeddedPaymentsService.refund({ authGuid: transactionId, amount, paymentMethod });
+        if (res.approved) return { success: true, transactionId: res.authGuid ?? transactionId, failureReason: null };
         refundError = formatNorthFailure(res);
       } catch (error) {
         refundError = (error as Error).message || 'North refund request failed.';
       }
-      // Reversal (Void) fallback — only valid before settlement.
-      try {
-        const res = await epxEmbeddedPaymentsService.reversal({ authGuid: transactionId });
-        if (res.approved) {
-          return { success: true, transactionId: res.authGuid ?? transactionId, failureReason: null };
+      // Unsettled transactions cannot be refunded; a full-amount return can be
+      // reversed (card) or voided (ACH) instead.
+      if (options.fullAmount) {
+        try {
+          const res = paymentMethod === 'ach'
+            ? await epxEmbeddedPaymentsService.voidTransaction({ authGuid: transactionId, paymentMethod })
+            : await epxEmbeddedPaymentsService.reversal({ authGuid: transactionId });
+          if (res.approved) return { success: true, transactionId: res.authGuid ?? transactionId, failureReason: null };
+        } catch {
+          // report the original refund error
         }
-      } catch {
-        // Fall through to report the original refund error.
       }
       return { success: false, transactionId: null, failureReason: refundError };
     }

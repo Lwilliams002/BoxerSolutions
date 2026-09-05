@@ -1,5 +1,7 @@
 import crypto from 'crypto';
 import { config } from '../../config';
+import type { EpxCustomer, EpxPaymentMethod } from '../../services/epx/epxPayloads';
+import type { ProviderName } from './resolveProvider';
 
 /**
  * PCI-safe payment provider abstraction. The application never sees or stores
@@ -28,6 +30,16 @@ export interface ChargeOptions {
    * Customer-Initiated (CIT) transactions omit it.
    */
   mit?: boolean;
+  /** 'credit' for cards, 'ach' for bank accounts (from payment_methods.method_type). */
+  paymentMethod?: EpxPaymentMethod;
+  customer?: EpxCustomer;
+  invoiceNumber?: string | null;
+}
+
+export interface RefundOptions {
+  paymentMethod?: EpxPaymentMethod;
+  /** True when the whole original amount is being returned (enables reversal/void fallback). */
+  fullAmount?: boolean;
 }
 
 export interface PaymentProvider {
@@ -35,7 +47,7 @@ export interface PaymentProvider {
   /** Exchange a client-side token for a stored payment method reference. */
   attachPaymentMethod(token: string): Promise<TokenizedPaymentMethod>;
   charge(providerPaymentMethodId: string, amountCents: number, currency: string, description: string, options?: ChargeOptions): Promise<ChargeResult>;
-  refund(transactionId: string, amountCents: number): Promise<ChargeResult>;
+  refund(transactionId: string, amountCents: number, options?: RefundOptions): Promise<ChargeResult>;
 }
 
 /**
@@ -125,23 +137,25 @@ class MockPaymentProvider implements PaymentProvider {
     return { success: true, transactionId: `txn_mock_${crypto.randomBytes(10).toString('hex')}`, failureReason: null };
   }
 
-  async refund(transactionId: string): Promise<ChargeResult> {
+  async refund(transactionId: string, _amountCents?: number, _options?: RefundOptions): Promise<ChargeResult> {
     return { success: true, transactionId: `re_${transactionId}`, failureReason: null };
   }
 }
 
-function createProvider(): PaymentProvider {
-  switch (config.payments.provider) {
-    case 'mock':
-      return new MockPaymentProvider();
-    case 'north': {
+const instances: Partial<Record<ProviderName, PaymentProvider>> = {};
+
+export function providerFor(name: ProviderName): PaymentProvider {
+  if (!instances[name]) {
+    if (name === 'mock') {
+      instances[name] = new MockPaymentProvider();
+    } else {
       // Lazy require avoids a circular import (northGatewayService → config).
       const { NorthPaymentProvider } = require('./northProvider') as typeof import('./northProvider');
-      return new NorthPaymentProvider();
+      instances[name] = new NorthPaymentProvider();
     }
-    default:
-      throw new Error(`Unknown payment provider: ${config.payments.provider}`);
   }
+  return instances[name]!;
 }
 
-export const paymentProvider: PaymentProvider = createProvider();
+/** Provider for the legacy raw-token /payment-methods route and dev fixtures. */
+export const paymentProvider: PaymentProvider = providerFor(config.payments.provider === 'north' ? 'north' : 'mock');
