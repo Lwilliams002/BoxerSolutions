@@ -14,12 +14,15 @@ import {
 // Web variant: mounts North Embedded Checkout (Fields type, STORAGE) directly
 // into the DOM — react-native-webview does not support the web platform.
 
+// Kept in sync with the `declare global` block in
+// src/lib/northFieldsCheckout.ts — TypeScript requires all augmentations of
+// the same global interface member to share an identical type.
 declare global {
   interface Window {
     checkout?: {
-      mount?: (sessionToken: string, hostId: string) => Promise<void> | void;
-      submit?: () => Promise<void>;
-      onPaymentComplete?: (callback: (payload: Record<string, unknown>) => void) => (() => void) | void;
+      mount?: (sessionToken: string, containerId: string) => Promise<void> | void;
+      submit?: () => Promise<import('../../src/lib/northFieldsCheckout').FieldsSubmitResult>;
+      onPaymentComplete?: (callback: (payload: unknown) => void) => (() => void) | void;
     };
   }
 }
