@@ -89,6 +89,20 @@ function additionalFieldsFor(customer: Awaited<ReturnType<typeof paymentService.
   return fields;
 }
 
+// Session-token dedupe covers the single-process deployment only; a
+// multi-process deployment needs a database lock instead of an in-memory map.
+const inFlight = new Map<string, Promise<unknown>>();
+
+async function dedupeBySession<T>(sessionToken: string, run: () => Promise<T>): Promise<T> {
+  const existing = inFlight.get(sessionToken) as Promise<T> | undefined;
+  if (existing) return existing;
+  const promise = run().finally(() => { inFlight.delete(sessionToken); });
+  inFlight.set(sessionToken, promise);
+  return promise;
+}
+
+const UNCONSENTED_BANK_RESULT_MESSAGE = 'Bank accounts must be added through Pay by Bank so your ACH authorization can be recorded.';
+
 export const northFieldsPaymentService = {
   async createPaySession(input: { invoiceId: string; mode: FieldsPayMode }): Promise<FieldsPaySession> {
     const invoice = await loadInvoice(input.invoiceId);
@@ -123,68 +137,83 @@ export const northFieldsPaymentService = {
     actorUserId: string; employeeId: string | null;
     achConsent?: boolean; consentMeta?: ConsentMeta;
   }): Promise<FieldsConfirmResult> {
-    const invoice = await loadInvoice(input.invoiceId);
-    if (input.mode === 'bank' && input.achConsent !== true) {
-      throw ApiError.badRequest('Bank payments require acceptance of the ACH authorization terms.');
-    }
-    const expected: NorthMethodType = input.mode === 'bank' ? 'bank_account' : 'card';
-    const result = await waitForNorthSession(input.sessionToken, expected);
-    logger.info({ invoiceId: invoice.id, mode: input.mode, status: result.status, methodType: result.methodType }, 'north fields session approved');
+    return dedupeBySession(input.sessionToken, async () => {
+      const invoice = await loadInvoice(input.invoiceId);
+      if (invoice.status === 'paid') {
+        return { status: 'approved', duplicate: true, amount: null, transactionId: null, receipt: null, payment: null, savedMethod: null };
+      }
+      if (input.mode === 'bank' && input.achConsent !== true) {
+        throw ApiError.badRequest('Bank payments require acceptance of the ACH authorization terms.');
+      }
+      const expected: NorthMethodType = input.mode === 'bank' ? 'bank_account' : 'card';
+      const result = await waitForNorthSession(input.sessionToken, expected);
+      if (input.mode === 'card' && result.methodType === 'bank_account') {
+        throw ApiError.badRequest(UNCONSENTED_BANK_RESULT_MESSAGE);
+      }
+      logger.info({ invoiceId: invoice.id, mode: input.mode, status: result.status, methodType: result.methodType }, 'north fields session approved');
 
-    // Whatever the customer picked inside the fields, the BRIC goes on file.
-    const method = (await paymentService.addVaultedMethod(
-      invoice.customer_id,
-      {
-        providerPaymentMethodId: result.authGuid!,
-        provider: 'north',
-        methodType: result.methodType,
-        brand: result.brand,
-        last4: result.last4,
-        expirationMonth: result.expirationMonth,
-        expirationYear: result.expirationYear,
-      },
-      true,
-      input.actorUserId,
-    )) as { id: string; duplicate: boolean };
-    const savedMethod = { id: method.id, methodType: result.methodType, brand: result.brand, last4: result.last4 };
+      // Whatever the customer picked inside the fields, the BRIC goes on file.
+      const method = (await paymentService.addVaultedMethod(
+        invoice.customer_id,
+        {
+          providerPaymentMethodId: result.authGuid!,
+          provider: 'north',
+          methodType: result.methodType,
+          brand: result.brand,
+          last4: result.last4,
+          expirationMonth: result.expirationMonth,
+          expirationYear: result.expirationYear,
+        },
+        true,
+        input.actorUserId,
+      )) as { id: string; duplicate: boolean };
+      const savedMethod = { id: method.id, methodType: result.methodType, brand: result.brand, last4: result.last4 };
 
-    if (input.mode === 'card') {
-      // STORAGE approved → charge the stored BRIC (customer-initiated, no aci_ext).
+      if (input.mode === 'card') {
+        // STORAGE approved → charge the stored BRIC (customer-initiated, no aci_ext).
+        try {
+          const charged = await paymentService.chargeInvoice(invoice.id, method.id, null, input.actorUserId, input.employeeId, { source: 'manual', mit: false });
+          return { status: 'approved', duplicate: false, amount: charged.receipt.amount, transactionId: charged.receipt.transactionId, receipt: charged.receipt, payment: charged.payment, savedMethod };
+        } catch (error) {
+          if (error instanceof ApiError && /already paid/i.test(error.message)) {
+            return { status: 'approved', duplicate: true, amount: null, transactionId: null, receipt: null, payment: null, savedMethod };
+          }
+          throw error;
+        }
+      }
+
+      // Bank: the SALE already moved the money inside the checkout.
+      if (result.amount == null || result.amount <= 0) {
+        throw ApiError.badGateway('North approved the ACH sale but did not report an amount.');
+      }
       try {
-        const charged = await paymentService.chargeInvoice(invoice.id, method.id, null, input.actorUserId, input.employeeId, { source: 'manual', mit: false });
-        return { status: 'approved', duplicate: false, amount: charged.receipt.amount, transactionId: charged.receipt.transactionId, receipt: charged.receipt, payment: charged.payment, savedMethod };
+        const recorded = await paymentService.recordExternalInvoicePayment(
+          invoice.id, result.amount, 'north', result.authGuid!, input.actorUserId, input.employeeId,
+          { paymentMethodId: method.id, brand: result.brand, last4: result.last4 },
+        );
+        if (!recorded.duplicate && result.methodType === 'bank_account') {
+          await pool.query(
+            `INSERT INTO ach_authorizations (customer_id, invoice_id, payment_id, payment_method_id, amount, terms_version, ip_address, user_agent)
+             VALUES ($1,$2,$3,$4,$5,$6,$7,$8)`,
+            [invoice.customer_id, invoice.id, (recorded.payment as { id: string }).id, method.id, result.amount, ACH_TERMS_VERSION, input.consentMeta?.ip ?? null, input.consentMeta?.userAgent ?? null],
+          );
+        }
+        return {
+          status: 'approved',
+          duplicate: recorded.duplicate,
+          amount: result.amount,
+          transactionId: result.authGuid,
+          receipt: recorded.receipt,
+          payment: recorded.payment,
+          savedMethod,
+        };
       } catch (error) {
         if (error instanceof ApiError && /already paid/i.test(error.message)) {
           return { status: 'approved', duplicate: true, amount: null, transactionId: null, receipt: null, payment: null, savedMethod };
         }
         throw error;
       }
-    }
-
-    // Bank: the SALE already moved the money inside the checkout.
-    if (result.amount == null || result.amount <= 0) {
-      throw ApiError.badGateway('North approved the ACH sale but did not report an amount.');
-    }
-    const recorded = await paymentService.recordExternalInvoicePayment(
-      invoice.id, result.amount, 'north', result.authGuid!, input.actorUserId, input.employeeId,
-      { paymentMethodId: method.id, brand: result.brand, last4: result.last4 },
-    );
-    if (!recorded.duplicate && result.methodType === 'bank_account') {
-      await pool.query(
-        `INSERT INTO ach_authorizations (customer_id, invoice_id, payment_id, payment_method_id, amount, terms_version, ip_address, user_agent)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8)`,
-        [invoice.customer_id, invoice.id, (recorded.payment as { id: string }).id, method.id, result.amount, ACH_TERMS_VERSION, input.consentMeta?.ip ?? null, input.consentMeta?.userAgent ?? null],
-      );
-    }
-    return {
-      status: 'approved',
-      duplicate: recorded.duplicate,
-      amount: result.amount,
-      transactionId: result.authGuid,
-      receipt: recorded.receipt,
-      payment: recorded.payment,
-      savedMethod,
-    };
+    });
   },
 
   async createStorageSession(input: { customerId: string }) {
@@ -196,21 +225,26 @@ export const northFieldsPaymentService = {
   },
 
   async confirmStorage(input: { customerId: string; sessionToken: string; setDefault: boolean; actorUserId: string }) {
-    const result = await waitForNorthSession(input.sessionToken, 'card');
-    const method = (await paymentService.addVaultedMethod(
-      input.customerId,
-      {
-        providerPaymentMethodId: result.authGuid!,
-        provider: 'north',
-        methodType: result.methodType,
-        brand: result.brand,
-        last4: result.last4,
-        expirationMonth: result.expirationMonth,
-        expirationYear: result.expirationYear,
-      },
-      input.setDefault,
-      input.actorUserId,
-    )) as { id: string; duplicate: boolean };
-    return { id: method.id, methodType: result.methodType, brand: result.brand, last4: result.last4, duplicate: method.duplicate };
+    return dedupeBySession(input.sessionToken, async () => {
+      const result = await waitForNorthSession(input.sessionToken, 'card');
+      if (result.methodType === 'bank_account') {
+        throw ApiError.badRequest(UNCONSENTED_BANK_RESULT_MESSAGE);
+      }
+      const method = (await paymentService.addVaultedMethod(
+        input.customerId,
+        {
+          providerPaymentMethodId: result.authGuid!,
+          provider: 'north',
+          methodType: result.methodType,
+          brand: result.brand,
+          last4: result.last4,
+          expirationMonth: result.expirationMonth,
+          expirationYear: result.expirationYear,
+        },
+        input.setDefault,
+        input.actorUserId,
+      )) as { id: string; duplicate: boolean };
+      return { id: method.id, methodType: result.methodType, brand: result.brand, last4: result.last4, duplicate: method.duplicate };
+    });
   },
 };
