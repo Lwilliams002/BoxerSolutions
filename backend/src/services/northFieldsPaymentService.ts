@@ -130,10 +130,23 @@ async function recordCheckoutSession(input: {
 }
 
 async function markCheckoutSessionConfirmed(sessionToken: string, outcome: ConfirmOutcome) {
+  // 'rejected' means the confirm threw for a reason other than a processor
+  // decline (North status unreadable, a not-yet-completed 409, a DB error,
+  // etc.) — we could not verify whether the ACH debit that already happened
+  // inside checkout.submit() actually landed. Leave confirmed_at NULL so the
+  // row still reads as "pending" to assertNoPendingBankSession: a second bank
+  // session for the same invoice keeps getting refused with 409 until either
+  // the 35-minute lookback window lapses or a retry successfully verifies the
+  // original session. Only true terminal outcomes ('approved', 'duplicate',
+  // 'declined') close the row.
+  const close = outcome !== 'rejected';
   try {
     await pool.query(
-      `UPDATE north_checkout_sessions SET confirmed_at = now(), confirm_outcome = $2
-       WHERE session_token_hash = $1 AND confirmed_at IS NULL`,
+      close
+        ? `UPDATE north_checkout_sessions SET confirmed_at = now(), confirm_outcome = $2
+           WHERE session_token_hash = $1 AND confirmed_at IS NULL`
+        : `UPDATE north_checkout_sessions SET confirm_outcome = $2
+           WHERE session_token_hash = $1 AND confirmed_at IS NULL`,
       [hashSessionToken(sessionToken), outcome],
     );
   } catch (error) {
