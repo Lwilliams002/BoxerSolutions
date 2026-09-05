@@ -84,9 +84,9 @@ ssh -i "$SF_EC2_KEY" -o BatchMode=yes "$SF_EC2_HOST" '
   git pull --ff-only &&
   cd backend &&
   npm run build &&
-  sudo systemctl restart boxer-api &&
+  sudo systemctl restart servicefinance-api &&
   sleep 4 &&
-  systemctl is-active boxer-api &&
+  systemctl is-active servicefinance-api &&
   curl -s -o /dev/null -w "health: %{http_code}\n" http://localhost:4000/health &&
   git log --oneline -1
 '
@@ -99,14 +99,14 @@ ssh -i "$SF_EC2_KEY" -o BatchMode=yes "$SF_EC2_HOST" '
 ### Service status / restart
 
 ```zsh
-ssh -i "$SF_EC2_KEY" -o BatchMode=yes "$SF_EC2_HOST" 'systemctl status boxer-api --no-pager | cat'
-ssh -i "$SF_EC2_KEY" -o BatchMode=yes "$SF_EC2_HOST" 'sudo systemctl restart boxer-api && systemctl is-active boxer-api'
+ssh -i "$SF_EC2_KEY" -o BatchMode=yes "$SF_EC2_HOST" 'systemctl status servicefinance-api --no-pager | cat'
+ssh -i "$SF_EC2_KEY" -o BatchMode=yes "$SF_EC2_HOST" 'sudo systemctl restart servicefinance-api && systemctl is-active servicefinance-api'
 ```
 
 ### App logs (systemd + app file)
 
 ```zsh
-ssh -i "$SF_EC2_KEY" -o BatchMode=yes "$SF_EC2_HOST" 'sudo journalctl -u boxer-api --since "-30 min" --no-pager | tail -120'
+ssh -i "$SF_EC2_KEY" -o BatchMode=yes "$SF_EC2_HOST" 'sudo journalctl -u servicefinance-api --since "-30 min" --no-pager | tail -120'
 ssh -i "$SF_EC2_KEY" -o BatchMode=yes "$SF_EC2_HOST" 'tail -n 120 ~/BoxerSolutions/backend/app.log'
 ```
 
@@ -175,9 +175,9 @@ sf_deploy_ec2() {
     git pull --ff-only &&
     cd backend &&
     npm run build &&
-    sudo systemctl restart boxer-api &&
+    sudo systemctl restart servicefinance-api &&
     sleep 4 &&
-    systemctl is-active boxer-api &&
+    systemctl is-active servicefinance-api &&
     curl -s -o /dev/null -w "health: %{http_code}\n" http://localhost:4000/health &&
     git log --oneline -1
   '
@@ -207,7 +207,7 @@ cd "$SF_REPO/backend" && npx tsc --noEmit
 
 ```zsh
 ssh -i "$SF_EC2_KEY" -o BatchMode=yes "$SF_EC2_HOST" '
-  systemctl is-active boxer-api &&
+  systemctl is-active servicefinance-api &&
   curl -s -o /dev/null -w "health: %{http_code}\n" http://localhost:4000/health &&
   cd ~/BoxerSolutions && git rev-parse --short HEAD
 '
