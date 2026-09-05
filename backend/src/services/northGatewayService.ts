@@ -173,29 +173,6 @@ function describeNorthError(data: Record<string, unknown> | null, fallback: stri
   return fallback;
 }
 
-async function readNorthErrorResponse(res: Response, prefix: string) {
-  const requestId = res.headers.get('x-request-id');
-  const text = await res.text().catch(() => '');
-  let data: Record<string, unknown> | null = null;
-  if (text) {
-    try {
-      data = JSON.parse(text) as Record<string, unknown>;
-    } catch {
-      data = null;
-    }
-  }
-  let message = prefix;
-  if (data) {
-    message = describeNorthError(data, prefix);
-  } else if (text.trim()) {
-    message = `${prefix}: ${text.trim()}`;
-  }
-  if (requestId) {
-    message = `${message} (North request id: ${requestId})`;
-  }
-  return { message, details: data ?? { status: res.status, statusText: res.statusText, requestId, body: text || null } };
-}
-
 class NorthGatewayService {
   private auth?: NorthAuthResponse;
   private authAt = 0;

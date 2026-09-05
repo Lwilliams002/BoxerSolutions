@@ -52,20 +52,15 @@ export const config = {
     signatureSecret: normalizedOptional('NORTH_SIGNATURE_SECRET'),
     transactionsUsername: normalizedOptional('NORTH_TRANSACTIONS_USERNAME'),
     // One Embedded Checkout (Fields type) handles SALE and STORAGE sessions.
-    // The NORTH_EMBEDDED_FIELDS_* names are deprecated aliases: they are read
-    // first so deployments that already hold the Fields credentials there
-    // keep working without an env change.
+    // The NORTH_EMBEDDED_FIELDS_* names are read first so deployments that
+    // already hold the Fields credentials there keep working without an env
+    // change; NORTH_EMBEDDED_* (no FIELDS) is the fallback for older setups.
     embeddedCheckoutId: normalizedOptional('NORTH_EMBEDDED_FIELDS_CHECKOUT_ID', process.env.NORTH_EMBEDDED_CHECKOUT_ID ?? ''),
     embeddedProfileId: normalizedOptional('NORTH_EMBEDDED_FIELDS_PROFILE_ID', process.env.NORTH_EMBEDDED_PROFILE_ID ?? ''),
     embeddedPrivateApiKey: normalizedOptional('NORTH_EMBEDDED_FIELDS_PRIVATE_API_KEY', process.env.NORTH_EMBEDDED_PRIVATE_API_KEY ?? ''),
     webhookSecret: normalizedOptional('NORTH_EMBEDDED_FIELDS_WEBHOOK_SECRET', process.env.NORTH_WEBHOOK_SECRET ?? process.env.NORTH_SIGNATURE_SECRET ?? ''),
     legacyWebhookSecret: normalizedOptional('NORTH_WEBHOOK_SECRET'),
     achTermsVersion: normalizedOptional('NORTH_ACH_TERMS_VERSION', '2026-09-05'),
-    // Deprecated aliases kept until Task 14 removes their last readers.
-    embeddedFieldsCheckoutId: normalizedOptional('NORTH_EMBEDDED_FIELDS_CHECKOUT_ID', process.env.NORTH_EMBEDDED_CHECKOUT_ID ?? ''),
-    embeddedFieldsProfileId: normalizedOptional('NORTH_EMBEDDED_FIELDS_PROFILE_ID', process.env.NORTH_EMBEDDED_PROFILE_ID ?? ''),
-    embeddedFieldsPrivateApiKey: normalizedOptional('NORTH_EMBEDDED_FIELDS_PRIVATE_API_KEY', process.env.NORTH_EMBEDDED_PRIVATE_API_KEY ?? ''),
-    fieldsWebhookSecret: normalizedOptional('NORTH_EMBEDDED_FIELDS_WEBHOOK_SECRET'),
     // Raw request/response certification logging (text file North asks for).
     certLogEnabled: (process.env.NORTH_CERT_LOG_ENABLED ?? 'true') === 'true',
     certLogPath: normalizedOptional('NORTH_CERT_LOG_PATH', 'logs/north-cert.log'),

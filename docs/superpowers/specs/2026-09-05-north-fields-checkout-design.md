@@ -1,7 +1,7 @@
 # North Embedded Checkout: Fields integration with Storage + Token Sale
 
 Date: 2026-09-05
-Status: approved design, awaiting implementation plan
+Status: implemented (pending sandbox verification, Task 15)
 
 ## 1. Goal
 
