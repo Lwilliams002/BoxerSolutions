@@ -8,8 +8,8 @@ import { invoiceService } from './invoiceService';
 import { paymentService } from './paymentService';
 import { recurringChargeService } from './recurringChargeService';
 import { northGatewayService } from './northGatewayService';
-import { asRecord, extractNorthCardOnFile, waitForApprovedNorthSession } from '../utils/northEmbedded';
 import { logger } from '../utils/logger';
+import { northFieldsPaymentService, type ConsentMeta, type FieldsPayMode } from './northFieldsPaymentService';
 
 const SIGNING_TOKEN_TTL_SECONDS = 60 * 60 * 24 * 7;
 const INITIAL_PAYMENT_TOKEN_TTL_SECONDS = 60 * 60 * 24 * 3;
@@ -366,6 +366,14 @@ async function getOwnerUserId() {
   return rows[0]?.id as string | undefined;
 }
 
+async function assertInvoiceBelongsToCustomer(invoiceId: string, customerId: string) {
+  const { rows } = await pool.query(
+    'SELECT 1 FROM invoices WHERE id = $1 AND customer_id = $2 AND deleted_at IS NULL',
+    [invoiceId, customerId],
+  );
+  if (!rows[0]) throw ApiError.notFound('Initial agreement invoice not found.');
+}
+
 interface InitialChargeResult {
   charged: boolean;
   invoiceId: string | null;
@@ -704,49 +712,36 @@ export const agreementSigningService = {
   },
 
   /**
-   * Creates the Embedded Checkout session for the post-signing initial
-   * payment. This is a one-time customer-initiated SALE; after approval we
-   * save the approved card token on file so AutoPay/recurring billing can use
-   * it later.
+   * Post-signing initial payment on the Fields checkout. Card = STORAGE then a
+   * customer-initiated token sale; bank = ACH SALE inside the checkout. Either
+   * way the method ends up on file for recurring charges.
    */
-  async createInitialPaymentSession(paymentToken: string) {
+  async createInitialPaymentSession(paymentToken: string, mode: FieldsPayMode) {
     const payload = parseInitialPaymentToken(paymentToken);
-    const { rows } = await pool.query(
-      `SELECT i.id, i.invoice_number, i.total, i.amount_paid, i.status, c.email AS customer_email
-       FROM invoices i
-       JOIN customers c ON c.id = i.customer_id
-       WHERE i.id = $1
-         AND i.customer_id = $2
-         AND i.deleted_at IS NULL`,
-      [payload.invoiceId, payload.customerId],
-    );
-    const invoice = rows[0] as {
-      id: string;
-      invoice_number: string;
-      total: string;
-      amount_paid: string;
-      status: string;
-      customer_email: string | null;
-    } | undefined;
-    if (!invoice) throw ApiError.notFound('Initial agreement invoice not found.');
-    if (invoice.status === 'void') throw ApiError.badRequest('This invoice has been voided.');
-    const amount = Number((Number(invoice.total) - Number(invoice.amount_paid)).toFixed(2));
-    if (amount <= 0) throw ApiError.badRequest('This invoice has already been paid.');
-    // SALE session — the checkout charges the initial invoice amount.
-    const { sessionToken } = await northGatewayService.createEmbeddedSession({
-      amount,
-      transactionType: 'SALE',
-      orderId: invoice.invoice_number,
-      customerEmail: invoice.customer_email,
-      products: [{ name: 'Initial service agreement charge', quantity: 1, price: amount }],
+    await assertInvoiceBelongsToCustomer(payload.invoiceId, payload.customerId);
+    return northFieldsPaymentService.createPaySession({ invoiceId: payload.invoiceId, mode });
+  },
+
+  async confirmInitialPayment(
+    paymentToken: string,
+    mode: FieldsPayMode,
+    northSessionToken: string,
+    achConsent: boolean | undefined,
+    consentMeta: ConsentMeta,
+  ) {
+    const payload = parseInitialPaymentToken(paymentToken);
+    await assertInvoiceBelongsToCustomer(payload.invoiceId, payload.customerId);
+    const ownerUserId = await getOwnerUserId();
+    if (!ownerUserId) throw ApiError.badRequest('Owner account not available to record the initial payment.');
+    return northFieldsPaymentService.confirmPay({
+      invoiceId: payload.invoiceId,
+      mode,
+      sessionToken: northSessionToken,
+      actorUserId: ownerUserId,
+      employeeId: null,
+      achConsent,
+      consentMeta,
     });
-    return {
-      sessionToken,
-      checkoutId: config.north.embeddedCheckoutId,
-      scriptUrl: `${config.north.embeddedBaseUrl}/checkout.js`,
-      amount,
-      invoiceNumber: invoice.invoice_number,
-    };
   },
 
   async getInitialPaymentStatus(paymentToken: string, northSessionToken: string) {
@@ -762,76 +757,5 @@ export const agreementSigningService = {
     return {
       status: String(statusData.status ?? 'unknown'),
     };
-  },
-
-  async confirmInitialPayment(paymentToken: string, northSessionToken: string, completion?: unknown) {
-    const payload = parseInitialPaymentToken(paymentToken);
-    const ownerUserId = await getOwnerUserId();
-    if (!ownerUserId) {
-      throw ApiError.badRequest('Owner account not available to record the initial payment.');
-    }
-
-    // Prefer the completion payload from North: it often carries the approved
-    // transaction details directly. Fall back to the approved checkout session
-    // if the completion payload is missing the token fields.
-    const completionRecord = asRecord(completion);
-    const completionPayload = completionRecord ? (asRecord(completionRecord.payload) ?? asRecord(completionRecord.data) ?? completionRecord) : null;
-    const stored = completionPayload ? extractNorthCardOnFile(completionPayload) : null;
-    const approvalResult = stored ? null : await waitForApprovedNorthSession(northSessionToken);
-    const card = stored ?? extractNorthCardOnFile(approvalResult?.sessionStatus ?? {}) ?? null;
-    if (!card) {
-      throw ApiError.badGateway('North did not return a stored payment token for this checkout.');
-    }
-
-    // 2. Save the card on file (idempotent — re-confirming reuses the method).
-    const method = (await paymentService.addVaultedMethod(
-      payload.customerId,
-      {
-        providerPaymentMethodId: card.bric,
-        provider: 'north',
-        brand: card.brand,
-        last4: card.last4,
-        expirationMonth: card.expirationMonth,
-        expirationYear: card.expirationYear,
-      },
-      true,
-      ownerUserId,
-    )) as { id?: string };
-    if (!method.id) throw ApiError.badRequest('The card could not be saved on file.');
-
-    // 3. Charge the initial invoice via the EPX token sale (CIT — the customer
-    //    is initiating this payment, so no aci_ext per EPX guidance).
-    try {
-      const result = await paymentService.chargeInvoice(
-        payload.invoiceId,
-        method.id,
-        null,
-        ownerUserId,
-        null,
-        { source: 'manual', mit: false },
-      );
-      return {
-        status: 'approved' as const,
-        amount: result.receipt.amount,
-        transactionId: result.receipt.transactionId,
-        duplicate: false,
-        receipt: result.receipt,
-        savedCard: { brand: card.brand, last4: card.last4 },
-      };
-    } catch (error) {
-      // Re-confirming after a successful charge: report as duplicate instead
-      // of failing the thank-you page.
-      if (error instanceof ApiError && /already paid/i.test(error.message)) {
-        return {
-          status: 'approved' as const,
-          amount: null,
-          transactionId: null,
-          duplicate: true,
-          receipt: null,
-          savedCard: { brand: card.brand, last4: card.last4 },
-        };
-      }
-      throw error;
-    }
   },
 };
