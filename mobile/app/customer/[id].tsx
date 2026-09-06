@@ -329,15 +329,16 @@ export default function CustomerScreen() {
     isUnsignedAgreementName(activeAgreement.fileName),
   );
   const visibleDocs = allDocs;
-  const addAgreement = () => {
+  const hasSignedAgreement = agreementDocs.some((d) => isSignedAgreementName(d.fileName) || (!isUnsignedAgreementName(d.fileName) && d.uploadStatus === 'uploaded'));
+  const buildAgreementPayload = () => {
     const primaryLocation =
       (cust.serviceLocations ?? []).find((l: any) => l.isPrimary) ??
       (cust.serviceLocations ?? [])[0];
     if (!primaryLocation?.addressLine1 || !primaryLocation?.city || !primaryLocation?.state || !primaryLocation?.postalCode) {
-      Alert.alert('Service location required', 'Add a valid service location before creating a new agreement.');
-      return;
+      notify('Service location required', 'Add a valid service location before creating a new agreement.');
+      return null;
     }
-    const payload = {
+    return {
       firstName: cust.firstName,
       lastName: cust.lastName,
       company: cust.company ?? null,
@@ -355,6 +356,31 @@ export default function CustomerScreen() {
         postalCode: primaryLocation.postalCode,
       },
     };
+  };
+  // Update = pre-fill the builder with the current agreement; only new items are charged.
+  const updateAgreement = async () => {
+    const payload = buildAgreementPayload();
+    if (!payload) return;
+    setBusy(true);
+    try {
+      const current = await api<any>(`/agreements/current?customerId=${id}`);
+      if (!current) {
+        notify('No agreement found', 'This customer has no agreement to update yet. Use Add Agreement instead.');
+        return;
+      }
+      router.push({
+        pathname: '/customer/agreement',
+        params: { payload: JSON.stringify(payload), customerId: id, mode: 'update', base: JSON.stringify(current) },
+      });
+    } catch (e) {
+      notify('Unable to load agreement', (e as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  };
+  const addAgreement = () => {
+    const payload = buildAgreementPayload();
+    if (!payload) return;
     router.push({
       pathname: '/customer/agreement',
       params: { payload: JSON.stringify(payload), customerId: id },
@@ -770,8 +796,19 @@ export default function CustomerScreen() {
               ) : null}
               {hasPermission('customers:write') ? (
                 <Card>
-                  <Text style={styles.metaText}>Need to change services? Create a new agreement version.</Text>
-                  <Button title="+ Add Agreement" onPress={addAgreement} />
+                  {hasSignedAgreement ? (
+                    <>
+                      <Text style={styles.metaText}>Adding services? Update the current agreement — only the new items are charged now and the recurring amount is adjusted.</Text>
+                      <Button title="Update Agreement" onPress={() => void updateAgreement()} loading={busy} />
+                      <Text style={[styles.metaText, { marginTop: 10 }]}>Starting over? Create a new agreement version (charges its full initial total).</Text>
+                      <Button title="+ Add Agreement" variant="outline" onPress={addAgreement} />
+                    </>
+                  ) : (
+                    <>
+                      <Text style={styles.metaText}>Create the customer's service agreement.</Text>
+                      <Button title="+ Add Agreement" onPress={addAgreement} />
+                    </>
+                  )}
                 </Card>
               ) : null}
               {visibleDocs.length === 0 ? (

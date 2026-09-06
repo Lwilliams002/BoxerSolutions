@@ -42,6 +42,15 @@ interface AgreementSnapshot {
   recurringTotal: number | null;
   termMonths: number;
   coveredPests: string[];
+  /** 'SIGNED' | 'UNSIGNED' from the Status line, when present. */
+  status: string | null;
+  /** Builder selections (JSON) so an update can pre-fill the same choices. */
+  selections: Record<string, unknown> | null;
+  /** Update of an existing agreement: only new items are charged now. */
+  isUpdate: boolean;
+  /** Amount to charge at signing for an update (new items only). */
+  initialDueNow: number | null;
+  previousRecurringTotal: number | null;
 }
 
 const AGREEMENT_TERM_MONTHS_DEFAULT = 12;
@@ -298,8 +307,38 @@ function parseAgreementSnapshot(noteBody: string): AgreementSnapshot | null {
   let recurringTotal: number | null = null;
   let termMonths = AGREEMENT_TERM_MONTHS_DEFAULT;
   let coveredPests: string[] = [];
+  let status: string | null = null;
+  let selections: Record<string, unknown> | null = null;
+  let isUpdate = false;
+  let initialDueNow: number | null = null;
+  let previousRecurringTotal: number | null = null;
 
   for (const line of lines) {
+    if (line.startsWith('Status:')) {
+      status = line.replace('Status:', '').trim().toUpperCase().startsWith('SIGNED') ? 'SIGNED' : 'UNSIGNED';
+      continue;
+    }
+    if (line.startsWith('Selections:')) {
+      try {
+        const parsed = JSON.parse(line.replace('Selections:', '').trim());
+        selections = parsed && typeof parsed === 'object' ? (parsed as Record<string, unknown>) : null;
+      } catch {
+        selections = null;
+      }
+      continue;
+    }
+    if (line.startsWith('Update of previous agreement:')) {
+      isUpdate = /yes/i.test(line);
+      continue;
+    }
+    if (line.startsWith('Initial Due Now:')) {
+      initialDueNow = parseAmount(line.replace('Initial Due Now:', ''));
+      continue;
+    }
+    if (line.startsWith('Previous Recurring Total:')) {
+      previousRecurringTotal = parseAmount(line.replace('Previous Recurring Total:', '').replace('/service', ''));
+      continue;
+    }
     const itemMatch = line.match(/^•\s*(.+?)\s+—\s+Initial\s+(.+?)\s+\/\s+Regular\s+(.+)$/i);
     if (itemMatch) {
       const initial = parseAmount(itemMatch[2]);
@@ -335,7 +374,7 @@ function parseAgreementSnapshot(noteBody: string): AgreementSnapshot | null {
     }
   }
 
-  return { lineItems, initialDiscount, initialTotal, recurringTotal, termMonths, coveredPests };
+  return { lineItems, initialDiscount, initialTotal, recurringTotal, termMonths, coveredPests, status, selections, isUpdate, initialDueNow, previousRecurringTotal };
 }
 
 async function loadAgreementSnapshot(customerId: string) {
@@ -351,6 +390,19 @@ async function loadAgreementSnapshot(customerId: string) {
   );
   if (!rows[0]?.body) return null;
   return parseAgreementSnapshot(String(rows[0].body));
+}
+
+/** The email-signing path saves the note as UNSIGNED; flip it once the customer signs. */
+async function markLatestAgreementNoteSigned(customerId: string) {
+  try {
+    await pool.query(
+      `UPDATE notes SET body = regexp_replace(body, '^(SERVICE AGREEMENT\n)Status: UNSIGNED[^\n]*', E'\\1Status: SIGNED (signed by email)'), updated_at = now()
+       WHERE id = (SELECT id FROM notes WHERE customer_id = $1 AND deleted_at IS NULL AND body LIKE 'SERVICE AGREEMENT%' ORDER BY created_at DESC LIMIT 1)`,
+      [customerId],
+    );
+  } catch (error) {
+    logger.warn({ err: error, customerId }, 'failed to mark agreement note signed');
+  }
 }
 
 async function getOwnerUserId() {
@@ -385,7 +437,13 @@ interface InitialChargeResult {
 }
 
 async function chargeSignedAgreementInitial(customerId: string, agreement: AgreementSnapshot | null): Promise<InitialChargeResult> {
-  if (!agreement || agreement.initialTotal == null || agreement.initialTotal <= 0) {
+  // An update charges only the items that are new versus the previous
+  // agreement (the builder records that as "Initial Due Now"); a first
+  // agreement charges its full initial total.
+  const chargeAmount = agreement
+    ? (agreement.isUpdate ? (agreement.initialDueNow ?? 0) : (agreement.initialDueNow ?? agreement.initialTotal ?? 0))
+    : 0;
+  if (!agreement || chargeAmount <= 0) {
     return { charged: false, invoiceId: null };
   }
 
@@ -394,15 +452,15 @@ async function chargeSignedAgreementInitial(customerId: string, agreement: Agree
     return { charged: false, invoiceId: null, reason: 'Owner account not available to record the initial charge.' };
   }
 
-  const amountDue = Number(agreement.initialTotal.toFixed(2));
+  const amountDue = Number(chargeAmount.toFixed(2));
   try {
     const invoice = await invoiceService.create({
      customerId,
      dueDate: new Date().toISOString().slice(0, 10),
      taxRate: 0,
-     notes: 'Initial agreement charge',
+     notes: agreement.isUpdate ? 'Agreement update charge (new services)' : 'Initial agreement charge',
      items: [{
-       description: 'Initial service agreement charge',
+       description: agreement.isUpdate ? 'Added services (initial charge)' : 'Initial service agreement charge',
        quantity: 1,
        unitPrice: amountDue,
        taxable: false,
@@ -458,6 +516,31 @@ async function chargeSignedAgreementInitial(customerId: string, agreement: Agree
 }
 
 export const agreementSigningService = {
+  /**
+   * The customer's current agreement (latest SERVICE AGREEMENT note) plus the
+   * active recurring amount — what an "Update Agreement" builds on.
+   */
+  async getCurrentAgreement(customerId: string) {
+    const { rows } = await pool.query(
+      `SELECT body, created_at FROM notes
+       WHERE customer_id = $1 AND deleted_at IS NULL AND body LIKE 'SERVICE AGREEMENT%'
+       ORDER BY created_at DESC LIMIT 1`,
+      [customerId],
+    );
+    if (!rows[0]?.body) return null;
+    const snapshot = parseAgreementSnapshot(String(rows[0].body));
+    if (!snapshot) return null;
+    const recurring = await pool.query(
+      'SELECT amount FROM recurring_charges WHERE customer_id = $1 AND active = true LIMIT 1',
+      [customerId],
+    );
+    return {
+      ...snapshot,
+      createdAt: rows[0].created_at,
+      currentRecurringAmount: recurring.rows[0] ? Number(recurring.rows[0].amount) : snapshot.recurringTotal,
+    };
+  },
+
   async getLatestUnsignedAgreement(customerId: string) {
     const { rows } = await pool.query(
       `SELECT id, customer_id
@@ -685,6 +768,7 @@ export const agreementSigningService = {
     );
 
     const initialCharge = await chargeSignedAgreementInitial(row.customer_id, agreement);
+    await markLatestAgreementNoteSigned(row.customer_id);
 
     // Capture (or update) the recurring "Regular" charge from this agreement.
     // Signing a newer agreement replaces the previous recurring amount.

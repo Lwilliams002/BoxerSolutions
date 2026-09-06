@@ -1,4 +1,4 @@
-import React, { useMemo, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   View,
   Text,
@@ -60,6 +60,23 @@ interface LineItem {
   regular: number;
 }
 
+/** Current agreement as returned by GET /agreements/current (update mode). */
+interface BaseAgreement {
+  lineItems: { label: string; initial: number; regular: number }[];
+  initialTotal: number | null;
+  recurringTotal: number | null;
+  currentRecurringAmount: number | null;
+  selections: {
+    homeSize?: string | null;
+    yardTier?: string | null;
+    addons?: unknown;
+    web?: unknown;
+    odd?: unknown;
+    overrides?: unknown;
+    itemKeys?: unknown;
+  } | null;
+}
+
 type PriceField = 'initial' | 'regular';
 type PriceOverride = Partial<Record<PriceField, string>>;
 
@@ -80,13 +97,25 @@ function parseOverride(value?: string) {
 }
 
 export default function AgreementScreen() {
-  const { payload, customerId } = useLocalSearchParams<{ payload: string; customerId?: string }>();
+  const { payload, customerId, mode, base } = useLocalSearchParams<{ payload: string; customerId?: string; mode?: string; base?: string }>();
   const router = useRouter();
   const qc = useQueryClient();
   const docRef = useRef<View>(null);
   const user = useAuth((state) => state.user);
   const existingCustomerId = typeof customerId === 'string' && customerId ? customerId : null;
   const isOwner = !!user?.roles?.includes('OWNER');
+  // Update mode: build on the customer's current agreement. Only items that
+  // are new versus that agreement are charged now; the recurring amount is
+  // replaced by the new total.
+  const baseAgreement = useMemo<BaseAgreement | null>(() => {
+    if (mode !== 'update' || typeof base !== 'string' || !base) return null;
+    try {
+      return JSON.parse(base) as BaseAgreement;
+    } catch {
+      return null;
+    }
+  }, [mode, base]);
+  const isUpdate = !!existingCustomerId && !!baseAgreement;
 
   const [initials, setInitials] = useState('');
   const [agreed, setAgreed] = useState(false);
@@ -104,6 +133,29 @@ export default function AgreementScreen() {
   const [oddKeys, setOddKeys] = useState<string[]>([]);
   const [priceOverrides, setPriceOverrides] = useState<Record<string, PriceOverride>>({});
   const [initialDiscountInput, setInitialDiscountInput] = useState('');
+
+  // Pre-fill the builder from the current agreement's saved selections.
+  useEffect(() => {
+    const sel = baseAgreement?.selections;
+    if (!sel) return;
+    if (typeof sel.homeSize === 'string') {
+      const idx = HOME_SIZES.findIndex((h) => h.label === sel.homeSize);
+      if (idx >= 0) setHomeSizeIdx(idx);
+    }
+    if (typeof sel.yardTier === 'string') {
+      const idx = YARD_ANT_TIERS.findIndex((t) => t.label === sel.yardTier);
+      if (idx >= 0) { setYardOn(true); setYardTierIdx(idx); }
+    }
+    if (Array.isArray(sel.addons)) setAddonKeys(sel.addons.filter((k): k is string => typeof k === 'string'));
+    if (sel.web && typeof sel.web === 'object') {
+      const web = sel.web as { on?: boolean; sqft?: string };
+      setWebOn(!!web.on);
+      if (typeof web.sqft === 'string') setWebSqft(web.sqft);
+    }
+    if (Array.isArray(sel.odd)) setOddKeys(sel.odd.filter((k): k is string => typeof k === 'string'));
+    if (sel.overrides && typeof sel.overrides === 'object') setPriceOverrides(sel.overrides as Record<string, PriceOverride>);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [baseAgreement]);
 
   const data = useMemo<CustomerPayload | null>(() => {
     try {
@@ -181,9 +233,23 @@ export default function AgreementScreen() {
 
   const initialSubtotal = useMemo(() => lineItems.reduce((s, i) => s + i.initial, 0), [lineItems]);
   const regularTotal = useMemo(() => lineItems.reduce((s, i) => s + i.regular, 0), [lineItems]);
+  // Items the customer already has under the current agreement (matched by
+  // builder key when available, otherwise by label for older agreements).
+  const isBaseItem = useMemo(() => {
+    const keys = new Set<string>(Array.isArray(baseAgreement?.selections?.itemKeys) ? (baseAgreement!.selections!.itemKeys as string[]) : []);
+    const labels = new Set<string>((baseAgreement?.lineItems ?? []).map((i) => i.label));
+    return (item: LineItem) => keys.has(item.key) || labels.has(item.label);
+  }, [baseAgreement]);
+  /** Items whose initial fee is charged at signing: everything for a new agreement, only new items for an update. */
+  const chargeItems = useMemo(
+    () => lineItems.filter((i) => i.initial > 0 && (!isUpdate || !isBaseItem(i))),
+    [lineItems, isUpdate, isBaseItem],
+  );
+  const chargeSubtotal = useMemo(() => chargeItems.reduce((s, i) => s + i.initial, 0), [chargeItems]);
+  const previousRecurring = baseAgreement ? (baseAgreement.currentRecurringAmount ?? baseAgreement.recurringTotal ?? 0) : 0;
   const initialDiscount = useMemo(
-    () => Math.min(parseOverride(initialDiscountInput) ?? 0, initialSubtotal),
-    [initialDiscountInput, initialSubtotal],
+    () => Math.min(parseOverride(initialDiscountInput) ?? 0, isUpdate ? chargeSubtotal : initialSubtotal),
+    [initialDiscountInput, initialSubtotal, chargeSubtotal, isUpdate],
   );
   const discountWasCapped = useMemo(() => {
     const requested = parseOverride(initialDiscountInput);
@@ -192,6 +258,11 @@ export default function AgreementScreen() {
   const initialTotal = useMemo(
     () => Math.max(0, initialSubtotal - initialDiscount),
     [initialSubtotal, initialDiscount],
+  );
+  /** Amount charged at signing. */
+  const chargeTotal = useMemo(
+    () => Math.max(0, chargeSubtotal - initialDiscount),
+    [chargeSubtotal, initialDiscount],
   );
 
   if (!data) {
@@ -262,6 +333,15 @@ export default function AgreementScreen() {
       let signatureRequestSent = !sendForSignature;
       let initialInvoiceId: string | null = null;
 
+      const selections = {
+        homeSize: homeSize?.label ?? null,
+        yardTier: yardTier?.label ?? null,
+        addons: addonKeys,
+        web: { on: webOn, sqft: webSqft },
+        odd: oddKeys,
+        overrides: priceOverrides,
+        itemKeys: lineItems.map((i) => i.key),
+      };
       const summary = [
         'SERVICE AGREEMENT',
         sendForSignature ? 'Status: UNSIGNED (sent by email for review/signature)' : 'Status: SIGNED',
@@ -270,6 +350,14 @@ export default function AgreementScreen() {
         `Initial Discount: -${money(initialDiscount)}`,
         `Initial Total: ${money(initialTotal)}`,
         `Recurring Total: ${money(regularTotal)}/service`,
+        ...(isUpdate
+          ? [
+            'Update of previous agreement: YES',
+            `Initial Due Now: ${money(chargeTotal)}`,
+            `Previous Recurring Total: ${money(previousRecurring)}/service`,
+          ]
+          : []),
+        `Selections: ${JSON.stringify(selections)}`,
         `Term: ${TERM_MONTHS} months`,
         `Covered pests: ${coveredPests.join(', ')}`,
         `Signed: ${signedDate}`,
@@ -330,12 +418,12 @@ export default function AgreementScreen() {
           // Continue without image attachment when capture is unavailable.
         }
 
-        // For new customers only, prepare an initial-service invoice and charge it
-        // immediately if a payment method is already on file.
-        if (!existingCustomerId && initialTotal > 0.009) {
+        // New customers: invoice the full initial total. Updates: invoice only
+        // the items that are new versus the current agreement. Charge it right
+        // away when a payment method is already on file.
+        if ((!existingCustomerId || isUpdate) && chargeTotal > 0.009) {
           try {
-            const initialChargeItems = lineItems
-              .filter((item) => item.initial > 0)
+            const initialChargeItems = chargeItems
               .map((item) => ({
                 description: `${item.label} (Initial Service)`,
                 quantity: 1,
@@ -357,7 +445,7 @@ export default function AgreementScreen() {
                   customerId: targetCustomerId,
                   dueDate: new Date().toISOString().slice(0, 10),
                   taxRate: 0,
-                  notes: 'Initial agreement charge',
+                  notes: isUpdate ? 'Agreement update charge (new services)' : 'Initial agreement charge',
                   items: initialChargeItems,
                 },
               });
@@ -418,7 +506,9 @@ export default function AgreementScreen() {
         Alert.alert(
           'Agreement Signed',
           existingCustomerId
-            ? `${name}'s updated signed agreement was saved.`
+            ? (isUpdate
+              ? `${name}'s agreement was updated.${initialInvoiceId ? ` ${money(chargeTotal)} for the added services was invoiced${'.'}` : ' No new initial charges.'} Recurring is now ${money(regularTotal)}/service.`
+              : `${name}'s updated signed agreement was saved.`)
             : `${name} has been added and the signed agreement was saved.\n\nAdd a payment method now to save it on file${initialInvoiceId ? ' and collect the initial service charge' : ''}.`,
           existingCustomerId
             ? [{ text: 'OK', onPress: () => router.replace(`/customer/${targetCustomerId}?tab=Documents`) }]
@@ -452,7 +542,13 @@ export default function AgreementScreen() {
 
   return (
     <View style={{ flex: 1, backgroundColor: colors.bg }}>
-      <Stack.Screen options={{ gestureEnabled: !signing }} />
+      <Stack.Screen options={{ gestureEnabled: !signing, title: isUpdate ? 'Update Agreement' : 'Service Agreement' }} />
+        {isUpdate ? (
+          <View style={styles.updateBanner}>
+            <Text style={styles.updateBannerTitle}>Updating the current agreement</Text>
+            <Text style={styles.updateBannerText}>Only services that are new versus the current agreement are charged now. The recurring amount changes from {money(previousRecurring)} to the new total.</Text>
+          </View>
+        ) : null}
       <ScrollView contentContainerStyle={styles.scroll} keyboardShouldPersistTaps="handled">
         {/* ---------- Standard Four Point Service ---------- */}
         <Text style={styles.pickHeader}>Standard Four Point Service</Text>
@@ -598,7 +694,7 @@ export default function AgreementScreen() {
         <View style={styles.discountCard}>
           <Text style={styles.discountTitle}>Initial Service Discount</Text>
           <Text style={styles.discountHint}>
-            Enter the one-time discount to apply to the initial total.
+            {isUpdate ? 'Enter a one-time discount to apply to the amount due now.' : 'Enter the one-time discount to apply to the initial total.'}
           </Text>
           <TextInput
             style={styles.discountInput}
@@ -610,21 +706,23 @@ export default function AgreementScreen() {
           />
           {discountWasCapped ? (
             <Text style={styles.discountClampNote}>
-              Discount capped at initial subtotal ({money(initialSubtotal)}).
+              Discount capped at {isUpdate ? 'the amount due now' : 'initial subtotal'} ({money(isUpdate ? chargeSubtotal : initialSubtotal)}).
             </Text>
           ) : null}
         </View>
 
         <View style={styles.totalsBar}>
           <View style={styles.totalCol}>
-            <Text style={styles.totalLabel}>INITIAL</Text>
-            <Text style={styles.totalValue}>{money(initialTotal)}</Text>
+            <Text style={styles.totalLabel}>{isUpdate ? 'DUE NOW' : 'INITIAL'}</Text>
+            <Text style={styles.totalValue}>{money(isUpdate ? chargeTotal : initialTotal)}</Text>
             {initialDiscount > 0 ? <Text style={styles.totalDiscount}>includes discount -{money(initialDiscount)}</Text> : null}
+            {isUpdate ? <Text style={styles.totalDiscount}>{chargeItems.length ? `${chargeItems.length} new item${chargeItems.length > 1 ? 's' : ''}` : 'no new initial charges'}</Text> : null}
           </View>
           <View style={styles.totalDivider} />
           <View style={styles.totalCol}>
             <Text style={styles.totalLabel}>RECURRING</Text>
             <Text style={styles.totalValue}>{money(regularTotal)}<Text style={styles.totalPer}>/service</Text></Text>
+            {isUpdate ? <Text style={styles.totalDiscount}>was {money(previousRecurring)}/service</Text> : null}
           </View>
         </View>
 
@@ -697,6 +795,13 @@ export default function AgreementScreen() {
             <Text style={[styles.tblCell, styles.tblNum, styles.tblTotalText]}>{money(initialTotal)}</Text>
             <Text style={[styles.tblCell, styles.tblNum, styles.tblTotalText]}>{money(regularTotal)}</Text>
           </View>
+          {isUpdate ? (
+            <View style={styles.tblTotal}>
+              <Text style={[styles.tblCell, styles.tblItem, styles.tblTotalText]}>DUE NOW (new services only)</Text>
+              <Text style={[styles.tblCell, styles.tblNum, styles.tblTotalText]}>{money(chargeTotal)}</Text>
+              <Text style={[styles.tblCell, styles.tblNum]}>—</Text>
+            </View>
+          ) : null}
 
           {/* Covered pests */}
           <Text style={styles.sectionBarFull}>Covered Pests</Text>
@@ -869,6 +974,9 @@ function SigningOverlay({ onCancel, onDone }: { onCancel: () => void; onDone: (u
 }
 
 const styles = StyleSheet.create({
+  updateBanner: { marginHorizontal: 16, marginTop: 12, padding: 12, borderRadius: 10, backgroundColor: '#EAF8F5', borderWidth: 1, borderColor: '#BFE8DF' },
+  updateBannerTitle: { fontWeight: '800', color: '#0D0D0D', marginBottom: 4 },
+  updateBannerText: { color: '#30433F', fontSize: 13, lineHeight: 18 },
   centered: { flex: 1, alignItems: 'center', justifyContent: 'center' },
   scroll: { padding: 12, paddingBottom: 24 },
   pickHeader: { fontSize: 15, fontWeight: '900', color: colors.text, marginTop: 16, marginBottom: 2 },

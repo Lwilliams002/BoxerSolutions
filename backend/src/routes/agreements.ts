@@ -4,6 +4,8 @@ import path from 'path';
 import { z } from 'zod';
 import { asyncHandler } from '../utils/asyncHandler';
 import { ok } from '../utils/http';
+import { authenticate, authorize } from '../middleware/auth';
+import { technicianScope, assertCustomerAccess } from '../middleware/scope';
 import { applyNorthCheckoutPageHeaders } from '../utils/northCheckoutCsp';
 import { agreementSigningService } from '../services/agreementSigningService';
 import { logger } from '../utils/logger';
@@ -635,6 +637,19 @@ function payClientScript() {
   startCheckout();
 })();`;
 }
+
+/** Staff: the customer's current agreement, used to pre-fill "Update Agreement". */
+router.get(
+  '/current',
+  authenticate,
+  authorize('customers:read'),
+  asyncHandler(async (req, res) => {
+    const query = z.object({ customerId: z.string().uuid() }).parse(req.query);
+    const scope = technicianScope(req, 'customers:read');
+    await assertCustomerAccess(scope, query.customerId);
+    ok(res, await agreementSigningService.getCurrentAgreement(query.customerId));
+  }),
+);
 
 router.get('/sign/pay/client.js', (_req, res) => {
   res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
