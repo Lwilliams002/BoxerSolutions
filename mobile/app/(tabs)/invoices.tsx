@@ -1,8 +1,9 @@
 import React, { useState } from 'react';
-import { View, Text, FlatList, StyleSheet, TouchableOpacity, ScrollView, Alert } from 'react-native';
+import { View, Text, FlatList, StyleSheet, TouchableOpacity, ScrollView } from 'react-native';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useRouter } from 'expo-router';
 import { api, newIdempotencyKey } from '../../src/lib/api';
+import { confirmAction, notify } from '../../src/lib/confirm';
 import { colors, money, fmtDate } from '../../src/lib/theme';
 import { Loading, EmptyState, StatusBadge } from '../../src/components/ui';
 import { SyncBanner } from '../../src/components/SyncBanner';
@@ -49,40 +50,27 @@ function RecurringSection() {
     },
     onSuccess: (result) => {
       if (result.charged) {
-        Alert.alert('Payment collected', `Charged ${money(result.amount)} for the recurring service.`, [
-          { text: 'View Invoice', onPress: () => router.push(`/invoice/${result.invoiceId}`) },
-          { text: 'OK' },
-        ]);
+        notify('Payment collected', `Charged ${money(result.amount)} for the recurring service.`);
+        router.push(`/invoice/${result.invoiceId}`);
       } else {
-        Alert.alert(
-          'Invoice created',
-          result.reason ?? 'The invoice was created but the card could not be charged.',
-          [
-            { text: 'Open Invoice', onPress: () => router.push(`/invoice/${result.invoiceId}`) },
-            { text: 'Later' },
-          ],
-        );
+        notify('Invoice created', result.reason ?? 'The invoice was created but the card could not be charged.');
+        router.push(`/invoice/${result.invoiceId}`);
       }
     },
-    onError: (e: any) => Alert.alert('Charge failed', e?.message ?? 'Unable to charge recurring service.'),
+    onError: (e: any) => notify('Charge failed', e?.message ?? 'Unable to charge recurring service.'),
   });
 
   const confirmCharge = (item: RecurringCharge) => {
-    Alert.alert(
-      'Charge recurring service',
-      `Charge ${item.customerName} ${money(item.amount)} for their regular recurring service?`,
-      [
-        { text: 'Cancel', style: 'cancel' },
-        {
-          text: 'Charge',
-          style: 'destructive',
-          onPress: () => {
-            setChargingId(item.id);
-            chargeMutation.mutate(item.id);
-          },
-        },
-      ],
-    );
+    confirmAction({
+      title: 'Charge recurring service',
+      message: `Charge ${item.customerName} ${money(item.amount)} for their regular recurring service?`,
+      confirmText: 'Charge',
+      destructive: true,
+      onConfirm: () => {
+        setChargingId(item.id);
+        chargeMutation.mutate(item.id);
+      },
+    });
   };
 
   const items = data?.items ?? [];

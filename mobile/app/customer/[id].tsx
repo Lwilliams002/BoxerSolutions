@@ -3,6 +3,7 @@ import { View, Text, ScrollView, StyleSheet, TouchableOpacity, Alert, TextInput,
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { api, newIdempotencyKey } from '../../src/lib/api';
+import { confirmAction, notify } from '../../src/lib/confirm';
 import { useAuth } from '../../src/lib/authStore';
 import { colors, money, fmtDate, fmtTime } from '../../src/lib/theme';
 import { Card, Button, StatusBadge, Loading, Row, Value, Label, EmptyState } from '../../src/components/ui';
@@ -208,51 +209,37 @@ export default function CustomerScreen() {
   };
 
   const chargeRecurring = (rc: any) => {
-    Alert.alert(
-      'Charge recurring service',
-      `Charge ${money(rc.amount)} for the regular recurring service using the card on file?`,
-      [
-        { text: 'Cancel', style: 'cancel' },
-        {
-          text: 'Charge',
-          style: 'destructive',
-          onPress: async () => {
-            setChargingRecurring(true);
-            try {
-              const result = await api<{ charged: boolean; invoiceId: string; amount: number; reason?: string }>(
-                `/recurring-charges/${rc.id}/charge`,
-                { method: 'POST', body: {}, idempotencyKey: newIdempotencyKey() },
-              );
-              void qc.invalidateQueries({ queryKey: ['recurring-charges', id] });
-              void qc.invalidateQueries({ queryKey: ['recurring-charges'] });
-              void qc.invalidateQueries({ queryKey: ['customerInvoices', id] });
-              void qc.invalidateQueries({ queryKey: ['customerPayments', id] });
-              void qc.invalidateQueries({ queryKey: ['customer', id] });
-              void qc.invalidateQueries({ queryKey: ['invoices'] });
-              if (result.charged) {
-                Alert.alert('Payment collected', `Charged ${money(result.amount)} for the recurring service.`, [
-                  { text: 'View Invoice', onPress: () => router.push(`/invoice/${result.invoiceId}`) },
-                  { text: 'OK' },
-                ]);
-              } else {
-                Alert.alert(
-                  'Invoice created',
-                  result.reason ?? 'The invoice was created but the card could not be charged.',
-                  [
-                    { text: 'Open Invoice', onPress: () => router.push(`/invoice/${result.invoiceId}`) },
-                    { text: 'Later' },
-                  ],
-                );
-              }
-            } catch (e) {
-              Alert.alert('Charge failed', (e as Error).message);
-            } finally {
-              setChargingRecurring(false);
-            }
-          },
-        },
-      ],
-    );
+    confirmAction({
+      title: 'Charge recurring service',
+      message: `Charge ${money(rc.amount)} for the regular recurring service using the card on file?`,
+      confirmText: 'Charge',
+      destructive: true,
+      onConfirm: async () => {
+        setChargingRecurring(true);
+        try {
+          const result = await api<{ charged: boolean; invoiceId: string; amount: number; reason?: string }>(
+            `/recurring-charges/${rc.id}/charge`,
+            { method: 'POST', body: {}, idempotencyKey: newIdempotencyKey() },
+          );
+          void qc.invalidateQueries({ queryKey: ['recurring-charges', id] });
+          void qc.invalidateQueries({ queryKey: ['recurring-charges'] });
+          void qc.invalidateQueries({ queryKey: ['customerInvoices', id] });
+          void qc.invalidateQueries({ queryKey: ['customerPayments', id] });
+          void qc.invalidateQueries({ queryKey: ['customer', id] });
+          void qc.invalidateQueries({ queryKey: ['invoices'] });
+          if (result.charged) {
+            notify('Payment collected', `Charged ${money(result.amount)} for the recurring service.`);
+          } else {
+            notify('Invoice created', result.reason ?? 'The invoice was created but the card could not be charged.');
+          }
+          router.push(`/invoice/${result.invoiceId}`);
+        } catch (e) {
+          notify('Charge failed', (e as Error).message);
+        } finally {
+          setChargingRecurring(false);
+        }
+      },
+    });
   };
 
   const openSaveCard = () => {
