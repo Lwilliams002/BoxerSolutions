@@ -702,7 +702,9 @@ export default function CustomerScreen() {
                     <Text style={styles.metaText}>
                       {m.methodType === 'bank_account' || m.brand === 'Bank Account'
                         ? 'ACH'
-                        : `Expires ${String(m.expirationMonth).padStart(2, '0')}/${String(m.expirationYear).slice(-2)}`}
+                        : m.expirationMonth && m.expirationYear
+                          ? `Expires ${String(m.expirationMonth).padStart(2, '0')}/${String(m.expirationYear).slice(-2)}`
+                          : 'Expiry not provided by processor'}
                       {m.isDefault ? '  ·  DEFAULT' : ''}
                     </Text>
                   </View>

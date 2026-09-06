@@ -31,8 +31,8 @@ interface Method {
   methodType: 'card' | 'bank_account';
   brand: string;
   last4: string;
-  expirationMonth: number;
-  expirationYear: number;
+  expirationMonth: number | null;
+  expirationYear: number | null;
   isDefault: boolean;
 }
 
@@ -64,10 +64,16 @@ function maskedLast4(value: unknown) {
   return last4 || '••••';
 }
 
+// North reports a card's expiry only through its webhook, so it can be absent.
+function formatExpiry(month: number | null | undefined, year: number | null | undefined) {
+  if (!month || !year) return '';
+  return ` · Expires ${String(month).padStart(2, '0')}/${String(year).slice(-2)}`;
+}
+
 function describeMethod(method: Method) {
   return method.methodType === 'bank_account'
     ? `Bank Account ••••${maskedLast4(method.last4)} · ACH`
-    : `${method.brand} ••••${maskedLast4(method.last4)} · Expires ${String(method.expirationMonth).padStart(2, '0')}/${String(method.expirationYear).slice(-2)}`;
+    : `${method.brand} ••••${maskedLast4(method.last4)}${formatExpiry(method.expirationMonth, method.expirationYear)}`;
 }
 
 export default function InvoiceScreen() {

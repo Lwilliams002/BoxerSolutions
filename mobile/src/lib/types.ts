@@ -135,8 +135,8 @@ export interface PaymentMethod {
   id: string;
   brand: string;
   last4: string;
-  expirationMonth: number;
-  expirationYear: number;
+  expirationMonth: number | null;
+  expirationYear: number | null;
   isDefault: boolean;
 }
 

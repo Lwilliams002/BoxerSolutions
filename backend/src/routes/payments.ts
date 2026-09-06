@@ -1,5 +1,4 @@
 import { Router } from 'express';
-import crypto from 'crypto';
 import fs from 'fs/promises';
 import path from 'path';
 import { z } from 'zod';
@@ -16,43 +15,13 @@ import { ApiError } from '../utils/errors';
 import { notifications } from '../integrations/notifications';
 import { logger } from '../utils/logger';
 import { northFieldsPaymentService } from '../services/northFieldsPaymentService';
+import { northCheckoutCspHeader } from '../utils/northCheckoutCsp';
+import { renderNorthFieldsHostPage } from '../content/northFieldsHostPage';
+import { extractNorthWebhookCardUpdate, verifyNorthWebhookSignature } from '../utils/northWebhook';
 
 const router = Router();
 
 const payModeSchema = z.enum(['card', 'bank']);
-
-function timingSafeEqualText(a: string, b: string) {
-  const left = Buffer.from(a, 'utf8');
-  const right = Buffer.from(b, 'utf8');
-  if (left.length !== right.length) return false;
-  return crypto.timingSafeEqual(left, right);
-}
-
-function verifyNorthWebhookSignature(rawBody: string, headerValue: string | undefined): boolean {
-  const secrets = [config.north.webhookSecret, config.north.legacyWebhookSecret].filter(Boolean);
-  if (!secrets.length || !headerValue) return false;
-  return secrets.some((secret) => verifyWithSecret(secret, rawBody, headerValue));
-}
-
-function verifyWithSecret(secret: string, rawBody: string, headerValue: string): boolean {
-  const signed = headerValue.trim();
-  // "t=<timestamp>,v1=<hex>" format
-  if (signed.includes('t=') && signed.includes('v1=')) {
-    const parts = signed
-      .split(',')
-      .map((p) => p.trim())
-      .filter(Boolean);
-    const t = parts.find((p) => p.startsWith('t='))?.slice(2);
-    const v1 = parts.find((p) => p.startsWith('v1='))?.slice(3);
-    if (!t || !v1) return false;
-    const expected = crypto.createHmac('sha256', secret).update(`${t}.${rawBody}`).digest('hex');
-    return timingSafeEqualText(expected, v1);
-  }
-  // Raw hex signature format
-  const expected = crypto.createHmac('sha256', secret).update(rawBody).digest('hex');
-  return timingSafeEqualText(expected, signed);
-}
-
 
 router.get(
   '/north/logo',
@@ -64,35 +33,81 @@ router.get(
   }),
 );
 
-router.post(
-  '/north/webhook',
-  asyncHandler(async (req, res) => {
-    const rawBody = String((req as any).rawBody ?? '');
-    const signatureHeader = (req.header('x-webhook-signature')
-      || req.header('x-yourapp-signature-256')
-      || req.header('x-signature')
-      || req.header('north-signature')
-      || undefined);
-    const validSignature = verifyNorthWebhookSignature(rawBody, signatureHeader);
-    if (!validSignature) {
-      throw ApiError.unauthorized('Invalid North webhook signature');
+/**
+ * North Embedded Checkout webhooks. North appends `/transaction` (payment
+ * receipts) and `/signup` (merchant boarding) to the base URL configured in
+ * the Checkout Designer; the bare path is kept for older configurations.
+ * Signature verification lives in utils/northWebhook.ts. The transaction
+ * payload is the only place North reports a card's expiry, so approved
+ * transactions back-fill the saved method's display details.
+ */
+function webhookKeys(): string[] {
+  return [config.north.embeddedPrivateApiKey, config.north.webhookSecret, config.north.legacyWebhookSecret].filter((k) => k.length > 0);
+}
+
+function lowerHeaders(req: { headers: Record<string, unknown> }): Record<string, string | undefined> {
+  const out: Record<string, string | undefined> = {};
+  for (const [name, value] of Object.entries(req.headers)) {
+    out[name.toLowerCase()] = Array.isArray(value) ? value[0] : typeof value === 'string' ? value : undefined;
+  }
+  return out;
+}
+
+async function handleNorthWebhook(kind: 'transaction' | 'signup' | 'generic', req: import('express').Request, res: import('express').Response) {
+  const rawBody = String((req as unknown as { rawBody?: string }).rawBody ?? '');
+  if (!verifyNorthWebhookSignature({ rawBody, headers: lowerHeaders(req), keys: webhookKeys() })) {
+    logger.warn({ kind }, 'north webhook rejected: invalid signature');
+    throw ApiError.unauthorized('Invalid North webhook signature');
+  }
+  const body = req.body as Record<string, unknown> | undefined;
+  const transaction = body && typeof body.transaction === 'object' ? (body.transaction as Record<string, unknown>) : null;
+  let methodsUpdated = 0;
+  if (kind !== 'signup') {
+    const update = extractNorthWebhookCardUpdate(body);
+    const approved = transaction ? String(transaction.authResp ?? '') === '00' : true;
+    if (update && approved) {
+      methodsUpdated = await paymentService.updateVaultedMethodFromWebhook(update.authGuid, update);
     }
-    logger.info(
-      {
-        eventType: (req.body as { eventType?: string } | undefined)?.eventType ?? null,
-        hasBody: !!req.body,
-        signatureVerified: true,
-      },
-      'north webhook received',
-    );
-    ok(res, { received: true }, 'Webhook received');
-  }),
-);
+  }
+  logger.info(
+    {
+      kind,
+      tranType: transaction?.tranType ?? null,
+      authResp: transaction?.authResp ?? null,
+      sessionId: transaction?.sessionId ?? null,
+      methodsUpdated,
+    },
+    'north webhook received',
+  );
+  ok(res, { received: true }, 'Webhook received');
+}
+
+router.post('/north/webhook/transaction', asyncHandler((req, res) => handleNorthWebhook('transaction', req, res)));
+router.post('/north/webhook/signup', asyncHandler((req, res) => handleNorthWebhook('signup', req, res)));
+router.post('/north/webhook', asyncHandler((req, res) => handleNorthWebhook('generic', req, res)));
 
 router.get(
   '/north/webhook',
   asyncHandler(async (_req, res) => {
     ok(res, { status: 'ok' }, 'Webhook endpoint active');
+  }),
+);
+
+/**
+ * Host page for the mobile app's WebView (see content/northFieldsHostPage.ts).
+ * Served from our own domain so North's production domain restriction sees a
+ * registered parent origin. Public: it holds no data and no session token —
+ * the app injects the token after the page reports ready.
+ */
+router.get(
+  '/north/fields-host',
+  asyncHandler(async (_req, res) => {
+    res
+      .status(200)
+      .setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate')
+      .setHeader('Content-Security-Policy', northCheckoutCspHeader())
+      .type('html')
+      .send(renderNorthFieldsHostPage(`${config.north.embeddedBaseUrl}/checkout.js`));
   }),
 );
 

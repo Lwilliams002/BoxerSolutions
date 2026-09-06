@@ -181,7 +181,6 @@ export const paymentService = {
     setDefault: boolean,
     userId: string,
   ) {
-    const now = new Date();
     return withTransaction(async (tx) => {
       // Idempotency: re-confirming the same storage session must not duplicate.
       const existing = await tx.query(
@@ -199,11 +198,35 @@ export const paymentService = {
          VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
          RETURNING id, customer_id, payment_provider, method_type, brand, last4, expiration_month, expiration_year, is_default`,
         [customerId, method.provider ?? 'north', method.providerPaymentMethodId, method.methodType ?? 'card', method.brand,
-         normalizeLast4(method.last4), method.expirationMonth ?? 12, method.expirationYear ?? now.getFullYear() + 10, setDefault],
+         // North's session status carries no expiry; store nothing rather than a
+         // fabricated date. The transaction webhook fills it in when it arrives.
+         normalizeLast4(method.last4), method.expirationMonth ?? null, method.expirationYear ?? null, setDefault],
       );
       await recordAudit({ userId, action: 'payment_method.added', entityType: 'payment_method', entityId: rows[0].id, newValue: { brand: method.brand, last4: method.last4, via: 'north_embedded_fields' } }, tx);
       return { ...toCamel(rows[0]), duplicate: false };
     });
+  },
+
+  /**
+   * Fills in card details North only reports through its transaction webhook
+   * (expiry, last4). The webhook is authoritative for the expiry; last4 is
+   * only filled when missing. Returns the number of methods updated.
+   */
+  async updateVaultedMethodFromWebhook(
+    authGuid: string,
+    details: { expirationMonth: number | null; expirationYear: number | null; last4: string | null },
+  ): Promise<number> {
+    if (details.expirationMonth == null && details.expirationYear == null && !details.last4) return 0;
+    const { rowCount } = await pool.query(
+      `UPDATE payment_methods
+       SET expiration_month = COALESCE($2, expiration_month),
+           expiration_year = COALESCE($3, expiration_year),
+           last4 = COALESCE(last4, $4),
+           updated_at = now()
+       WHERE provider_payment_method_id = $1 AND deleted_at IS NULL`,
+      [authGuid, details.expirationMonth, details.expirationYear, normalizeLast4(details.last4)],
+    );
+    return rowCount ?? 0;
   },
 
   async setDefaultMethod(methodId: string, userId: string) {    return withTransaction(async (tx) => {
