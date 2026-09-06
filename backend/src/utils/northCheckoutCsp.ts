@@ -1,3 +1,4 @@
+import type { Response } from 'express';
 import { config } from '../config';
 
 /**
@@ -23,4 +24,18 @@ export function northCheckoutCspHeader(): string {
     `form-action 'self' ${northOrigin}`,
     `object-src 'none'`,
   ].join(';');
+}
+
+/**
+ * Headers for a page served by this API that embeds North's hosted fields.
+ * Helmet's defaults send `Referrer-Policy: no-referrer` and
+ * `Cross-Origin-Opener-Policy: same-origin`; North's iframe needs to see the
+ * parent origin (its domain restriction and session checks key on it), and
+ * the wallet flows open popups that a same-origin opener policy severs.
+ */
+export function applyNorthCheckoutPageHeaders(res: Response): void {
+  res.setHeader('Content-Security-Policy', northCheckoutCspHeader());
+  res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
+  res.setHeader('Cross-Origin-Opener-Policy', 'unsafe-none');
+  res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
 }

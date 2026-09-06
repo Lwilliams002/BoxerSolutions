@@ -4,7 +4,7 @@ import path from 'path';
 import { z } from 'zod';
 import { asyncHandler } from '../utils/asyncHandler';
 import { ok } from '../utils/http';
-import { northCheckoutCspHeader } from '../utils/northCheckoutCsp';
+import { applyNorthCheckoutPageHeaders } from '../utils/northCheckoutCsp';
 import { agreementSigningService } from '../services/agreementSigningService';
 import { logger } from '../utils/logger';
 
@@ -833,7 +833,7 @@ router.post(
       .setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
     if (paymentToken) {
       // North's checkout needs a relaxed CSP (see utils/northCheckoutCsp.ts).
-      res.setHeader('Content-Security-Policy', northCheckoutCspHeader());
+      applyNorthCheckoutPageHeaders(res);
     }
     res
       .type('html')

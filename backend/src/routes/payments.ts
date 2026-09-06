@@ -15,7 +15,7 @@ import { ApiError } from '../utils/errors';
 import { notifications } from '../integrations/notifications';
 import { logger } from '../utils/logger';
 import { northFieldsPaymentService } from '../services/northFieldsPaymentService';
-import { northCheckoutCspHeader } from '../utils/northCheckoutCsp';
+import { applyNorthCheckoutPageHeaders } from '../utils/northCheckoutCsp';
 import { renderNorthFieldsHostPage } from '../content/northFieldsHostPage';
 import { extractNorthWebhookCardUpdate, verifyNorthWebhookSignature } from '../utils/northWebhook';
 
@@ -102,12 +102,8 @@ router.get(
 router.get(
   '/north/fields-host',
   asyncHandler(async (_req, res) => {
-    res
-      .status(200)
-      .setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate')
-      .setHeader('Content-Security-Policy', northCheckoutCspHeader())
-      .type('html')
-      .send(renderNorthFieldsHostPage(`${config.north.embeddedBaseUrl}/checkout.js`));
+    applyNorthCheckoutPageHeaders(res);
+    res.status(200).type('html').send(renderNorthFieldsHostPage(`${config.north.embeddedBaseUrl}/checkout.js`));
   }),
 );
 
