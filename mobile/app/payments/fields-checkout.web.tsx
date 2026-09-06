@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from 'react';
+import { useWindowDimensions } from 'react-native';
 import { Stack, useLocalSearchParams, useRouter } from 'expo-router';
 import { FieldsCheckoutLayout } from '../../src/components/FieldsCheckoutLayout';
 import { useFieldsCheckout } from '../../src/lib/useFieldsCheckout';
@@ -14,6 +15,9 @@ export default function FieldsCheckoutWebScreen() {
   const customerId = typeof params.customerId === 'string' ? params.customerId : undefined;
   const c = useFieldsCheckout({ flow, invoiceId, customerId });
   const [ready, setReady] = useState(false);
+  // North's iframe is height:100% of this host and never resizes itself.
+  const { width } = useWindowDimensions();
+  const hostHeight = width < 640 ? 820 : 560;
 
   useEffect(() => {
     if (!c.session) { setReady(false); return; }
@@ -60,7 +64,7 @@ export default function FieldsCheckoutWebScreen() {
         needsVerification={c.needsVerification}
         onSubmit={onSubmit} onCancel={leave} onDone={leave} onRetry={() => void c.retry()}
       >
-        <div id={HOST_ID} style={{ width: '100%', minHeight: 300, backgroundColor: '#fff' }} />
+        <div id={HOST_ID} style={{ width: '100%', height: hostHeight, backgroundColor: '#fff' }} />
       </FieldsCheckoutLayout>
     </>
   );

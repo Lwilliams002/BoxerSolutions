@@ -21,9 +21,10 @@ export function renderNorthFieldsHostPage(scriptUrl: string): string {
     <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1" />
     <title>Secure Payment</title>
     <style>
-      html, body { margin: 0; padding: 0; background: #ffffff; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; }
-      #fields-root { width: 100%; min-height: 260px; padding: 8px; box-sizing: border-box; }
-      #fields-root iframe { width: 100% !important; border: 0; display: block; }
+      html, body { margin: 0; padding: 0; height: 100%; overflow: hidden; background: #ffffff; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; }
+      /* North's iframe is height:100% and never resizes itself; the WebView sets the page height. */
+      #fields-root { width: 100%; height: 100%; padding: 4px; box-sizing: border-box; }
+      #fields-root iframe { width: 100% !important; height: 100% !important; border: 0; display: block; }
       #status { color: #5f6b68; font-size: 14px; text-align: center; margin: 16px 0 8px; }
       #error { color: #c0352b; font-size: 14px; text-align: center; margin: 16px 0; display: none; }
     </style>

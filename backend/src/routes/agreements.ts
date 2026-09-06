@@ -809,7 +809,7 @@ router.post(
         <p id="payError" style="color:#B3261E;font-size:14px;margin:10px 0;display:none;"></p>
         <button type="button" id="payRetry" style="display:none;margin:0 0 12px 0;padding:8px 12px;border:1px solid #CBD7D4;border-radius:8px;background:#fff;cursor:pointer;">Try Again</button>
         <div id="checkoutWrap" style="border:1px solid #D5EDE9;border-radius:14px;background:#fff;padding:12px;">
-          <div id="checkout-root" style="width:100%;min-height:320px;background:#FFFFFF;"></div>
+          <div id="checkout-root" style="width:100%;background:#FFFFFF;"></div>
         </div>
         <div id="achConsentWrap" style="display:none;margin-top:12px;border:1px solid #F0E3C4;background:#FDF8EC;border-radius:10px;padding:12px;">
           <pre id="achTermsText" style="white-space:pre-wrap;font-family:inherit;font-size:13px;color:#4A4A4A;margin:0 0 10px 0;"></pre>
@@ -844,7 +844,10 @@ router.post(
       .send(`<!doctype html>
 <html>
   <head><meta charset="utf-8"/><meta name="viewport" content="width=device-width, initial-scale=1"/><title>${title}</title><style>
-    #checkout-root iframe { width: 100% !important; min-height: 520px; border: 0; display: block; }
+    #checkout-root { height: 560px; }
+    #checkout-root iframe { width: 100% !important; height: 100% !important; border: 0; display: block; }
+    /* North's fields stack vertically on phones and the iframe cannot resize itself. */
+    @media (max-width: 640px) { #checkout-root { height: 820px; } }
     .pay-mode-active { border-color:#2DC4A2 !important; background:#EAF8F5 !important; }
   </style></head>
   <body style="font-family:Arial,sans-serif;background:#F5FAF8;padding:24px;">

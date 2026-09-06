@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { StyleSheet, Text, View } from 'react-native';
+import { StyleSheet, Text, View, useWindowDimensions } from 'react-native';
 import { Stack, useLocalSearchParams, useRouter } from 'expo-router';
 import type { WebViewMessageEvent } from 'react-native-webview';
 import { FieldsCheckoutLayout } from '../../src/components/FieldsCheckoutLayout';
@@ -36,6 +36,10 @@ export default function FieldsCheckoutScreen() {
   const customerId = typeof params.customerId === 'string' ? params.customerId : undefined;
   const c = useFieldsCheckout({ flow, invoiceId, customerId });
   const [ready, setReady] = useState(false);
+  // North's hosted fields stack vertically on phones and the iframe cannot
+  // resize itself, so give it room; the surrounding screen scrolls instead.
+  const { width } = useWindowDimensions();
+  const webViewHeight = width < 640 ? 820 : 560;
   const webViewRef = useRef<import('react-native-webview').WebView | null>(null);
 
   useEffect(() => {
@@ -104,7 +108,8 @@ export default function FieldsCheckoutScreen() {
             startInLoadingState
             renderLoading={() => <Loading />}
             onMessage={onMessage}
-            style={styles.webview}
+            scrollEnabled={false}
+            style={[styles.webview, { height: webViewHeight }]}
           />
         ) : null}
       </FieldsCheckoutLayout>
@@ -114,7 +119,7 @@ export default function FieldsCheckoutScreen() {
 
 const styles = StyleSheet.create({
   screen: { flex: 1, backgroundColor: colors.bg, padding: 16 },
-  webview: { height: 320, backgroundColor: '#fff' },
+  webview: { backgroundColor: '#fff' },
   muted: { color: colors.textMuted, marginBottom: 6 },
   errorTitle: { fontWeight: '800', color: colors.danger, marginBottom: 6 },
 });
