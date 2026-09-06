@@ -727,6 +727,7 @@ export const agreementSigningService = {
     mode: FieldsPayMode,
     northSessionToken: string,
     achConsent: boolean | undefined,
+    achAccountType: 'checking' | 'savings' | undefined,
     consentMeta: ConsentMeta,
   ) {
     const payload = parseInitialPaymentToken(paymentToken);
@@ -740,6 +741,7 @@ export const agreementSigningService = {
       actorUserId: ownerUserId,
       employeeId: null,
       achConsent,
+      achAccountType,
       consentMeta,
     });
   },

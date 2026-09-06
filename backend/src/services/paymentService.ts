@@ -173,6 +173,8 @@ export const paymentService = {
       providerPaymentMethodId: string;
       provider?: string;
       methodType?: 'card' | 'bank_account';
+      /** checking | savings; required by North for ACH token transactions. */
+      bankAccountType?: 'checking' | 'savings' | null;
       brand: string;
       last4: string | null;
       expirationMonth: number | null;
@@ -194,10 +196,11 @@ export const paymentService = {
         await tx.query('UPDATE payment_methods SET is_default = false, updated_at = now() WHERE customer_id = $1', [customerId]);
       }
       const { rows } = await tx.query(
-        `INSERT INTO payment_methods (customer_id, payment_provider, provider_payment_method_id, method_type, brand, last4, expiration_month, expiration_year, is_default)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
-         RETURNING id, customer_id, payment_provider, method_type, brand, last4, expiration_month, expiration_year, is_default`,
-        [customerId, method.provider ?? 'north', method.providerPaymentMethodId, method.methodType ?? 'card', method.brand,
+        `INSERT INTO payment_methods (customer_id, payment_provider, provider_payment_method_id, method_type, bank_account_type, brand, last4, expiration_month, expiration_year, is_default)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
+         RETURNING id, customer_id, payment_provider, method_type, bank_account_type, brand, last4, expiration_month, expiration_year, is_default`,
+        [customerId, method.provider ?? 'north', method.providerPaymentMethodId, method.methodType ?? 'card',
+         method.methodType === 'bank_account' ? (method.bankAccountType ?? 'checking') : null, method.brand,
          // North's session status carries no expiry; store nothing rather than a
          // fabricated date. The transaction webhook fills it in when it arrives.
          normalizeLast4(method.last4), method.expirationMonth ?? null, method.expirationYear ?? null, setDefault],
@@ -214,17 +217,18 @@ export const paymentService = {
    */
   async updateVaultedMethodFromWebhook(
     authGuid: string,
-    details: { expirationMonth: number | null; expirationYear: number | null; last4: string | null },
+    details: { expirationMonth: number | null; expirationYear: number | null; last4: string | null; accountType?: 'checking' | 'savings' | null },
   ): Promise<number> {
-    if (details.expirationMonth == null && details.expirationYear == null && !details.last4) return 0;
+    if (details.expirationMonth == null && details.expirationYear == null && !details.last4 && !details.accountType) return 0;
     const { rowCount } = await pool.query(
       `UPDATE payment_methods
        SET expiration_month = COALESCE($2, expiration_month),
            expiration_year = COALESCE($3, expiration_year),
            last4 = COALESCE(last4, $4),
+           bank_account_type = COALESCE($5, bank_account_type),
            updated_at = now()
        WHERE provider_payment_method_id = $1 AND deleted_at IS NULL`,
-      [authGuid, details.expirationMonth, details.expirationYear, normalizeLast4(details.last4)],
+      [authGuid, details.expirationMonth, details.expirationYear, normalizeLast4(details.last4), details.accountType ?? null],
     );
     return rowCount ?? 0;
   },
@@ -311,7 +315,7 @@ export const paymentService = {
       Math.round(chargeAmount * 100),
       'usd',
       `Invoice ${invoice.invoice_number}`,
-      { mit, paymentMethod, customer, invoiceNumber: invoice.invoice_number },
+      { mit, paymentMethod, accountType: methodRow.bank_account_type ?? null, customer, invoiceNumber: invoice.invoice_number },
     );
 
     if (!result.success) {
@@ -490,7 +494,7 @@ export const paymentService = {
   async refundPayment(paymentId: string, amount: number | null, userId: string, employeeId: string | null) {
     const paymentRes = await pool.query(
       `SELECT p.*, i.total AS invoice_total, i.amount_paid, i.status AS invoice_status, i.due_date,
-              pm.method_type AS method_type
+              pm.method_type AS method_type, pm.bank_account_type AS bank_account_type
        FROM payments p
        LEFT JOIN invoices i ON i.id = p.invoice_id
        LEFT JOIN payment_methods pm ON pm.id = p.payment_method_id
@@ -511,6 +515,7 @@ export const paymentService = {
     const provider = providerFor(resolveProviderName(payment.payment_provider, config.payments.provider));
     const result = await provider.refund(payment.provider_transaction_id, Math.round(refundAmount * 100), {
       paymentMethod: payment.method_type === 'bank_account' ? 'ach' : 'credit',
+      accountType: payment.bank_account_type ?? null,
       // A reversal/void returns the ORIGINAL transaction, so it is only valid
       // when nothing has been refunded yet and the whole original amount is
       // going back — not merely the remaining balance of a partial refund.

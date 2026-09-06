@@ -145,6 +145,7 @@ router.post(
       mode: payModeSchema,
       sessionToken: z.string().min(10),
       achConsent: z.boolean().optional(),
+      achAccountType: z.enum(['checking', 'savings']).optional(),
     }).parse(req.body);
     const scope = technicianScope(req, 'invoices:read');
     await assertInvoiceAccess(scope, body.invoiceId);

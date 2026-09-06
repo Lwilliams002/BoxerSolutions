@@ -36,9 +36,11 @@ test('expiry parsing: MMYY from the form echo, YYMM from EPX, MM/YY', () => {
 
 test('extracts token, expiry and last4 from a transaction webhook', () => {
   const update = extractNorthWebhookCardUpdate(JSON.parse(body));
-  assert.deepEqual(update, { authGuid: 'ABC123', expirationMonth: 12, expirationYear: 2028, last4: '1111' });
+  assert.deepEqual(update, { authGuid: 'ABC123', expirationMonth: 12, expirationYear: 2028, last4: '1111', accountType: null });
+  const ach = extractNorthWebhookCardUpdate({ transaction: { authGuid: 'ACH1', fullRequest: { ACCOUNT_TYPE: 'Savings', ROUTING_NBR: '031100092' } } });
+  assert.deepEqual(ach, { authGuid: 'ACH1', expirationMonth: null, expirationYear: null, last4: null, accountType: 'savings' });
   assert.equal(extractNorthWebhookCardUpdate({ transaction: { tranType: 'sale' } }), null);
   assert.equal(extractNorthWebhookCardUpdate('nope'), null);
   const nested = extractNorthWebhookCardUpdate({ transaction: { fullResponse: { auth_guid: 'G2', auth_masked_account_nbr: '****4242' } } });
-  assert.deepEqual(nested, { authGuid: 'G2', expirationMonth: null, expirationYear: null, last4: '4242' });
+  assert.deepEqual(nested, { authGuid: 'G2', expirationMonth: null, expirationYear: null, last4: '4242', accountType: null });
 });

@@ -4,6 +4,8 @@
  * No config, no I/O — unit tested in test/epxPayloads.test.ts.
  */
 export type EpxPaymentMethod = 'credit' | 'ach';
+/** ACH account type. North requires it on every ACH token transaction and never echoes it back. */
+export type EpxAccountType = 'checking' | 'savings';
 
 export interface EpxCustomer {
   firstName?: string | null;
@@ -20,6 +22,8 @@ export interface TokenSaleInput {
   paymentMethod: EpxPaymentMethod;
   /** Merchant-initiated (AutoPay / recurring). Adds aci_ext: 'RB'. */
   mit: boolean;
+  /** Required by North for ach; defaults to 'checking' when the method has none on file. */
+  accountType?: EpxAccountType | null;
   customer?: EpxCustomer;
   invoiceNumber?: string | null;
   orderNumber?: string | null;
@@ -91,24 +95,29 @@ export function buildTokenSaleBody(input: TokenSaleInput): Record<string, unknow
   if (order) body.order_nbr = order;
   if (input.mit) body.aci_ext = 'RB';
   if (input.paymentMethod === 'ach') {
+    body.account_type = input.accountType ?? 'checking';
     const recv = sanitizeEpxText([input.customer?.firstName, input.customer?.lastName].filter(Boolean).join(' '), 22);
     if (recv) body.recv_name = recv;
   }
   return body;
 }
 
-export function buildRefundBody(input: { authGuid: string; amount: number; paymentMethod: EpxPaymentMethod; tranNbr?: string; batchId?: string }): Record<string, unknown> {
+function achFields(paymentMethod: EpxPaymentMethod, accountType?: EpxAccountType | null): Record<string, unknown> {
+  return paymentMethod === 'ach' ? { account_type: accountType ?? 'checking' } : {};
+}
+
+export function buildRefundBody(input: { authGuid: string; amount: number; paymentMethod: EpxPaymentMethod; accountType?: EpxAccountType | null; tranNbr?: string; batchId?: string }): Record<string, unknown> {
   const amount = Number(input.amount.toFixed(2));
   if (!Number.isFinite(amount) || amount < 0.01) throw new Error('Refund amount must be at least 0.01');
-  return { payment_method: input.paymentMethod, amount, orig_auth_guid: input.authGuid, ...referenceFields(input.tranNbr, input.batchId) };
+  return { payment_method: input.paymentMethod, amount, orig_auth_guid: input.authGuid, ...achFields(input.paymentMethod, input.accountType), ...referenceFields(input.tranNbr, input.batchId) };
 }
 
 export function buildReversalBody(input: { authGuid: string; tranNbr?: string; batchId?: string }): Record<string, unknown> {
   return { payment_method: 'credit', orig_auth_guid: input.authGuid, ...referenceFields(input.tranNbr, input.batchId) };
 }
 
-export function buildVoidBody(input: { authGuid: string; paymentMethod: EpxPaymentMethod; tranNbr?: string; batchId?: string }): Record<string, unknown> {
-  return { payment_method: input.paymentMethod, orig_auth_guid: input.authGuid, ...referenceFields(input.tranNbr, input.batchId) };
+export function buildVoidBody(input: { authGuid: string; paymentMethod: EpxPaymentMethod; accountType?: EpxAccountType | null; tranNbr?: string; batchId?: string }): Record<string, unknown> {
+  return { payment_method: input.paymentMethod, orig_auth_guid: input.authGuid, ...achFields(input.paymentMethod, input.accountType), ...referenceFields(input.tranNbr, input.batchId) };
 }
 
 /** Case-insensitive search for the first of `names`, up to 4 levels deep. */

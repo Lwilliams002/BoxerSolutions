@@ -456,6 +456,10 @@ function payClientScript() {
   var needsVerification = false;
 
   function money(n) { return '$' + Number(n).toFixed(2); }
+  function selectedAccountType() {
+    var checked = document.querySelector('input[name="achAccountType"]:checked');
+    return checked && checked.value === 'savings' ? 'savings' : 'checking';
+  }
   function setStatus(message) { statusEl.textContent = message || ''; statusEl.style.display = message ? 'block' : 'none'; }
   function clearError() { errorEl.style.display = 'none'; if (retryBtn) retryBtn.style.display = 'none'; }
   function setModesDisabled(disabled) { modeButtons.forEach(function (b) { b.disabled = !!disabled; }); }
@@ -561,7 +565,9 @@ function payClientScript() {
     try {
       var confirmed = await postJson('/api/v1/agreements/sign/pay/confirm', {
         payToken: payToken, mode: mode, sessionToken: session.sessionToken,
-        achConsent: mode === 'bank' ? true : undefined, completion: summarizeCompletion(pendingResult)
+        achConsent: mode === 'bank' ? true : undefined,
+        achAccountType: mode === 'bank' ? selectedAccountType() : undefined,
+        completion: summarizeCompletion(pendingResult)
       });
       needsVerification = false; pendingResult = null;
       setModesDisabled(false);
@@ -644,6 +650,7 @@ router.post(
       mode: payModeSchema,
       sessionToken: z.string().min(10),
       achConsent: z.boolean().optional(),
+      achAccountType: z.enum(['checking', 'savings']).optional(),
       // Diagnostics only, and never free-form: the client sends just these
       // fields so an arbitrary client-supplied object cannot reach the logs.
       completion: z.object({
@@ -659,7 +666,7 @@ router.post(
       logger.info({ northCompletionPayload: body.completion }, 'agreement pay checkout.submit() result');
     }
     const result = await agreementSigningService.confirmInitialPayment(
-      body.payToken, body.mode, body.sessionToken, body.achConsent,
+      body.payToken, body.mode, body.sessionToken, body.achConsent, body.achAccountType,
       { ip: req.ip ?? null, userAgent: req.header('user-agent') ?? null },
     );
     ok(res, result, result.duplicate ? 'Payment already recorded' : 'Payment recorded', 201);
@@ -812,6 +819,11 @@ router.post(
           <div id="checkout-root" style="width:100%;background:#FFFFFF;"></div>
         </div>
         <div id="achConsentWrap" style="display:none;margin-top:12px;border:1px solid #F0E3C4;background:#FDF8EC;border-radius:10px;padding:12px;">
+          <div style="display:flex;gap:16px;margin:0 0 10px 0;font-size:14px;color:#0D0D0D;">
+            <span style="font-weight:600;">Account type:</span>
+            <label style="display:flex;gap:6px;align-items:center;cursor:pointer;"><input type="radio" name="achAccountType" value="checking" checked /> Checking</label>
+            <label style="display:flex;gap:6px;align-items:center;cursor:pointer;"><input type="radio" name="achAccountType" value="savings" /> Savings</label>
+          </div>
           <pre id="achTermsText" style="white-space:pre-wrap;font-family:inherit;font-size:13px;color:#4A4A4A;margin:0 0 10px 0;"></pre>
           <label style="display:flex;gap:8px;align-items:flex-start;font-size:14px;color:#0D0D0D;cursor:pointer;">
             <input id="achConsent" type="checkbox" style="margin-top:3px;" />
@@ -856,7 +868,7 @@ router.post(
       <p style="color:#30433F;line-height:1.5;">${message}</p>
       ${paymentSection}
     </div>
-    ${paymentToken ? '<script src="/api/v1/agreements/sign/pay/client.js?v=9"></script>' : ''}
+    ${paymentToken ? '<script src="/api/v1/agreements/sign/pay/client.js?v=10"></script>' : ''}
   </body>
 </html>`);
   }),

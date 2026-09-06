@@ -3,7 +3,7 @@ import { ApiError } from '../utils/errors';
 import { northCertLog } from '../utils/northCertLog';
 import {
   buildRefundBody, buildReversalBody, buildTokenSaleBody, buildVoidBody, parseEpxResponse,
-  type EpxPaymentMethod, type EpxResult, type TokenSaleInput,
+  type EpxAccountType, type EpxPaymentMethod, type EpxResult, type TokenSaleInput,
 } from './epx/epxPayloads';
 
 /**
@@ -79,7 +79,7 @@ export const epxEmbeddedPaymentsService = {
   },
 
   /** REFUND — after settlement, full or partial. */
-  refund(input: { authGuid: string; amount: number; paymentMethod: EpxPaymentMethod }): Promise<EpxResult> {
+  refund(input: { authGuid: string; amount: number; paymentMethod: EpxPaymentMethod; accountType?: EpxAccountType | null }): Promise<EpxResult> {
     return request('REFUND', 'PUT', '/api/payments/refund', buildRefundBody(input));
   },
 
@@ -89,7 +89,7 @@ export const epxEmbeddedPaymentsService = {
   },
 
   /** VOID — card or ACH, before settlement. */
-  voidTransaction(input: { authGuid: string; paymentMethod: EpxPaymentMethod }): Promise<EpxResult> {
+  voidTransaction(input: { authGuid: string; paymentMethod: EpxPaymentMethod; accountType?: EpxAccountType | null }): Promise<EpxResult> {
     return request('VOID', 'PUT', '/api/payments/void', buildVoidBody(input));
   },
 };

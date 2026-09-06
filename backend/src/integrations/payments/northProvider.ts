@@ -188,6 +188,7 @@ export class NorthPaymentProvider implements PaymentProvider {
           authGuid: providerPaymentMethodId,
           amount,
           paymentMethod: options.paymentMethod ?? 'credit',
+          accountType: options.accountType ?? null,
           mit: options.mit === true,
           customer: options.customer,
           invoiceNumber: options.invoiceNumber ?? null,
@@ -262,7 +263,7 @@ export class NorthPaymentProvider implements PaymentProvider {
       const paymentMethod = options.paymentMethod ?? 'credit';
       let refundError: string;
       try {
-        const res = await epxEmbeddedPaymentsService.refund({ authGuid: transactionId, amount, paymentMethod });
+        const res = await epxEmbeddedPaymentsService.refund({ authGuid: transactionId, amount, paymentMethod, accountType: options.accountType ?? null });
         if (res.approved) return { success: true, transactionId: res.authGuid ?? transactionId, failureReason: null };
         refundError = formatNorthFailure(res);
       } catch (error) {
@@ -273,7 +274,7 @@ export class NorthPaymentProvider implements PaymentProvider {
       if (options.fullAmount) {
         try {
           const res = paymentMethod === 'ach'
-            ? await epxEmbeddedPaymentsService.voidTransaction({ authGuid: transactionId, paymentMethod })
+            ? await epxEmbeddedPaymentsService.voidTransaction({ authGuid: transactionId, paymentMethod, accountType: options.accountType ?? null })
             : await epxEmbeddedPaymentsService.reversal({ authGuid: transactionId });
           if (res.approved) return { success: true, transactionId: res.authGuid ?? transactionId, failureReason: null };
         } catch {

@@ -199,7 +199,7 @@ const UNCONSENTED_BANK_RESULT_MESSAGE = 'Bank accounts must be added through Pay
 async function runConfirmPay(input: {
   invoiceId: string; mode: FieldsPayMode; sessionToken: string;
   actorUserId: string; employeeId: string | null;
-  achConsent?: boolean; consentMeta?: ConsentMeta;
+  achConsent?: boolean; achAccountType?: 'checking' | 'savings'; consentMeta?: ConsentMeta;
 }): Promise<FieldsConfirmResult> {
   const invoice = await loadInvoice(input.invoiceId);
   if (invoice.status === 'paid') {
@@ -228,6 +228,7 @@ async function runConfirmPay(input: {
       providerPaymentMethodId: result.authGuid!,
       provider: 'north',
       methodType: result.methodType,
+      bankAccountType: result.methodType === 'bank_account' ? (input.achAccountType ?? 'checking') : null,
       brand: result.brand,
       last4: result.last4,
       expirationMonth: result.expirationMonth,
@@ -358,7 +359,7 @@ export const northFieldsPaymentService = {
   async confirmPay(input: {
     invoiceId: string; mode: FieldsPayMode; sessionToken: string;
     actorUserId: string; employeeId: string | null;
-    achConsent?: boolean; consentMeta?: ConsentMeta;
+    achConsent?: boolean; achAccountType?: 'checking' | 'savings'; consentMeta?: ConsentMeta;
   }): Promise<FieldsConfirmResult> {
     return dedupeBySession(input.sessionToken, async () => {
       let outcome: ConfirmOutcome = 'rejected';

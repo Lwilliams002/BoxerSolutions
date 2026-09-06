@@ -1,6 +1,6 @@
 import crypto from 'crypto';
 import { config } from '../../config';
-import type { EpxCustomer, EpxPaymentMethod } from '../../services/epx/epxPayloads';
+import type { EpxAccountType, EpxCustomer, EpxPaymentMethod } from '../../services/epx/epxPayloads';
 import type { ProviderName } from './resolveProvider';
 
 /**
@@ -32,12 +32,15 @@ export interface ChargeOptions {
   mit?: boolean;
   /** 'credit' for cards, 'ach' for bank accounts (from payment_methods.method_type). */
   paymentMethod?: EpxPaymentMethod;
+  /** checking | savings for ACH methods (payment_methods.bank_account_type). */
+  accountType?: EpxAccountType | null;
   customer?: EpxCustomer;
   invoiceNumber?: string | null;
 }
 
 export interface RefundOptions {
   paymentMethod?: EpxPaymentMethod;
+  accountType?: EpxAccountType | null;
   /** True when the whole original amount is being returned (enables reversal/void fallback). */
   fullAmount?: boolean;
 }

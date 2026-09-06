@@ -24,6 +24,11 @@ test('token sale MIT adds aci_ext RB; ach adds recv_name', () => {
   const body = buildTokenSaleBody({ authGuid: 'ABC', amount: 5, paymentMethod: 'ach', mit: true, customer: { firstName: 'Jane', lastName: 'Smith' }, tranNbr: '1', batchId: '2' });
   assert.equal(body.aci_ext, 'RB');
   assert.equal(body.payment_method, 'ach');
+  assert.equal(body.account_type, 'checking');
+  const savings = buildTokenSaleBody({ authGuid: 'ABC', amount: 5, paymentMethod: 'ach', mit: false, accountType: 'savings', tranNbr: '1', batchId: '2' });
+  assert.equal(savings.account_type, 'savings');
+  const card = buildTokenSaleBody({ authGuid: 'ABC', amount: 5, paymentMethod: 'credit', mit: false, accountType: 'savings', tranNbr: '1', batchId: '2' });
+  assert.equal('account_type' in card, false);
   assert.equal(body.recv_name, 'Jane Smith');
 });
 
@@ -38,11 +43,11 @@ test('refund rejects amounts below one cent', () => {
 
 test('refund, reversal and void bodies', () => {
   assert.deepEqual(buildRefundBody({ authGuid: 'G1', amount: 3.25, paymentMethod: 'ach', tranNbr: '7', batchId: '8' }),
-    { payment_method: 'ach', amount: 3.25, orig_auth_guid: 'G1', tran_nbr: '7', batch_id: '8' });
+    { payment_method: 'ach', amount: 3.25, orig_auth_guid: 'G1', account_type: 'checking', tran_nbr: '7', batch_id: '8' });
   assert.deepEqual(buildReversalBody({ authGuid: 'G1', tranNbr: '7', batchId: '8' }),
     { payment_method: 'credit', orig_auth_guid: 'G1', tran_nbr: '7', batch_id: '8' });
-  assert.deepEqual(buildVoidBody({ authGuid: 'G1', paymentMethod: 'ach', tranNbr: '7', batchId: '8' }),
-    { payment_method: 'ach', orig_auth_guid: 'G1', tran_nbr: '7', batch_id: '8' });
+  assert.deepEqual(buildVoidBody({ authGuid: 'G1', paymentMethod: 'ach', accountType: 'savings', tranNbr: '7', batchId: '8' }),
+    { payment_method: 'ach', orig_auth_guid: 'G1', account_type: 'savings', tran_nbr: '7', batch_id: '8' });
 });
 
 test('tran_nbr and batch_id are numeric and within 10 digits', () => {

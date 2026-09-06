@@ -70,6 +70,7 @@ export interface NorthWebhookCardUpdate {
   expirationMonth: number | null;
   expirationYear: number | null;
   last4: string | null;
+  accountType: 'checking' | 'savings' | null;
 }
 
 function asRecord(value: unknown): Record<string, unknown> | null {
@@ -109,5 +110,7 @@ export function extractNorthWebhookCardUpdate(body: unknown): NorthWebhookCardUp
   const exp = parseWebhookExpiry(str(fullRequest?.EXP_DATE) ?? str(fullRequest?.exp_date) ?? str(transaction.expDate) ?? str(transaction.exp_date));
   const masked = str(transaction.lastFour) ?? str(transaction.maskedAccountNumber) ?? str(fullResponse?.auth_masked_account_nbr) ?? str(fullRequest?.ACCOUNT_NBR);
   const last4 = masked ? masked.replace(/\D/g, '').slice(-4) || null : null;
-  return { authGuid, expirationMonth: exp.month, expirationYear: exp.year, last4 };
+  const rawType = (str(fullRequest?.ACCOUNT_TYPE) ?? str(fullRequest?.account_type) ?? str(transaction.accountType) ?? '').toLowerCase();
+  const accountType = rawType === 'checking' || rawType === 'savings' ? rawType : null;
+  return { authGuid, expirationMonth: exp.month, expirationYear: exp.year, last4, accountType };
 }

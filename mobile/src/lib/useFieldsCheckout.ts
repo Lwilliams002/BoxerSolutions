@@ -15,6 +15,8 @@ export function useFieldsCheckout(params: { flow: FieldsFlow; invoiceId?: string
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [consent, setConsent] = useState(false);
+  // North requires checking|savings on every ACH token transaction and never reports it back.
+  const [achAccountType, setAchAccountType] = useState<'checking' | 'savings'>('checking');
   const [submitting, setSubmitting] = useState(false);
   const [done, setDone] = useState<FieldsConfirmResult | FieldsStoredMethod | null>(null);
   const [sessionKey, setSessionKey] = useState(0);
@@ -85,7 +87,11 @@ export function useFieldsCheckout(params: { flow: FieldsFlow; invoiceId?: string
       if (params.flow === 'pay') {
         const data = await api<FieldsConfirmResult>('/payments/north/fields/confirm', {
           method: 'POST',
-          body: { invoiceId: params.invoiceId, mode, sessionToken: session.sessionToken, achConsent: mode === 'bank' ? consent : undefined },
+          body: {
+            invoiceId: params.invoiceId, mode, sessionToken: session.sessionToken,
+            achConsent: mode === 'bank' ? consent : undefined,
+            achAccountType: mode === 'bank' ? achAccountType : undefined,
+          },
         });
         setDone(data);
         void qc.invalidateQueries({ queryKey: ['invoice', params.invoiceId] });
@@ -126,5 +132,5 @@ export function useFieldsCheckout(params: { flow: FieldsFlow; invoiceId?: string
   const paySession = params.flow === 'pay' ? (session as FieldsPaySession | null) : null;
   const canSubmit = !loading && !submitting && !done && !needsVerification && !!session && (mode !== 'bank' || consent);
 
-  return { mode, setMode, session, paySession, loading, error, setError, consent, setConsent, submitting, setSubmitting, done, startSession, confirm, retry, needsVerification, canSubmit, sessionKey };
+  return { mode, setMode, session, paySession, loading, error, setError, consent, setConsent, achAccountType, setAchAccountType, submitting, setSubmitting, done, startSession, confirm, retry, needsVerification, canSubmit, sessionKey };
 }

@@ -15,6 +15,8 @@ interface Props {
   paySession: FieldsPaySession | null;
   consent: boolean;
   onConsentChange: (value: boolean) => void;
+  achAccountType?: 'checking' | 'savings';
+  onAchAccountTypeChange?: (value: 'checking' | 'savings') => void;
   ready: boolean;
   loading: boolean;
   error: string | null;
@@ -90,6 +92,16 @@ export function FieldsCheckoutLayout(p: Props) {
           <View style={styles.host}>{(p.loading || !p.ready) && !p.error ? <Loading /> : null}{p.children}</View>
           {isPay && p.mode === 'bank' && p.paySession?.achTerms ? (
             <Card style={styles.consentCard}>
+              <View style={styles.accountTypeRow}>
+                <Text style={styles.accountTypeLabel}>Account type</Text>
+                {(['checking', 'savings'] as const).map((t) => (
+                  <Pressable key={t} onPress={() => p.onAchAccountTypeChange?.(t)} disabled={p.submitting}
+                    accessibilityRole="radio" accessibilityState={{ selected: (p.achAccountType ?? 'checking') === t }}
+                    style={[styles.accountTypePill, (p.achAccountType ?? 'checking') === t && styles.accountTypePillOn]}>
+                    <Text style={[styles.accountTypeText, (p.achAccountType ?? 'checking') === t && styles.accountTypeTextOn]}>{t === 'checking' ? 'Checking' : 'Savings'}</Text>
+                  </Pressable>
+                ))}
+              </View>
               <Text style={styles.terms}>{p.paySession.achTerms.text}</Text>
               <Pressable onPress={() => p.onConsentChange(!p.consent)} style={styles.consentRow} accessibilityRole="checkbox" accessibilityState={{ checked: p.consent }}>
                 <View style={[styles.checkbox, p.consent && styles.checkboxOn]}>{p.consent ? <Text style={styles.check}>✓</Text> : null}</View>
@@ -136,6 +148,12 @@ const styles = StyleSheet.create({
   consentCard: { borderWidth: 1, borderColor: '#F0E3C4', backgroundColor: '#FDF8EC' },
   terms: { fontSize: 13, color: '#4A4A4A', marginBottom: 10 },
   consentRow: { flexDirection: 'row', gap: 10, alignItems: 'flex-start' },
+  accountTypeRow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 10 },
+  accountTypeLabel: { fontWeight: '700', marginRight: 4 },
+  accountTypePill: { paddingVertical: 6, paddingHorizontal: 14, borderRadius: 999, borderWidth: 1, borderColor: colors.border, backgroundColor: '#fff' },
+  accountTypePillOn: { borderColor: colors.primary, backgroundColor: '#EAF8F5' },
+  accountTypeText: { color: colors.textMuted, fontWeight: '600' },
+  accountTypeTextOn: { color: colors.text },
   checkbox: { width: 22, height: 22, borderRadius: 5, borderWidth: 2, borderColor: colors.primary, alignItems: 'center', justifyContent: 'center', backgroundColor: '#fff' },
   checkboxOn: { backgroundColor: colors.primary },
   check: { color: '#fff', fontWeight: '800' },

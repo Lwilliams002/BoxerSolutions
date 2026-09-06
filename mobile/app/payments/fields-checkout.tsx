@@ -93,6 +93,7 @@ export default function FieldsCheckoutScreen() {
       <FieldsCheckoutLayout
         flow={flow} mode={c.mode} onModeChange={c.setMode} paySession={c.paySession}
         consent={c.consent} onConsentChange={c.setConsent}
+        achAccountType={c.achAccountType} onAchAccountTypeChange={c.setAchAccountType}
         ready={ready} loading={c.loading} error={c.error} submitting={c.submitting} canSubmit={c.canSubmit} done={c.done}
         needsVerification={c.needsVerification}
         onSubmit={onSubmit} onCancel={leave} onDone={leave} onRetry={() => void c.retry()}
