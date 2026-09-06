@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { View, Text, ScrollView, StyleSheet, TouchableOpacity, Alert, TextInput, Linking } from 'react-native';
+import { View, Text, ScrollView, StyleSheet, TouchableOpacity, Alert, TextInput, Linking, RefreshControl } from 'react-native';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { api, newIdempotencyKey } from '../../src/lib/api';
@@ -27,6 +27,19 @@ export default function CustomerScreen() {
   }>();
   const router = useRouter();
   const qc = useQueryClient();
+  const [refreshing, setRefreshing] = useState(false);
+  // Pull-to-refresh: refetch every query that belongs to this customer, on any tab.
+  const refreshCustomer = async () => {
+    setRefreshing(true);
+    try {
+      await qc.refetchQueries({
+        predicate: (q) => Array.isArray(q.queryKey) && q.queryKey[1] === id,
+        type: 'active',
+      });
+    } finally {
+      setRefreshing(false);
+    }
+  };
   const hasPermission = useAuth((s) => s.hasPermission);
   const [tab, setTab] = useState<Tab>(TABS.includes(tabParam as Tab) ? (tabParam as Tab) : 'Overview');
   const [noteText, setNoteText] = useState('');
@@ -387,7 +400,10 @@ export default function CustomerScreen() {
         ))}
       </ScrollView>
 
-      <ScrollView contentContainerStyle={styles.content}>
+      <ScrollView
+        contentContainerStyle={styles.content}
+        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => void refreshCustomer()} tintColor={colors.primary} colors={[colors.primary]} />}
+      >
         {tab === 'Overview' && (
           <>
             <Card>
