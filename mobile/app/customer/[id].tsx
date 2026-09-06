@@ -379,7 +379,7 @@ export default function CustomerScreen() {
         </Row>
       </View>
 
-      <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.tabs} contentContainerStyle={{ paddingHorizontal: 12 }}>
+      <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.tabs} contentContainerStyle={styles.tabsContent}>
         {TABS.map((t) => (
           <TouchableOpacity key={t} style={[styles.tab, tab === t && styles.tabActive]} onPress={() => setTab(t)}>
             <Text style={[styles.tabText, tab === t && styles.tabTextActive]}>{t}</Text>
@@ -810,11 +810,13 @@ const styles = StyleSheet.create({
   headerCard: { backgroundColor: '#0D0D0D', padding: 18, paddingBottom: 16 },
   name: { fontSize: 21, fontWeight: '900', color: '#FFFFFF' },
   balance: { fontSize: 15, fontWeight: '800', color: '#2DC4A2' },
-  tabs: { flexGrow: 0, backgroundColor: colors.card, borderBottomWidth: 1, borderColor: colors.border },
+  // Explicit height: a horizontal ScrollView inside a flex column has no
+  // intrinsic height on web and gets squeezed, cropping the labels.
+  tabs: { flexGrow: 0, flexShrink: 0, height: 48, backgroundColor: colors.card, borderBottomWidth: 1, borderColor: colors.border },
+  tabsContent: { paddingHorizontal: 12, alignItems: 'stretch' },
   tab: {
+    height: 47,
     paddingHorizontal: 14,
-    paddingTop: 12,
-    paddingBottom: 9,
     justifyContent: 'center',
     borderBottomWidth: 3,
     borderColor: 'transparent',

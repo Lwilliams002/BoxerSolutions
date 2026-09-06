@@ -119,7 +119,7 @@ export default function InvoicesScreen() {
   return (
     <View style={{ flex: 1 }}>
       <SyncBanner />
-      <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.filters} contentContainerStyle={{ paddingHorizontal: 16 }}>
+      <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.filters} contentContainerStyle={{ paddingHorizontal: 16, alignItems: 'center' }}>
         {FILTERS.map((f) => (
           <TouchableOpacity key={f || 'all'} style={[styles.chip, status === f && styles.chipActive]} onPress={() => setStatus(f)}>
             <Text style={[styles.chipText, status === f && styles.chipTextActive]}>
@@ -158,7 +158,8 @@ export default function InvoicesScreen() {
 }
 
 const styles = StyleSheet.create({
-  filters: { flexGrow: 0, marginVertical: 10 },
+  // Explicit height so the horizontal row is not squeezed on web (labels crop otherwise).
+  filters: { flexGrow: 0, flexShrink: 0, height: 40, marginVertical: 10 },
   chip: {
     paddingHorizontal: 14,
     paddingVertical: 7,
