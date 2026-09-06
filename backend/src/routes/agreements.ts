@@ -4,7 +4,7 @@ import path from 'path';
 import { z } from 'zod';
 import { asyncHandler } from '../utils/asyncHandler';
 import { ok } from '../utils/http';
-import { config } from '../config';
+import { northCheckoutCspHeader } from '../utils/northCheckoutCsp';
 import { agreementSigningService } from '../services/agreementSigningService';
 import { logger } from '../utils/logger';
 
@@ -832,28 +832,8 @@ router.post(
       .status(200)
       .setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
     if (paymentToken) {
-      // The North embedded checkout loads a cross-origin script and mounts an
-      // iframe, and its script pulls further dependencies (fingerprint/fraud
-      // check from fpnpmcdn.net, metrics.north.com, the /form iframe). Helmet's
-      // default CSP blocks those, silently failing the payment, so this
-      // transient payment page allows any https source for those directives.
-      const northOrigin = new URL(config.north.embeddedBaseUrl).origin;
-      res.setHeader(
-        'Content-Security-Policy',
-        [
-          `default-src 'self'`,
-          `script-src 'self' https: 'unsafe-inline'`,
-          `frame-src https:`,
-          `connect-src 'self' https: wss:`,
-          `img-src 'self' data: https:`,
-          `style-src 'self' 'unsafe-inline' https:`,
-          `font-src 'self' data: https:`,
-          `worker-src 'self' blob:`,
-          `base-uri 'self'`,
-          `form-action 'self' ${northOrigin}`,
-          `object-src 'none'`,
-        ].join(';'),
-      );
+      // North's checkout needs a relaxed CSP (see utils/northCheckoutCsp.ts).
+      res.setHeader('Content-Security-Policy', northCheckoutCspHeader());
     }
     res
       .type('html')

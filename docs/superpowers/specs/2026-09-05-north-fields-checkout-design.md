@@ -276,6 +276,15 @@ checkbox, and `checkout.submit()` result handling; it calls
 
 ## 10. Owner follow-ups
 
+- Certification / go-live: register `api.boxersolutionspestcontrol.com` as an
+  allowed checkout domain in the Checkout Designer (it serves both the
+  agreement pay page and the mobile WebView host page
+  `GET /api/v1/payments/north/fields-host`), plus the domain of any hosted
+  web build of the app. North's transaction webhook is delivered to
+  `{webhookURL}/transaction`; with the base URL set to
+  `https://api.boxersolutionspestcontrol.com/api/v1/payments/north/webhook`
+  it is verified with the checkout's private API key and back-fills card
+  expiry (the session status endpoint never returns it).
 - Paste the real ACH authorization terms into
   `backend/src/content/achAuthorizationTerms.ts`.
 - Confirm `PAYMENT_PROVIDER` on EC2 (mock vs north) and set the canonical

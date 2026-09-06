@@ -32,6 +32,7 @@ export interface FieldsConfirmResult {
 export interface FieldsSubmitResult { type: 'success' | 'failure'; status?: number; data?: Record<string, unknown> }
 
 export type FieldsWebViewMessage =
+  | { type: 'host-ready' }
   | { type: 'fields-ready' }
   | { type: 'fields-result'; result: FieldsSubmitResult }
   | { type: 'fields-error'; message: string };
@@ -105,75 +106,29 @@ export function describeFieldsFailure(result: FieldsSubmitResult): string {
 // ---- Native (WebView) helpers ----------------------------------------------
 
 /**
- * Standalone page for react-native-webview. It mounts the Fields inputs and
- * exposes window.__sfSubmit(), which React Native invokes via
- * injectJavaScript when the user taps our Pay / Save button. Results are
- * posted back as FieldsWebViewMessage JSON strings.
+ * The native app loads the host page served by our API
+ * (`GET /payments/north/fields-host`) so North's production domain policy
+ * sees our registered domain as the iframe's parent. The page carries no
+ * token: once it posts `host-ready`, React Native injects the mount call
+ * below, and later `window.__sfSubmit()` when the user taps Pay / Save.
  */
-export function buildFieldsWebViewHtml(sessionToken: string, scriptUrl: string): string {
-  // Escape "<" so a value containing "</script>" cannot break out of the inline
-  // script tag below.
-  const jsLiteral = (value: string) => JSON.stringify(value).replace(/</g, '\\u003c');
-  const safeToken = jsLiteral(sessionToken);
-  const safeScriptUrl = jsLiteral(scriptUrl);
-  return `<!doctype html>
-<html lang="en">
-  <head>
-    <meta charset="utf-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1" />
-    <style>
-      html, body { margin: 0; padding: 0; background: #ffffff; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; }
-      #fields-root { width: 100%; min-height: 260px; padding: 8px; box-sizing: border-box; }
-      #fields-root iframe { width: 100% !important; border: 0; display: block; }
-      #status { color: #5f6b68; font-size: 14px; text-align: center; margin: 16px 0 8px; }
-      #error { color: #c0352b; font-size: 14px; text-align: center; margin: 16px 0; display: none; }
-    </style>
-  </head>
-  <body>
-    <div id="status">Loading secure payment form…</div>
-    <div id="error"></div>
-    <div id="fields-root"></div>
-    <script>
-      (function () {
-        var sessionToken = ${safeToken};
-        var scriptUrl = ${safeScriptUrl};
-        var statusEl = document.getElementById('status');
-        var errorEl = document.getElementById('error');
-        var busy = false;
-        function send(message) { if (window.ReactNativeWebView) window.ReactNativeWebView.postMessage(JSON.stringify(message)); }
-        function showError(message) {
-          if (statusEl) statusEl.style.display = 'none';
-          if (errorEl) { errorEl.style.display = 'block'; errorEl.textContent = message; }
-          send({ type: 'fields-error', message: message });
-        }
-        window.__sfSubmit = function () {
-          if (busy) return;
-          if (!window.checkout || typeof window.checkout.submit !== 'function') { showError('The payment form is not ready.'); return; }
-          busy = true;
-          Promise.resolve(window.checkout.submit())
-            .then(function (result) { busy = false; send({ type: 'fields-result', result: result || { type: 'failure', data: {} } }); })
-            .catch(function (err) { busy = false; showError(err && err.message === 'Submit timeout' ? 'The payment is taking longer than expected. Please try again.' : (err && err.message) || 'The payment could not be submitted.'); });
-        };
-        var script = document.createElement('script');
-        script.src = scriptUrl;
-        script.async = true;
-        script.onload = function () {
-          if (!window.checkout || typeof window.checkout.mount !== 'function') { showError('North checkout API did not load correctly.'); return; }
-          Promise.resolve(window.checkout.mount(sessionToken, 'fields-root'))
-            .then(function () { if (statusEl) statusEl.style.display = 'none'; send({ type: 'fields-ready' }); })
-            .catch(function (err) { showError(err && err.message ? err.message : 'Unable to open the payment form.'); });
-        };
-        script.onerror = function () { showError('Unable to load North checkout script.'); };
-        document.head.appendChild(script);
-      })();
-    </script>
-  </body>
-</html>`;
+export function fieldsHostPageUrl(apiUrl: string): string {
+  return `${apiUrl.replace(/\/+$/, '')}/payments/north/fields-host`;
 }
+
+/** JavaScript to inject into the host page to mount the fields for a session. */
+export function fieldsMountInjection(sessionToken: string): string {
+  // Escape "<" so a value can never terminate a script element if echoed.
+  const literal = JSON.stringify(sessionToken).replace(/</g, '\\u003c');
+  return `window.__sfMount && window.__sfMount(${literal}); true;`;
+}
+
+export const FIELDS_SUBMIT_INJECTION = 'window.__sfSubmit && window.__sfSubmit(); true;';
 
 export function parseFieldsWebViewMessage(raw: string): FieldsWebViewMessage | null {
   try {
     const data = JSON.parse(raw) as { type?: string; result?: FieldsSubmitResult; message?: string };
+    if (data.type === 'host-ready') return { type: 'host-ready' };
     if (data.type === 'fields-ready') return { type: 'fields-ready' };
     if (data.type === 'fields-result' && data.result) return { type: 'fields-result', result: data.result };
     if (data.type === 'fields-error') return { type: 'fields-error', message: data.message ?? 'Unable to open the payment form.' };

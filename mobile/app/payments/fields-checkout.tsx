@@ -1,10 +1,17 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { StyleSheet, Text, View } from 'react-native';
 import { Stack, useLocalSearchParams, useRouter } from 'expo-router';
 import type { WebViewMessageEvent } from 'react-native-webview';
 import { FieldsCheckoutLayout } from '../../src/components/FieldsCheckoutLayout';
 import { useFieldsCheckout } from '../../src/lib/useFieldsCheckout';
-import { buildFieldsWebViewHtml, parseFieldsWebViewMessage, type FieldsFlow } from '../../src/lib/northFieldsCheckout';
+import {
+  FIELDS_SUBMIT_INJECTION,
+  fieldsHostPageUrl,
+  fieldsMountInjection,
+  parseFieldsWebViewMessage,
+  type FieldsFlow,
+} from '../../src/lib/northFieldsCheckout';
+import { API_URL } from '../../src/lib/config';
 import { Button, Card, Loading, Value } from '../../src/components/ui';
 import { colors } from '../../src/lib/theme';
 
@@ -18,6 +25,8 @@ try {
 } catch (e) {
   webViewLoadError = (e as Error).message;
 }
+
+const HOST_PAGE_URL = fieldsHostPageUrl(API_URL);
 
 export default function FieldsCheckoutScreen() {
   const router = useRouter();
@@ -33,11 +42,15 @@ export default function FieldsCheckoutScreen() {
     setReady(false);
   }, [c.sessionKey]);
 
-  const html = useMemo(() => (c.session ? buildFieldsWebViewHtml(c.session.sessionToken, c.session.scriptUrl) : ''), [c.session]);
-
   const onMessage = (event: WebViewMessageEvent) => {
     const message = parseFieldsWebViewMessage(event.nativeEvent.data);
     if (!message) return;
+    if (message.type === 'host-ready') {
+      // The host page (served from our domain) has loaded; hand it the session
+      // token so it can mount North's fields.
+      if (c.session) webViewRef.current?.injectJavaScript(fieldsMountInjection(c.session.sessionToken));
+      return;
+    }
     if (message.type === 'fields-ready') setReady(true);
     if (message.type === 'fields-error') { c.setSubmitting(false); c.setError(message.message); }
     if (message.type === 'fields-result') void c.confirm(message.result);
@@ -46,7 +59,7 @@ export default function FieldsCheckoutScreen() {
   const onSubmit = () => {
     if (!c.canSubmit || !ready) return;
     c.setSubmitting(true);
-    webViewRef.current?.injectJavaScript('window.__sfSubmit && window.__sfSubmit(); true;');
+    webViewRef.current?.injectJavaScript(FIELDS_SUBMIT_INJECTION);
   };
 
   const leave = () => {
@@ -84,7 +97,7 @@ export default function FieldsCheckoutScreen() {
           <WebViewComponent
             key={c.sessionKey}
             ref={webViewRef}
-            source={{ html, baseUrl: 'https://checkout.north.com' }}
+            source={{ uri: HOST_PAGE_URL }}
             originWhitelist={['*']}
             javaScriptEnabled
             domStorageEnabled
