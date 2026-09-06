@@ -704,6 +704,10 @@ router.get(
   asyncHandler(async (req, res) => {
     const query = z.object({ token: z.string().min(20) }).parse(req.query);
     const ctx = await agreementSigningService.getSigningContext(query.token);
+    // After signing, the client rewrites this document in place
+    // (document.write) with the payment page, so the browser keeps THIS
+    // response's headers. The North checkout headers must be sent here.
+    applyNorthCheckoutPageHeaders(res);
     const title = ctx.alreadySigned ? 'Agreement Already Signed' : 'Review and Sign Agreement';
     const body = ctx.alreadySigned
       ? `The agreement for ${htmlEscape(ctx.customerName)} is already signed.`
