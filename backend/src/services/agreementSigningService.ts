@@ -9,7 +9,7 @@ import { paymentService } from './paymentService';
 import { recurringChargeService } from './recurringChargeService';
 import { northGatewayService } from './northGatewayService';
 import { logger } from '../utils/logger';
-import { northFieldsPaymentService, type ConsentMeta, type FieldsPayMode } from './northFieldsPaymentService';
+import { northFieldsPaymentService, type ConsentMeta } from './northFieldsPaymentService';
 
 const SIGNING_TOKEN_TTL_SECONDS = 60 * 60 * 24 * 7;
 const INITIAL_PAYMENT_TOKEN_TTL_SECONDS = 60 * 60 * 24 * 3;
@@ -716,15 +716,14 @@ export const agreementSigningService = {
    * customer-initiated token sale; bank = ACH SALE inside the checkout. Either
    * way the method ends up on file for recurring charges.
    */
-  async createInitialPaymentSession(paymentToken: string, mode: FieldsPayMode) {
+  async createInitialPaymentSession(paymentToken: string) {
     const payload = parseInitialPaymentToken(paymentToken);
     await assertInvoiceBelongsToCustomer(payload.invoiceId, payload.customerId);
-    return northFieldsPaymentService.createPaySession({ invoiceId: payload.invoiceId, mode });
+    return northFieldsPaymentService.createPaySession({ invoiceId: payload.invoiceId });
   },
 
   async confirmInitialPayment(
     paymentToken: string,
-    mode: FieldsPayMode,
     northSessionToken: string,
     achConsent: boolean | undefined,
     achAccountType: 'checking' | 'savings' | undefined,
@@ -736,7 +735,6 @@ export const agreementSigningService = {
     if (!ownerUserId) throw ApiError.badRequest('Owner account not available to record the initial payment.');
     return northFieldsPaymentService.confirmPay({
       invoiceId: payload.invoiceId,
-      mode,
       sessionToken: northSessionToken,
       actorUserId: ownerUserId,
       employeeId: null,

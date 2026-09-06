@@ -5,6 +5,16 @@ Status: implemented (pending sandbox verification, Task 15)
 
 ## 1. Goal
 
+> **Revision 2026-09-06 (post-sandbox):** North's STORAGE session accepts bank
+> accounts and `checkout.js` gives no way to learn the customer's card/bank
+> choice before submit, so every checkout is now a single STORAGE session with
+> no tabs of our own. Card results are charged by token sale as before. Bank
+> results are reported back as `needs_ach_consent`; the client then shows the
+> ACH terms, the checking/savings choice and an "Authorize and pay/save"
+> button and confirms the same session again, after which the server vaults
+> the account (with `bank_account_type`) and runs an ACH token sale. The
+> in-checkout ACH SALE path and the pending-bank-session guard are retired.
+
 Replace the North Embedded Checkout **Form** integration with the **Fields**
 integration and make every payment path real and certifiable:
 

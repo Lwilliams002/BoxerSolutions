@@ -91,9 +91,10 @@ export default function FieldsCheckoutScreen() {
     <>
       <Stack.Screen options={{ title: flow === 'pay' ? 'Secure Checkout' : 'Save Payment Method' }} />
       <FieldsCheckoutLayout
-        flow={flow} mode={c.mode} onModeChange={c.setMode} paySession={c.paySession}
-        consent={c.consent} onConsentChange={c.setConsent}
+        flow={flow} paySession={c.paySession}
+        pendingConsent={c.pendingConsent} consent={c.consent} onConsentChange={c.setConsent}
         achAccountType={c.achAccountType} onAchAccountTypeChange={c.setAchAccountType}
+        canAuthorizeAch={c.canAuthorizeAch} onAuthorizeAch={() => void c.authorizeAch()}
         ready={ready} loading={c.loading} error={c.error} submitting={c.submitting} canSubmit={c.canSubmit} done={c.done}
         needsVerification={c.needsVerification}
         onSubmit={onSubmit} onCancel={leave} onDone={leave} onRetry={() => void c.retry()}

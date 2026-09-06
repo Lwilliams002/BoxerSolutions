@@ -5,18 +5,20 @@ import { Button, Card, Loading, Value } from './ui';
 import { colors, money } from '../lib/theme';
 import {
   NORTH_SANDBOX_TEST_CARDS, NORTH_SANDBOX_TEST_DETAILS,
-  type FieldsConfirmResult, type FieldsFlow, type FieldsPayMode, type FieldsPaySession, type FieldsStoredMethod,
+  type AchAccountType, type FieldsConfirmResult, type FieldsFlow, type FieldsNeedsConsent, type FieldsPaySession, type FieldsStoredMethod,
 } from '../lib/northFieldsCheckout';
 
 interface Props {
   flow: FieldsFlow;
-  mode: FieldsPayMode;
-  onModeChange: (mode: FieldsPayMode) => void;
   paySession: FieldsPaySession | null;
+  /** North stored a bank account and is waiting for the customer's ACH authorization. */
+  pendingConsent: FieldsNeedsConsent | null;
   consent: boolean;
   onConsentChange: (value: boolean) => void;
-  achAccountType?: 'checking' | 'savings';
-  onAchAccountTypeChange?: (value: 'checking' | 'savings') => void;
+  achAccountType: AchAccountType;
+  onAchAccountTypeChange: (value: AchAccountType) => void;
+  canAuthorizeAch: boolean;
+  onAuthorizeAch: () => void;
   ready: boolean;
   loading: boolean;
   error: string | null;
@@ -39,23 +41,17 @@ function isConfirm(done: FieldsConfirmResult | FieldsStoredMethod): done is Fiel
 export function FieldsCheckoutLayout(p: Props) {
   const isPay = p.flow === 'pay';
   const b = p.paySession?.breakdown;
-  const submitTitle = isPay ? `Pay ${p.paySession ? money(p.paySession.amount) : ''}`.trim() : 'Save Payment Method';
+  const amountLabel = p.paySession ? money(p.paySession.amount) : '';
+  const submitTitle = isPay ? `Pay ${amountLabel}`.trim() : 'Save Payment Method';
+  const authorizeTitle = isPay ? `Authorize and pay ${amountLabel}`.trim() : 'Authorize and save';
+  const pc = p.pendingConsent;
 
   return (
     <ScrollView style={styles.screen} contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
-      {isPay ? (
-        <View style={styles.tabs}>
-          {(['card', 'bank'] as FieldsPayMode[]).map((m) => (
-            <Pressable key={m} onPress={() => p.onModeChange(m)} disabled={p.loading || p.submitting || !!p.done || !!p.needsVerification}
-              style={[styles.tab, p.mode === m && styles.tabActive]}>
-              <Text style={[styles.tabText, p.mode === m && styles.tabTextActive]}>{m === 'card' ? 'Pay by Card' : 'Pay by Bank (ACH)'}</Text>
-            </Pressable>
-          ))}
-        </View>
-      ) : (
+      {!isPay ? (
         <Card><Value style={styles.title}>Save a payment method on file (no charge)</Value>
-          <Text style={styles.muted}>Details are tokenized by North; the number never touches our systems.</Text></Card>
-      )}
+          <Text style={styles.muted}>Choose card or bank account in the secure form. Details are tokenized by North; the number never touches our systems.</Text></Card>
+      ) : null}
 
       {isPay && b ? (
         <Card>
@@ -89,27 +85,36 @@ export function FieldsCheckoutLayout(p: Props) {
             <Card style={styles.errorCard}><Value style={styles.errorTitle}>Something went wrong</Value><Text style={styles.muted}>{p.error}</Text>
               <Button title={p.needsVerification ? 'Retry verification' : 'Try Again'} variant="outline" onPress={p.onRetry} /></Card>
           ) : null}
-          <View style={styles.host}>{(p.loading || !p.ready) && !p.error ? <Loading /> : null}{p.children}</View>
-          {isPay && p.mode === 'bank' && p.paySession?.achTerms ? (
+
+          {pc ? (
             <Card style={styles.consentCard}>
+              <Value style={styles.title}>Authorize bank account ••••{pc.last4 ?? '????'}</Value>
+              <Text style={styles.muted}>
+                {isPay
+                  ? 'Your bank account has been securely stored. Confirm the account type and authorize the debit to complete this payment.'
+                  : 'Your bank account has been securely stored. Confirm the account type and authorize future debits to keep it on file.'}
+              </Text>
               <View style={styles.accountTypeRow}>
                 <Text style={styles.accountTypeLabel}>Account type</Text>
                 {(['checking', 'savings'] as const).map((t) => (
-                  <Pressable key={t} onPress={() => p.onAchAccountTypeChange?.(t)} disabled={p.submitting}
-                    accessibilityRole="radio" accessibilityState={{ selected: (p.achAccountType ?? 'checking') === t }}
-                    style={[styles.accountTypePill, (p.achAccountType ?? 'checking') === t && styles.accountTypePillOn]}>
-                    <Text style={[styles.accountTypeText, (p.achAccountType ?? 'checking') === t && styles.accountTypeTextOn]}>{t === 'checking' ? 'Checking' : 'Savings'}</Text>
+                  <Pressable key={t} onPress={() => p.onAchAccountTypeChange(t)} disabled={p.submitting}
+                    accessibilityRole="radio" accessibilityState={{ selected: p.achAccountType === t }}
+                    style={[styles.accountTypePill, p.achAccountType === t && styles.accountTypePillOn]}>
+                    <Text style={[styles.accountTypeText, p.achAccountType === t && styles.accountTypeTextOn]}>{t === 'checking' ? 'Checking' : 'Savings'}</Text>
                   </Pressable>
                 ))}
               </View>
-              <Text style={styles.terms}>{p.paySession.achTerms.text}</Text>
+              <Text style={styles.terms}>{pc.achTerms.text}</Text>
               <Pressable onPress={() => p.onConsentChange(!p.consent)} style={styles.consentRow} accessibilityRole="checkbox" accessibilityState={{ checked: p.consent }}>
                 <View style={[styles.checkbox, p.consent && styles.checkboxOn]}>{p.consent ? <Text style={styles.check}>✓</Text> : null}</View>
                 <Text style={styles.consentText}>I have read the ACH authorization above and authorize Boxer Solutions Pest Control to debit my bank account for this payment and, where I have recurring services, for future amounts due as described in those terms.</Text>
               </Pressable>
             </Card>
-          ) : null}
-          {NORTH_SANDBOX_TEST_CARDS.length ? (
+          ) : (
+            <View style={styles.host}>{(p.loading || !p.ready) && !p.error ? <Loading /> : null}{p.children}</View>
+          )}
+
+          {!pc && NORTH_SANDBOX_TEST_CARDS.length ? (
             <Card><Value style={styles.title}>Sandbox test cards</Value>
               {NORTH_SANDBOX_TEST_CARDS.map((c) => <Text key={c.number} style={styles.muted}>{c.brand}: {c.number} — {c.result}</Text>)}
               {NORTH_SANDBOX_TEST_DETAILS.map((d) => <Text key={d} style={styles.muted}>{d}</Text>)}
@@ -121,6 +126,11 @@ export function FieldsCheckoutLayout(p: Props) {
       <View style={styles.footer}>
         {p.done ? (
           <Button title="Done" onPress={p.onDone} style={styles.grow} />
+        ) : pc ? (
+          <>
+            <Button title={p.needsVerification ? 'Close' : 'Cancel'} variant="outline" onPress={p.onCancel} disabled={p.submitting} />
+            <Button title={p.submitting ? 'Processing…' : authorizeTitle} onPress={p.onAuthorizeAch} loading={p.submitting} disabled={!p.canAuthorizeAch} style={styles.grow} />
+          </>
         ) : (
           <>
             <Button title={p.needsVerification ? 'Close' : 'Cancel'} variant="outline" onPress={p.onCancel} disabled={p.submitting} />
@@ -135,11 +145,6 @@ export function FieldsCheckoutLayout(p: Props) {
 const styles = StyleSheet.create({
   screen: { flex: 1, backgroundColor: colors.bg },
   content: { padding: 16, gap: 12 },
-  tabs: { flexDirection: 'row', gap: 8 },
-  tab: { flex: 1, padding: 12, borderRadius: 10, borderWidth: 1, borderColor: colors.border, backgroundColor: '#fff', alignItems: 'center' },
-  tabActive: { borderColor: colors.primary, backgroundColor: '#EAF8F5' },
-  tabText: { fontWeight: '700', color: colors.textMuted },
-  tabTextActive: { color: colors.text },
   row: { flexDirection: 'row', justifyContent: 'space-between', paddingVertical: 3 },
   due: { fontWeight: '800' },
   title: { fontSize: 15, fontWeight: '800', marginBottom: 6 },
@@ -148,7 +153,7 @@ const styles = StyleSheet.create({
   consentCard: { borderWidth: 1, borderColor: '#F0E3C4', backgroundColor: '#FDF8EC' },
   terms: { fontSize: 13, color: '#4A4A4A', marginBottom: 10 },
   consentRow: { flexDirection: 'row', gap: 10, alignItems: 'flex-start' },
-  accountTypeRow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 10 },
+  accountTypeRow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginVertical: 10 },
   accountTypeLabel: { fontWeight: '700', marginRight: 4 },
   accountTypePill: { paddingVertical: 6, paddingHorizontal: 14, borderRadius: 999, borderWidth: 1, borderColor: colors.border, backgroundColor: '#fff' },
   accountTypePillOn: { borderColor: colors.primary, backgroundColor: '#EAF8F5' },

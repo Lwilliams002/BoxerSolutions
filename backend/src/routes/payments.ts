@@ -21,7 +21,9 @@ import { extractNorthWebhookCardUpdate, verifyNorthWebhookSignature } from '../u
 
 const router = Router();
 
-const payModeSchema = z.enum(['card', 'bank']);
+// Older clients still send mode; the session type no longer depends on it.
+const legacyModeSchema = z.enum(['card', 'bank']).optional();
+const achAccountTypeSchema = z.enum(['checking', 'savings']).optional();
 
 router.get(
   '/north/logo',
@@ -129,10 +131,10 @@ router.post(
   '/north/fields/session',
   authorize('invoices:read', 'payments:collect', 'payments:write'),
   asyncHandler(async (req, res) => {
-    const body = z.object({ invoiceId: z.string().uuid(), mode: payModeSchema }).parse(req.body);
+    const body = z.object({ invoiceId: z.string().uuid(), mode: legacyModeSchema }).parse(req.body);
     const scope = technicianScope(req, 'invoices:read');
     await assertInvoiceAccess(scope, body.invoiceId);
-    ok(res, await northFieldsPaymentService.createPaySession(body), 'North checkout session created', 201);
+    ok(res, await northFieldsPaymentService.createPaySession({ invoiceId: body.invoiceId }), 'North checkout session created', 201);
   }),
 );
 
@@ -142,19 +144,23 @@ router.post(
   asyncHandler(async (req, res) => {
     const body = z.object({
       invoiceId: z.string().uuid(),
-      mode: payModeSchema,
+      mode: legacyModeSchema,
       sessionToken: z.string().min(10),
       achConsent: z.boolean().optional(),
-      achAccountType: z.enum(['checking', 'savings']).optional(),
+      achAccountType: achAccountTypeSchema,
     }).parse(req.body);
     const scope = technicianScope(req, 'invoices:read');
     await assertInvoiceAccess(scope, body.invoiceId);
     const result = await northFieldsPaymentService.confirmPay({
-      ...body,
+      invoiceId: body.invoiceId,
+      sessionToken: body.sessionToken,
+      achConsent: body.achConsent,
+      achAccountType: body.achAccountType,
       actorUserId: req.user!.id,
       employeeId: req.user!.employeeId,
       consentMeta: { ip: req.ip ?? null, userAgent: req.header('user-agent') ?? null },
     });
+    if (result.status === 'needs_ach_consent') { ok(res, result, 'ACH authorization required'); return; }
     ok(res, result, result.duplicate ? 'Payment already recorded' : 'Payment recorded', 201);
   }),
 );
@@ -178,11 +184,22 @@ router.post(
       customerId: z.string().uuid(),
       sessionToken: z.string().min(10),
       setDefault: z.boolean().optional(),
+      achConsent: z.boolean().optional(),
+      achAccountType: achAccountTypeSchema,
     }).parse(req.body);
     const scope = technicianScope(req, 'payments:collect');
     if (scope) await assertCustomerAccess(scope, body.customerId);
-    const method = await northFieldsPaymentService.confirmStorage({ ...body, setDefault: body.setDefault ?? true, actorUserId: req.user!.id });
-    ok(res, method, method.duplicate ? 'Payment method already on file' : 'Payment method stored on file', 201);
+    const result = await northFieldsPaymentService.confirmStorage({
+      customerId: body.customerId,
+      sessionToken: body.sessionToken,
+      setDefault: body.setDefault ?? true,
+      achConsent: body.achConsent,
+      achAccountType: body.achAccountType,
+      actorUserId: req.user!.id,
+      consentMeta: { ip: req.ip ?? null, userAgent: req.header('user-agent') ?? null },
+    });
+    if (result.status === 'needs_ach_consent') { ok(res, result, 'ACH authorization required'); return; }
+    ok(res, result, result.duplicate ? 'Payment method already on file' : 'Payment method stored on file', 201);
   }),
 );
 

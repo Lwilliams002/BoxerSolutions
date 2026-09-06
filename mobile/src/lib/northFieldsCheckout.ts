@@ -1,24 +1,30 @@
 import { ApiRequestError } from './api';
 
-export type FieldsPayMode = 'card' | 'bank';
 export type FieldsFlow = 'pay' | 'store';
+export type AchAccountType = 'checking' | 'savings';
+export interface FieldsAchTerms { version: string; text: string }
 
 export interface FieldsBreakdown { subtotal: number; tax: number; total: number; previouslyPaid: number; amountDue: number }
 
 export interface FieldsPaySession {
   sessionToken: string;
   scriptUrl: string;
-  mode: FieldsPayMode;
   invoiceId: string;
   invoiceNumber: string;
   amount: number;
   breakdown: FieldsBreakdown;
-  achTerms: { version: string; text: string } | null;
+  achTerms: FieldsAchTerms;
 }
 
-export interface FieldsStorageSession { sessionToken: string; scriptUrl: string; customerId: string }
+export interface FieldsStorageSession { sessionToken: string; scriptUrl: string; customerId: string; achTerms: FieldsAchTerms }
 
-export interface FieldsStoredMethod { id: string; methodType: 'card' | 'bank_account'; brand: string; last4: string | null; duplicate: boolean }
+export interface FieldsStoredMethod { status: 'stored'; id: string; methodType: 'card' | 'bank_account'; brand: string; last4: string | null; duplicate: boolean }
+
+/** North stored a bank account; nothing is debited or saved until the customer authorizes it. */
+export interface FieldsNeedsConsent { status: 'needs_ach_consent'; methodType: 'bank_account'; brand: string; last4: string | null; achTerms: FieldsAchTerms }
+
+export type FieldsConfirmResponse = FieldsConfirmResult | FieldsNeedsConsent;
+export type FieldsStoreResponse = FieldsStoredMethod | FieldsNeedsConsent;
 
 export interface FieldsConfirmResult {
   status: 'approved';

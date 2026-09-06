@@ -440,19 +440,22 @@ function payClientScript() {
   var breakdownEl = document.getElementById('payBreakdown');
   var consentWrap = document.getElementById('achConsentWrap');
   var consentBox = document.getElementById('achConsent');
+  var consentTitle = document.getElementById('achConsentTitle');
   var termsEl = document.getElementById('achTermsText');
-  var modeButtons = Array.prototype.slice.call(document.querySelectorAll('.pay-mode'));
   if (!payTokenEl || !statusEl || !errorEl || !checkoutWrap || !successEl || !payBtn) return;
 
   var payToken = String(payTokenEl.value || '');
-  var mode = 'card';
+  var payLabel = payBtn.textContent;
   var session = null;
   var busy = false;
   var scriptPromise = null;
-  // Bank (ACH) money moves inside checkout.submit(). If our confirm call then
-  // fails, the session token stays valid and the ONLY safe recovery is to
-  // verify that same session again — starting a new one would debit twice.
+  // One STORAGE session; the customer picks card or bank inside North's form.
+  // If North stored a bank account, the server answers needs_ach_consent and
+  // we confirm the SAME session again once the customer authorizes it. If a
+  // confirm fails after submit, the same session is re-verified — never a new
+  // one, which could charge twice.
   var pendingResult = null;
+  var pendingConsent = null;
   var needsVerification = false;
 
   function money(n) { return '$' + Number(n).toFixed(2); }
@@ -462,7 +465,6 @@ function payClientScript() {
   }
   function setStatus(message) { statusEl.textContent = message || ''; statusEl.style.display = message ? 'block' : 'none'; }
   function clearError() { errorEl.style.display = 'none'; if (retryBtn) retryBtn.style.display = 'none'; }
-  function setModesDisabled(disabled) { modeButtons.forEach(function (b) { b.disabled = !!disabled; }); }
   function showError(message) {
     setStatus(''); busy = false; updatePayButton();
     errorEl.textContent = message || 'Unable to process the payment.'; errorEl.style.display = 'block';
@@ -472,8 +474,49 @@ function payClientScript() {
     }
   }
   function updatePayButton() {
-    var consentOk = mode !== 'bank' || (consentBox && consentBox.checked);
-    payBtn.disabled = busy || !session || !consentOk || needsVerification;
+    if (pendingConsent) {
+      payBtn.textContent = 'Authorize and pay' + (session ? ' ' + money(session.amount) : '');
+      payBtn.disabled = busy || !(consentBox && consentBox.checked);
+      return;
+    }
+    payBtn.textContent = payLabel;
+    payBtn.disabled = busy || !session || needsVerification;
+  }
+  function renderBreakdown(b) {
+    if (!breakdownEl || !b) return;
+    var rows = [['Subtotal', b.subtotal], ['Taxes & fees', b.tax], ['Total', b.total]];
+    if (b.previouslyPaid > 0) rows.push(['Previously paid', -b.previouslyPaid]);
+    rows.push(['Amount due today', b.amountDue]);
+    breakdownEl.innerHTML = rows.map(function (r) {
+      var strong = r[0] === 'Amount due today';
+      var amount = r[1] < 0 ? '-' + money(-r[1]) : money(r[1]);
+      return '<div style="display:flex;justify-content:space-between;padding:2px 0;' + (strong ? 'font-weight:700;' : '') + '"><span>' + r[0] + '</span><span>' + amount + '</span></div>';
+    }).join('');
+  }
+  function showConsentStep(info) {
+    pendingConsent = info;
+    checkoutWrap.style.display = 'none';
+    if (consentWrap) {
+      consentWrap.style.display = 'block';
+      if (consentTitle) consentTitle.textContent = 'Authorize bank account' + (info.last4 ? ' \\u2022\\u2022\\u2022\\u2022' + info.last4 : '');
+      if (termsEl && info.achTerms) termsEl.textContent = info.achTerms.text;
+      if (consentBox) consentBox.checked = false;
+    }
+    setStatus('');
+    updatePayButton();
+  }
+  function showSuccess(result) {
+    setStatus(''); clearError();
+    checkoutWrap.style.display = 'none'; payBtn.style.display = 'none';
+    if (consentWrap) consentWrap.style.display = 'none';
+    successEl.style.display = 'block';
+    if (successDetailEl) {
+      var parts = [];
+      if (result && typeof result.amount === 'number') parts.push('Amount paid: ' + money(result.amount));
+      if (result && result.receipt && result.receipt.receiptNumber) parts.push('Receipt: ' + result.receipt.receiptNumber);
+      if (result && result.savedMethod && result.savedMethod.last4) parts.push('Saved on file: ' + (result.savedMethod.brand || 'Method') + ' ending in ' + result.savedMethod.last4);
+      successDetailEl.textContent = parts.join('  \\u00b7  ');
+    }
   }
   function summarizeCompletion(result) {
     if (!result || typeof result !== 'object') return undefined;
@@ -487,30 +530,6 @@ function payClientScript() {
     if (typeof data.auth_resp_text === 'string') { inner.auth_resp_text = data.auth_resp_text.slice(0, 120); has = true; }
     if (has) out.data = inner;
     return out;
-  }
-  function renderBreakdown(b) {
-    if (!breakdownEl || !b) return;
-    var rows = [['Subtotal', b.subtotal], ['Taxes & fees', b.tax], ['Total', b.total]];
-    if (b.previouslyPaid > 0) rows.push(['Previously paid', -b.previouslyPaid]);
-    rows.push(['Amount due today', b.amountDue]);
-    breakdownEl.innerHTML = rows.map(function (r) {
-      var strong = r[0] === 'Amount due today';
-      return '<div style="display:flex;justify-content:space-between;padding:2px 0;' + (strong ? 'font-weight:700;' : '') + '"><span>' + r[0] + '</span><span>' + money(r[1]) + '</span></div>';
-    }).join('');
-  }
-  function showSuccess(result) {
-    setStatus(''); clearError();
-    checkoutWrap.style.display = 'none'; payBtn.style.display = 'none';
-    if (consentWrap) consentWrap.style.display = 'none';
-    modeButtons.forEach(function (b) { b.disabled = true; });
-    successEl.style.display = 'block';
-    if (successDetailEl) {
-      var parts = [];
-      if (result && typeof result.amount === 'number') parts.push('Amount paid: ' + money(result.amount));
-      if (result && result.receipt && result.receipt.receiptNumber) parts.push('Receipt: ' + result.receipt.receiptNumber);
-      if (result && result.savedMethod && result.savedMethod.last4) parts.push('Saved on file: ' + (result.savedMethod.brand || 'Method') + ' ending in ' + result.savedMethod.last4);
-      successDetailEl.textContent = parts.join('  ·  ');
-    }
   }
   async function postJson(url, body) {
     var response = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
@@ -533,18 +552,15 @@ function payClientScript() {
   }
 
   async function startCheckout(keepError) {
-    if (needsVerification) return;
+    if (needsVerification || pendingConsent) return;
     if (!keepError) clearError();
     session = null; pendingResult = null; busy = true; updatePayButton();
-    setStatus('Loading secure payment form…');
+    checkoutWrap.style.display = 'block';
+    if (consentWrap) consentWrap.style.display = 'none';
+    setStatus('Loading secure payment form\\u2026');
     try {
-      var created = await postJson('/api/v1/agreements/sign/pay/session', { payToken: payToken, mode: mode });
+      var created = await postJson('/api/v1/agreements/sign/pay/session', { payToken: payToken });
       renderBreakdown(created.breakdown);
-      if (consentWrap) {
-        consentWrap.style.display = mode === 'bank' ? 'block' : 'none';
-        if (termsEl && created.achTerms) termsEl.textContent = created.achTerms.text;
-        if (consentBox) consentBox.checked = false;
-      }
       await loadCheckoutScript(created.scriptUrl);
       if (!window.checkout || typeof window.checkout.mount !== 'function' || typeof window.checkout.submit !== 'function') {
         throw new Error('The payment form did not load correctly.');
@@ -558,33 +574,37 @@ function payClientScript() {
     }
   }
 
-  async function confirmPayment() {
-    if (!session || !pendingResult) return;
+  async function confirmPayment(withConsent) {
+    if (!session) return;
     busy = true; clearError(); updatePayButton();
-    setStatus('Processing your payment… This can take a few seconds.');
+    setStatus(withConsent ? 'Processing your bank payment\\u2026' : 'Processing your payment\\u2026 This can take a few seconds.');
     try {
-      var confirmed = await postJson('/api/v1/agreements/sign/pay/confirm', {
-        payToken: payToken, mode: mode, sessionToken: session.sessionToken,
-        achConsent: mode === 'bank' ? true : undefined,
-        achAccountType: mode === 'bank' ? selectedAccountType() : undefined,
-        completion: summarizeCompletion(pendingResult)
-      });
-      needsVerification = false; pendingResult = null;
-      setModesDisabled(false);
+      var body = { payToken: payToken, sessionToken: session.sessionToken, completion: summarizeCompletion(pendingResult) };
+      if (withConsent) { body.achConsent = true; body.achAccountType = selectedAccountType(); }
+      var confirmed = await postJson('/api/v1/agreements/sign/pay/confirm', body);
+      if (confirmed && confirmed.status === 'needs_ach_consent') {
+        busy = false;
+        showConsentStep(confirmed);
+        return;
+      }
+      needsVerification = false; pendingResult = null; pendingConsent = null;
       showSuccess(confirmed);
     } catch (err) {
       // The submit already went through: keep this session and verify it again.
       needsVerification = true;
-      setModesDisabled(true);
-      showError((err && err.message ? err.message : 'We could not record the payment.') + ' Your payment may already have gone through — please retry verification instead of paying again.');
+      showError((err && err.message ? err.message : 'We could not record the payment.') + ' Your payment may already have gone through \\u2014 please retry verification instead of paying again.');
     }
   }
 
   async function submitPayment() {
     if (busy || !session || needsVerification) return;
-    if (mode === 'bank' && !(consentBox && consentBox.checked)) { showError('Please accept the ACH authorization to continue.'); return; }
+    if (pendingConsent) {
+      if (!(consentBox && consentBox.checked)) { showError('Please accept the ACH authorization to continue.'); return; }
+      await confirmPayment(true);
+      return;
+    }
     busy = true; clearError(); updatePayButton();
-    setStatus(mode === 'bank' ? 'Authorizing your bank payment…' : 'Securing your card details…');
+    setStatus('Securing your payment details\\u2026');
     var result;
     try {
       result = await window.checkout.submit();
@@ -595,31 +615,20 @@ function payClientScript() {
     if (!result || result.type !== 'success') {
       var data = result && result.data ? result.data : {};
       showError(data.auth_resp_text || data.message || 'The payment was not approved. Please check your details and try again.');
-      // Nothing moved and a submitted session cannot be reused — mount a fresh
-      // one for the retry, but keep the decline message visible. This is the
-      // only path allowed to start a new session after a submit.
+      // Nothing moved and a submitted session cannot be reused \\u2014 mount a fresh
+      // one for the retry, but keep the decline message visible.
       startCheckout(true);
       return;
     }
     pendingResult = result;
-    await confirmPayment();
+    await confirmPayment(false);
   }
 
-  modeButtons.forEach(function (button) {
-    button.addEventListener('click', function () {
-      if (busy || needsVerification) return;
-      var next = button.getAttribute('data-mode') === 'bank' ? 'bank' : 'card';
-      if (next === mode && session) return;
-      mode = next;
-      modeButtons.forEach(function (b) { b.classList.toggle('pay-mode-active', b === button); });
-      startCheckout();
-    });
-  });
   if (consentBox) consentBox.addEventListener('change', updatePayButton);
   payBtn.addEventListener('click', submitPayment);
   if (retryBtn) retryBtn.addEventListener('click', function () {
     if (busy) return;
-    if (needsVerification) { confirmPayment(); return; }
+    if (needsVerification) { confirmPayment(!!pendingConsent); return; }
     startCheckout();
   });
 
@@ -632,13 +641,14 @@ router.get('/sign/pay/client.js', (_req, res) => {
   res.status(200).type('application/javascript').send(payClientScript());
 });
 
-const payModeSchema = z.enum(['card', 'bank']);
+// Older pages still send mode; the session type no longer depends on it.
+const legacyModeSchema = z.enum(['card', 'bank']).optional();
 
 router.post(
   '/sign/pay/session',
   asyncHandler(async (req, res) => {
-    const body = z.object({ payToken: z.string().min(20), mode: payModeSchema }).parse(req.body);
-    ok(res, await agreementSigningService.createInitialPaymentSession(body.payToken, body.mode), 'Embedded checkout session created', 201);
+    const body = z.object({ payToken: z.string().min(20), mode: legacyModeSchema }).parse(req.body);
+    ok(res, await agreementSigningService.createInitialPaymentSession(body.payToken), 'Embedded checkout session created', 201);
   }),
 );
 
@@ -647,7 +657,7 @@ router.post(
   asyncHandler(async (req, res) => {
     const body = z.object({
       payToken: z.string().min(20),
-      mode: payModeSchema,
+      mode: legacyModeSchema,
       sessionToken: z.string().min(10),
       achConsent: z.boolean().optional(),
       achAccountType: z.enum(['checking', 'savings']).optional(),
@@ -666,9 +676,10 @@ router.post(
       logger.info({ northCompletionPayload: body.completion }, 'agreement pay checkout.submit() result');
     }
     const result = await agreementSigningService.confirmInitialPayment(
-      body.payToken, body.mode, body.sessionToken, body.achConsent, body.achAccountType,
+      body.payToken, body.sessionToken, body.achConsent, body.achAccountType,
       { ip: req.ip ?? null, userAgent: req.header('user-agent') ?? null },
     );
+    if (result.status === 'needs_ach_consent') { ok(res, result, 'ACH authorization required'); return; }
     ok(res, result, result.duplicate ? 'Payment already recorded' : 'Payment recorded', 201);
   }),
 );
@@ -804,13 +815,9 @@ router.post(
       <div style="margin-top:16px;border-top:1px solid #D5EDE9;padding-top:14px;">
         <h3 style="margin:0 0 6px 0;color:#0D0D0D;font-size:16px;">Pay Your Initial Service Charge</h3>
         <p style="margin:0 0 10px 0;color:#30433F;font-size:14px;">
-          Choose how to pay${amountDue != null ? ` <strong>${money(Number(amountDue))}</strong>` : ''}. Your details are tokenized by our payment processor and never touch our systems; the method is saved on file for your recurring service charges.
+          Enter your card or bank account below to pay${amountDue != null ? ` <strong>${money(Number(amountDue))}</strong>` : ''}. Your details are tokenized by our payment processor and never touch our systems; the method is saved on file for your recurring service charges.
         </p>
         <input id="payToken" type="hidden" value="${htmlEscape(paymentToken)}" />
-        <div id="payModes" role="tablist" style="display:flex;gap:8px;margin:0 0 12px 0;">
-          <button type="button" data-mode="card" class="pay-mode pay-mode-active" style="flex:1;padding:10px;border:1px solid #2DC4A2;border-radius:8px;background:#EAF8F5;font-weight:700;cursor:pointer;">Pay by Card</button>
-          <button type="button" data-mode="bank" class="pay-mode" style="flex:1;padding:10px;border:1px solid #CBD7D4;border-radius:8px;background:#fff;font-weight:700;cursor:pointer;">Pay by Bank (ACH)</button>
-        </div>
         <div id="payBreakdown" style="border:1px solid #E3EEEB;border-radius:10px;padding:10px 12px;margin:0 0 12px 0;font-size:14px;color:#30433F;"></div>
         <p id="payStatus" style="color:#607D78;font-size:14px;margin:10px 0;">Loading secure payment form…</p>
         <p id="payError" style="color:#B3261E;font-size:14px;margin:10px 0;display:none;"></p>
@@ -819,6 +826,8 @@ router.post(
           <div id="checkout-root" style="width:100%;background:#FFFFFF;"></div>
         </div>
         <div id="achConsentWrap" style="display:none;margin-top:12px;border:1px solid #F0E3C4;background:#FDF8EC;border-radius:10px;padding:12px;">
+          <h4 id="achConsentTitle" style="margin:0 0 6px 0;color:#0D0D0D;font-size:15px;">Authorize your bank account</h4>
+          <p style="margin:0 0 10px 0;color:#30433F;font-size:13px;">Your bank account has been securely stored. Confirm the account type and authorize the debit to complete this payment.</p>
           <div style="display:flex;gap:16px;margin:0 0 10px 0;font-size:14px;color:#0D0D0D;">
             <span style="font-weight:600;">Account type:</span>
             <label style="display:flex;gap:6px;align-items:center;cursor:pointer;"><input type="radio" name="achAccountType" value="checking" checked /> Checking</label>
@@ -860,7 +869,6 @@ router.post(
     #checkout-root iframe { width: 100% !important; height: 100% !important; border: 0; display: block; }
     /* North's fields stack vertically on phones and the iframe cannot resize itself. */
     @media (max-width: 640px) { #checkout-root { height: 820px; } }
-    .pay-mode-active { border-color:#2DC4A2 !important; background:#EAF8F5 !important; }
   </style></head>
   <body style="font-family:Arial,sans-serif;background:#F5FAF8;padding:24px;">
     <div style="max-width:620px;margin:0 auto;background:#fff;border:1px solid #D5EDE9;border-radius:12px;padding:20px;">
@@ -868,7 +876,7 @@ router.post(
       <p style="color:#30433F;line-height:1.5;">${message}</p>
       ${paymentSection}
     </div>
-    ${paymentToken ? '<script src="/api/v1/agreements/sign/pay/client.js?v=10"></script>' : ''}
+    ${paymentToken ? '<script src="/api/v1/agreements/sign/pay/client.js?v=11"></script>' : ''}
   </body>
 </html>`);
   }),
