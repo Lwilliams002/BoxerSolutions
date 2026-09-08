@@ -6,7 +6,7 @@
  * assembles the raw request/response blocks from the certification log into a
  * single text file for North's certification team.
  *
- *   npx tsx src/scripts/northCertSamples.ts [--customer <uuid>] [--out <file>]
+ *   npx tsx src/scripts/northCertSamples.ts [--customer <uuid>] [--card <id prefix>] [--bank <id prefix>] [--out <file>]
  *
  * Every request is built by epxPayloads.ts and contains only the token
  * (orig_auth_guid), amount, payment_method, references, and cardholder name /
@@ -42,7 +42,7 @@ function arg(name: string) {
   return i >= 0 ? process.argv[i + 1] : undefined;
 }
 
-async function loadMethods(customerId?: string): Promise<{ card: Method; bank: Method }> {
+async function loadMethods(customerId?: string, cardId?: string, bankId?: string): Promise<{ card: Method; bank: Method }> {
   const { rows } = await pool.query<Method>(
     `SELECT pm.id, pm.customer_id, pm.deleted_at, pm.provider_payment_method_id, pm.method_type, pm.bank_account_type, pm.brand, pm.last4,
             c.first_name, c.last_name, c.billing_address_line1 AS address, c.billing_city AS city, c.billing_state AS state, c.billing_postal_code AS zip
@@ -52,8 +52,10 @@ async function loadMethods(customerId?: string): Promise<{ card: Method; bank: M
      ORDER BY (pm.deleted_at IS NULL) DESC, pm.created_at DESC`,
     customerId ? [customerId] : [],
   );
-  const card = rows.find((r) => r.method_type === 'card');
-  const bank = rows.find((r) => r.method_type === 'bank_account' && (!card || r.customer_id === card.customer_id))
+  const byId = (id: string | undefined, type: Method['method_type']) => (id ? rows.find((r) => r.method_type === type && r.id.startsWith(id)) : undefined);
+  const card = byId(cardId, 'card') ?? rows.find((r) => r.method_type === 'card');
+  const bank = byId(bankId, 'bank_account')
+    ?? rows.find((r) => r.method_type === 'bank_account' && (!card || r.customer_id === card.customer_id))
     ?? rows.find((r) => r.method_type === 'bank_account');
   // Tokens (BRICs) stay valid at North after a method is removed in the app, so a
   // removed method is still fine for sandbox certification runs.
@@ -68,7 +70,7 @@ function customerOf(m: Method) {
 
 async function run() {
   if (!epxEmbeddedPaymentsService.isConfigured()) throw new Error('North Embedded Checkout credentials are not configured.');
-  const { card, bank } = await loadMethods(arg('customer'));
+  const { card, bank } = await loadMethods(arg('customer'), arg('card'), arg('bank'));
   console.log(`Card ${card.brand ?? ''} ••••${card.last4 ?? ''}  Bank ••••${bank.last4 ?? ''} (${bank.bank_account_type ?? 'checking'})  customer ${card.first_name} ${card.last_name}`);
   const inv = (n: number) => `CERT-${new Date().toISOString().slice(0, 10).replace(/-/g, '')}-${n}`;
   const results: Record<string, unknown> = {};
@@ -111,9 +113,10 @@ function readBlocks(logPath: string) {
   return text.split(/^=+\n/m).map((b) => b.trim()).filter(Boolean).map((block) => {
     const header = block.split('\n')[0] ?? '';
     const m = header.match(/^\[([^\]]+)\] (.+)$/);
-    const request = block.split('--- RESPONSE ---')[0] ?? '';
+    const [request = '', response = ''] = block.split('--- RESPONSE ---');
     const pm = request.match(/"payment_method":\s*"(credit|ach)"/)?.[1];
-    return { at: m?.[1] ?? '', label: `${m?.[2] ?? header}${pm ? ` [${pm}]` : ''}`, block };
+    const approved = /"auth_resp":\s*"00"/.test(response) || /HTTP 2\d\d/.test(response) && !/"auth_resp"/.test(response);
+    return { at: m?.[1] ?? '', label: `${m?.[2] ?? header}${pm ? ` [${pm}]` : ''}`, block, approved };
   });
 }
 
@@ -123,8 +126,9 @@ function assemble(outPath: string, since: string) {
   const sections: string[] = [];
   const missing: string[] = [];
   for (const { label, title } of SAMPLE_LABELS) {
-    const fresh = blocks.filter((b) => b.label === label && b.at >= since);
-    const pick = (fresh.length ? fresh : blocks.filter((b) => b.label === label)).slice(-1)[0];
+    const matching = blocks.filter((b) => b.label === label);
+    const fresh = matching.filter((b) => b.at >= since && b.approved);
+    const pick = (fresh.length ? fresh : matching.filter((b) => b.approved)).slice(-1)[0] ?? matching.slice(-1)[0];
     if (!pick) { missing.push(title); continue; }
     sections.push(`\n${'#'.repeat(80)}\n# ${title}\n${'#'.repeat(80)}\n${pick.block}\n`);
   }
