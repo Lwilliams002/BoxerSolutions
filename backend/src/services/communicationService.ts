@@ -4,6 +4,10 @@ import { getOutboundMessageProvider } from '../integrations/notifications';
 import { rowsToCamel, toCamel } from './customerService';
 import { logger } from '../utils/logger';
 import { agreementSigningService } from './agreementSigningService';
+import {
+  ServiceNotificationContext, ServiceNotificationKind,
+  renderServiceNotificationHtml, renderServiceNotificationText,
+} from '../content/serviceNotificationEmail';
 
 export type CommunicationChannel = 'sms' | 'email' | 'push';
 export type CommunicationTemplateKey =
@@ -89,13 +93,128 @@ async function appointmentContext(appointmentId: string) {
 async function invoiceContext(invoiceId: string) {
   const { rows } = await pool.query(
     `SELECT i.*, c.first_name AS customer_first_name, c.last_name AS customer_last_name,
-            c.company AS customer_company, c.email AS customer_email, c.phone AS customer_phone
+            c.company AS customer_company, c.email AS customer_email, c.phone AS customer_phone,
+            c.billing_address_line1 AS bill_line1, c.billing_address_line2 AS bill_line2,
+            c.billing_city AS bill_city, c.billing_state AS bill_state, c.billing_postal_code AS bill_postal_code
      FROM invoices i
      JOIN customers c ON c.id = i.customer_id
      WHERE i.id = $1 AND i.deleted_at IS NULL`,
     [invoiceId],
   );
   return rows[0];
+}
+
+function clockTime(value: unknown) {
+  if (!value) return null;
+  const d = value instanceof Date ? value : new Date(String(value));
+  if (Number.isNaN(d.getTime())) return null;
+  return d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', timeZone: 'America/New_York' });
+}
+
+function addressLines(row: QueryResultRow | null | undefined, prefix: string) {
+  if (!row) return [];
+  const line1 = row[`${prefix}line1`];
+  const line2 = row[`${prefix}line2`];
+  const cityLine = [row[`${prefix}city`], [row[`${prefix}state`], row[`${prefix}postal_code`]].filter(Boolean).join(' ')].filter(Boolean).join(', ');
+  return [line1, line2, cityLine].filter((v): v is string => typeof v === 'string' && v.trim().length > 0);
+}
+
+/** Everything the formatted "Service Notification" email shows for an invoice. */
+async function serviceNotificationContext(
+  ctx: QueryResultRow,
+  kind: ServiceNotificationKind,
+  extra?: Record<string, unknown>,
+): Promise<ServiceNotificationContext> {
+  const invoiceId = String(ctx.id);
+  const [items, location, appointment, payments, balance] = await Promise.all([
+    pool.query(
+      `SELECT description, quantity, unit_price, line_total FROM invoice_items WHERE invoice_id = $1 ORDER BY created_at`,
+      [invoiceId],
+    ),
+    pool.query(
+      `SELECT address_line1 AS loc_line1, address_line2 AS loc_line2, city AS loc_city, state AS loc_state, postal_code AS loc_postal_code
+       FROM service_locations WHERE id = COALESCE($1::uuid, (SELECT service_location_id FROM appointments WHERE id = $2::uuid))`,
+      [ctx.service_location_id ?? null, ctx.appointment_id ?? null],
+    ),
+    ctx.appointment_id
+      ? pool.query(
+          `SELECT a.scheduled_date, a.window_start, a.window_end, a.arrived_at, a.started_at, a.completed_at,
+                  tu.first_name || ' ' || tu.last_name AS technician_name,
+                  (SELECT json_agg(s.name ORDER BY s.name) FROM appointment_services aps JOIN services s ON s.id = aps.service_id WHERE aps.appointment_id = a.id) AS services,
+                  (SELECT n.body FROM notes n WHERE n.appointment_id = a.id AND n.deleted_at IS NULL AND n.is_internal = false ORDER BY n.created_at DESC LIMIT 1) AS comments
+           FROM appointments a
+           LEFT JOIN employees te ON te.id = a.technician_id
+           LEFT JOIN users tu ON tu.id = te.user_id
+           WHERE a.id = $1`,
+          [ctx.appointment_id],
+        )
+      : Promise.resolve({ rows: [] as QueryResultRow[] }),
+    pool.query(
+      `SELECT p.amount, COALESCE(p.processed_at, p.created_at) AS paid_at, p.receipt_number, pm.brand, pm.last4, pm.method_type
+       FROM payments p LEFT JOIN payment_methods pm ON pm.id = p.payment_method_id
+       WHERE p.invoice_id = $1 AND p.status = 'succeeded' ORDER BY COALESCE(p.processed_at, p.created_at)`,
+      [invoiceId],
+    ),
+    pool.query(
+      `SELECT COALESCE(SUM(i.total - i.amount_paid), 0) AS previous_balance
+       FROM invoices i
+       WHERE i.customer_id = $1 AND i.id <> $2 AND i.deleted_at IS NULL
+         AND i.status IN ('open','sent','partially_paid','past_due')`,
+      [ctx.customer_id, invoiceId],
+    ),
+  ]);
+
+  const appt = appointment.rows[0];
+  const eventAmount = extra?.amount != null ? Number(extra.amount) : null;
+  return {
+    kind,
+    eventAmount,
+    eventReason: typeof extra?.reason === 'string' ? extra.reason : null,
+    customer: {
+      name: customerName(ctx),
+      firstName: firstName(ctx),
+      email: ctx.customer_email ?? null,
+      phone: ctx.customer_phone ?? null,
+      billingAddress: addressLines(ctx, 'bill_'),
+    },
+    invoice: {
+      number: String(ctx.invoice_number),
+      date: ctx.invoice_date,
+      dueDate: ctx.due_date ?? null,
+      subtotal: Number(ctx.subtotal ?? 0),
+      discount: Number(ctx.discount_amount ?? 0),
+      taxRate: Number(ctx.tax_rate ?? 0),
+      taxAmount: Number(ctx.tax_amount ?? 0),
+      total: Number(ctx.total ?? 0),
+      amountPaid: Number(ctx.amount_paid ?? 0),
+      notes: ctx.notes ?? null,
+      items: items.rows.map((r) => ({
+        description: String(r.description),
+        quantity: Number(r.quantity ?? 1),
+        unitPrice: Number(r.unit_price ?? 0),
+        lineTotal: Number(r.line_total ?? 0),
+      })),
+    },
+    serviceAddress: addressLines(location.rows[0], 'loc_'),
+    appointment: appt
+      ? {
+          date: appt.scheduled_date ?? null,
+          technician: appt.technician_name ?? null,
+          services: Array.isArray(appt.services) ? (appt.services as string[]) : [],
+          window: appt.window_start ? `${fmtTime(String(appt.window_start))} - ${fmtTime(String(appt.window_end))}` : null,
+          timeIn: clockTime(appt.arrived_at ?? appt.started_at),
+          timeOut: clockTime(appt.completed_at),
+          comments: appt.comments ?? null,
+        }
+      : null,
+    payments: payments.rows.map((p) => ({
+      amount: Number(p.amount),
+      date: p.paid_at ?? null,
+      method: p.brand || p.last4 ? `${p.method_type === 'bank_account' ? 'Bank' : (p.brand ?? 'Card')}${p.last4 ? ` ····${p.last4}` : ''}` : null,
+      receiptNumber: p.receipt_number ?? null,
+    })),
+    previousBalance: Number(balance.rows[0]?.previous_balance ?? 0),
+  };
 }
 
 async function customerContext(customerId: string) {
@@ -172,6 +291,7 @@ async function insertAndSend(data: {
   templateKey: CommunicationTemplateKey;
   subject: string | null;
   body: string;
+  html?: string | null;
   sentBy?: string | null;
   to?: string | null;
 }) {
@@ -197,6 +317,7 @@ async function insertAndSend(data: {
       to: data.to,
       subject: data.subject,
       body: data.body,
+      html: data.html ?? null,
       templateKey: data.templateKey,
     });
     const sent = await pool.query(
@@ -268,6 +389,17 @@ export const communicationService = {
     const ctx = await invoiceContext(invoiceId);
     if (!ctx) throw new Error('Invoice not found for communication');
     const rendered = renderTemplate(templateKey, ctx, extra);
+    // Invoice emails go out as the formatted Service Notification document;
+    // the short template text stays as the plain-text part and the log entry.
+    let html: string | null = null;
+    let body = rendered.body;
+    try {
+      const notification = await serviceNotificationContext(ctx, templateKey, extra);
+      html = renderServiceNotificationHtml(notification);
+      body = renderServiceNotificationText(notification);
+    } catch (err) {
+      logger.warn({ err, invoiceId }, 'service notification email fell back to plain text');
+    }
     return insertAndSend({
       customerId: ctx.customer_id,
       appointmentId: ctx.appointment_id,
@@ -275,7 +407,8 @@ export const communicationService = {
       channel: DEFAULT_CHANNEL[templateKey],
       templateKey,
       subject: rendered.subject,
-      body: rendered.body,
+      body,
+      html,
       sentBy,
       to: ctx.customer_email,
     });

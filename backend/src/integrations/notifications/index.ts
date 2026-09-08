@@ -29,6 +29,8 @@ export interface OutboundMessagePayload {
   to?: string | null;
   subject?: string | null;
   body: string;
+  /** Optional rich version; email providers send both parts. */
+  html?: string | null;
   templateKey: string;
 }
 
@@ -88,6 +90,7 @@ class MockEmailProvider implements OutboundMessageProvider {
         templateKey: payload.templateKey,
         subject: payload.subject,
         body: payload.body,
+        html: payload.html ? `${payload.html.length} chars` : null,
       },
       'mock email sent',
     );
@@ -122,7 +125,10 @@ class SesEmailProvider implements OutboundMessageProvider {
       Content: {
         Simple: {
           Subject: { Data: payload.subject ?? 'Service Update' },
-          Body: { Text: { Data: payload.body } },
+          Body: {
+            Text: { Data: payload.body },
+            ...(payload.html ? { Html: { Data: payload.html } } : {}),
+          },
         },
       },
     });
