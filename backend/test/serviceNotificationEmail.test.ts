@@ -7,6 +7,7 @@ import {
 function sample(overrides: Partial<ServiceNotificationContext> = {}): ServiceNotificationContext {
   return {
     kind: 'payment_received',
+    company: { name: 'Boxer Solutions Pest Control', phone: '(305) 713-5011', email: 'service@boxersolutionspestcontrol.com', addressLines: ['20560 NW 17th Ave', 'Miami Gardens, FL 33056'], license: 'License #: ---------' },
     eventAmount: 340,
     customer: { name: 'Lesly Williams', firstName: 'Lesly', email: 'lesly@example.com', phone: '(305) 555-0100', billingAddress: ['324 Surfside Blvd', 'Surfside, FL 33154'] },
     invoice: {
@@ -42,6 +43,8 @@ test('html carries the document sections and escapes user text', () => {
   assert.ok(!html.includes('<crack'));
   assert.ok(html.includes('Anthony Arechiga'));
   assert.ok(html.includes('Paid in full'));
+  assert.ok(html.includes('License #: ---------'));
+  assert.ok(html.includes('20560 NW 17th Ave'));
 });
 
 test('plain text twin lists items and totals', () => {

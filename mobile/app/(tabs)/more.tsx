@@ -7,6 +7,7 @@ import { colors } from '../../src/lib/theme';
 import { Card, Button, SectionTitle, Row, Value, Label } from '../../src/components/ui';
 import { SyncBanner } from '../../src/components/SyncBanner';
 import { API_BASE_URL } from '../../src/lib/config';
+import { useCompanyInfo } from '../../src/lib/companyInfo';
 
 export default function MoreScreen() {
   const { user, logout } = useAuth();
@@ -17,6 +18,7 @@ export default function MoreScreen() {
   const canSettingsAdmin = useAuth((state) => state.hasPermission('settings:write'));
   const { status, pendingCount, flush } = useSync();
   const router = useRouter();
+  const companyInfo = useCompanyInfo();
 
   const confirmLogout = () => {
     Alert.alert('Sign Out', 'Are you sure you want to sign out?', [
@@ -32,7 +34,7 @@ export default function MoreScreen() {
         <SectionTitle>Account</SectionTitle>
         <Card>
           <View style={styles.brandRow}>
-            <Text style={styles.brandName}>Boxer Solutions Pest Control</Text>
+            <Text style={styles.brandName}>{companyInfo.name}</Text>
             <Text style={styles.brandSub}>Pest Control</Text>
           </View>
           <Label>Signed in as</Label>
@@ -98,7 +100,7 @@ export default function MoreScreen() {
             )}
             {canSettingsAdmin && (
               <TouchableOpacity onPress={() => router.push('/admin/settings')} activeOpacity={0.75}>
-                <Card><Row><View><Value style={{ fontWeight: '800' }}>Company Settings</Value><Text style={styles.meta}>Tax, invoice due days, reminders, and company info</Text></View><Text style={styles.chevron}>›</Text></Row></Card>
+                <Card><Row><View><Value style={{ fontWeight: '800' }}>Company Settings</Value><Text style={styles.meta}>Address, license, email, tax rate, invoice due days</Text></View><Text style={styles.chevron}>›</Text></Row></Card>
               </TouchableOpacity>
             )}
             {canUsersAdmin && (

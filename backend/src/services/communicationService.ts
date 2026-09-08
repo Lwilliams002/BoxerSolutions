@@ -8,6 +8,7 @@ import {
   ServiceNotificationContext, ServiceNotificationKind,
   renderServiceNotificationHtml, renderServiceNotificationText,
 } from '../content/serviceNotificationEmail';
+import { getCompanyInfo } from './settingsService';
 
 export type CommunicationChannel = 'sms' | 'email' | 'push';
 export type CommunicationTemplateKey =
@@ -126,7 +127,8 @@ async function serviceNotificationContext(
   extra?: Record<string, unknown>,
 ): Promise<ServiceNotificationContext> {
   const invoiceId = String(ctx.id);
-  const [items, location, appointment, payments, balance] = await Promise.all([
+  const [company, items, location, appointment, payments, balance] = await Promise.all([
+    getCompanyInfo(),
     pool.query(
       `SELECT description, quantity, unit_price, line_total FROM invoice_items WHERE invoice_id = $1 ORDER BY created_at`,
       [invoiceId],
@@ -168,6 +170,7 @@ async function serviceNotificationContext(
   const eventAmount = extra?.amount != null ? Number(extra.amount) : null;
   return {
     kind,
+    company,
     eventAmount,
     eventReason: typeof extra?.reason === 'string' ? extra.reason : null,
     customer: {

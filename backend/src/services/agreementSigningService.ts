@@ -7,6 +7,7 @@ import { storage } from '../integrations/storage';
 import { invoiceService } from './invoiceService';
 import { paymentService } from './paymentService';
 import { recurringChargeService } from './recurringChargeService';
+import { CompanyInfo, getCompanyInfo } from './settingsService';
 import { DEFAULT_SERVICE_FREQUENCY, SERVICE_FREQUENCY_LABELS, ServiceFrequency, buildChargeSchedule, parseServiceFrequency } from '../utils/serviceSchedule';
 import { northGatewayService } from './northGatewayService';
 import { logger } from '../utils/logger';
@@ -180,6 +181,7 @@ async function buildSignedAgreementPdf(input: {
   initials: string;
   signedAtLabel: string;
   signaturePng: Buffer;
+  company: CompanyInfo;
 }) {
   const termMonths = input.agreement?.termMonths ?? AGREEMENT_TERM_MONTHS_DEFAULT;
   const lineItems = input.agreement?.lineItems ?? [];
@@ -202,7 +204,11 @@ async function buildSignedAgreementPdf(input: {
     doc.on('error', reject);
 
     doc.font('Helvetica-Bold').fontSize(18).fillColor('#0D0D0D').text('SERVICE AGREEMENT');
-    doc.fontSize(11).fillColor('#2B5F54').text(COMPANY_NAME);
+    doc.fontSize(11).fillColor('#2B5F54').text(input.company.name);
+    doc.font('Helvetica').fontSize(9).fillColor('#30433F');
+    for (const line of input.company.addressLines) doc.text(line);
+    doc.text(`${input.company.phone}  |  ${input.company.email}`);
+    doc.text(input.company.license);
     doc.moveDown(0.8);
     doc.font('Helvetica').fontSize(10).fillColor('#0D0D0D')
       .text(`Customer: ${input.customerName}`)
@@ -794,6 +800,7 @@ export const agreementSigningService = {
         initials,
         signedAtLabel,
         signaturePng,
+        company: await getCompanyInfo(),
       });
     }
     await storage.putObject(row.storage_object_key, signedPdf, 'application/pdf');

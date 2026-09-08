@@ -18,7 +18,7 @@ import { persistLocally, uploadPendingPhoto } from '../../src/lib/photos';
 import { captureView } from '../../src/lib/capture';
 import { SignaturePad, SignaturePadHandle } from '../../src/components/SignaturePad';
 import { SignatureMark } from '../../src/components/SignatureMark';
-import { colors, company, money } from '../../src/lib/theme';
+import { colors, money } from '../../src/lib/theme';
 import { useAuth } from '../../src/lib/authStore';
 import {
   HOME_SIZES,
@@ -33,6 +33,7 @@ import {
   SizeTier,
 } from '../../src/lib/pricing';
 import { pestImage } from '../../src/lib/pestImages';
+import { useCompanyInfo } from '../../src/lib/companyInfo';
 import {
   DEFAULT_SERVICE_FREQUENCY, SERVICE_FREQUENCIES, SERVICE_FREQUENCY_LABELS, SERVICE_FREQUENCY_SHORT,
   ServiceFrequency, buildChargeSchedule, parseServiceFrequency, scheduleCellLabel, todayIso,
@@ -110,6 +111,7 @@ export default function AgreementScreen() {
   const qc = useQueryClient();
   const docRef = useRef<View>(null);
   const user = useAuth((state) => state.user);
+  const company = useCompanyInfo();
   const existingCustomerId = typeof customerId === 'string' && customerId ? customerId : null;
   const isOwner = !!user?.roles?.includes('OWNER');
   // Update mode: build on the customer's current agreement. Only items that
@@ -773,12 +775,14 @@ export default function AgreementScreen() {
             <Image source={require('../../assets/logo-mark.png')} style={styles.logo} resizeMode="contain" />
             <View style={{ flex: 1, marginLeft: 12 }}>
               <Text style={styles.brandName}>{company.name}</Text>
-              <Text style={styles.brandTagline}>{company.tagline.toUpperCase()}</Text>
+              <Text style={styles.brandTagline}>PEST CONTROL</Text>
             </View>
             <View style={styles.brandContact}>
-              <Text style={styles.brandContactLine}>{company.addressLine1}</Text>
-              <Text style={styles.brandContactLine}>{company.addressLine2}</Text>
+              {company.addressLines.map((line) => (
+                <Text key={line} style={styles.brandContactLine}>{line}</Text>
+              ))}
               <Text style={styles.brandContactLine}>{company.phone}</Text>
+              <Text style={styles.brandContactLine}>{company.email}</Text>
               <Text style={styles.brandContactLine}>{company.license}</Text>
             </View>
           </View>

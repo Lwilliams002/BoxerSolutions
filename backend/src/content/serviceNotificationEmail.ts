@@ -1,4 +1,3 @@
-import { COMPANY_INFO } from './company';
 
 /**
  * Customer-facing "Service Notification" email: the invoice as a formatted
@@ -22,8 +21,20 @@ export interface ServiceNotificationPayment {
   receiptNumber: string | null;
 }
 
+export interface ServiceNotificationCompany {
+  name: string;
+  phone: string;
+  email: string;
+  addressLines: string[];
+  /** Already formatted, e.g. "License #: JB500216" or "License #: ---------". */
+  license: string;
+}
+
+const POISON_CONTROL = '(800) 222-1222';
+
 export interface ServiceNotificationContext {
   kind: ServiceNotificationKind;
+  company: ServiceNotificationCompany;
   /** Amount for the triggering event (payment/refund/failed attempt). */
   eventAmount?: number | null;
   eventReason?: string | null;
@@ -90,7 +101,7 @@ export function bannerFor(ctx: ServiceNotificationContext): { title: string; det
     case 'payment_received':
       return { title: `Payment received — ${amount}`, detail: `Thank you, ${ctx.customer.firstName}. This payment was applied to invoice ${ctx.invoice.number}.`, color: GREEN };
     case 'payment_failed':
-      return { title: `Payment could not be processed — ${amount}`, detail: `${ctx.eventReason ? `${ctx.eventReason}. ` : ''}Please call ${COMPANY_INFO.phone} or update your payment method.`, color: '#B42318' };
+      return { title: `Payment could not be processed — ${amount}`, detail: `${ctx.eventReason ? `${ctx.eventReason}. ` : ''}Please call ${ctx.company.phone} or update your payment method.`, color: '#B42318' };
     case 'payment_refunded':
       return { title: `Refund processed — ${amount}`, detail: `A refund was issued to your original payment method for invoice ${ctx.invoice.number}.`, color: GREEN };
     default:
@@ -119,7 +130,7 @@ export function renderServiceNotificationHtml(ctx: ServiceNotificationContext): 
   const banner = bannerFor(ctx);
   const stmt = statementFor(ctx);
   const appt = ctx.appointment;
-  const companyAddress = [COMPANY_INFO.addressLine1, COMPANY_INFO.addressLine2].filter(Boolean);
+  const companyAddress = ctx.company.addressLines;
 
   const itemsRows = ctx.invoice.items.map((item) => `
     <tr>
@@ -159,14 +170,14 @@ export function renderServiceNotificationHtml(ctx: ServiceNotificationContext): 
     <table role="presentation" width="100%" cellpadding="0" cellspacing="0"><tr>
       <td style="vertical-align:top;">
         <div style="font:700 16px Helvetica,Arial,sans-serif;color:${INK};">Service Notification</div>
-        <div style="font:13px Helvetica,Arial,sans-serif;color:${INK};margin-top:4px;">${escapeHtml(COMPANY_INFO.name)}</div>
+        <div style="font:13px Helvetica,Arial,sans-serif;color:${INK};margin-top:4px;">${escapeHtml(ctx.company.name)}</div>
         ${companyAddress.map((l) => `<div style="font:13px Helvetica,Arial,sans-serif;color:${INK};">${escapeHtml(l)}</div>`).join('')}
-        ${COMPANY_INFO.license ? `<div style="font:12px Helvetica,Arial,sans-serif;color:${MUTED};">${escapeHtml(COMPANY_INFO.license)}</div>` : ''}
+        <div style="font:12px Helvetica,Arial,sans-serif;color:${MUTED};">${escapeHtml(ctx.company.license)}</div>
       </td>
       <td style="vertical-align:top;text-align:right;">
         <div style="font:700 13px Helvetica,Arial,sans-serif;color:${GREEN};">Customer Service</div>
-        <div style="font:13px Helvetica,Arial,sans-serif;color:${INK};">${escapeHtml(COMPANY_INFO.email)}</div>
-        <div style="font:13px Helvetica,Arial,sans-serif;color:${INK};">${escapeHtml(COMPANY_INFO.phone)}</div>
+        <div style="font:13px Helvetica,Arial,sans-serif;color:${INK};">${escapeHtml(ctx.company.email)}</div>
+        <div style="font:13px Helvetica,Arial,sans-serif;color:${INK};">${escapeHtml(ctx.company.phone)}</div>
       </td>
     </tr></table>
   </td></tr>
@@ -231,8 +242,8 @@ export function renderServiceNotificationHtml(ctx: ServiceNotificationContext): 
   <!-- Safety footer -->
   <tr><td style="padding:18px 24px 12px;">
     <div style="font:11px/16px Helvetica,Arial,sans-serif;color:${INK};text-align:center;border-top:2px solid ${RULE};padding-top:12px;">
-      ${escapeHtml(COMPANY_INFO.name)} is committed to the safety of our customers and our environment. All materials used by ${escapeHtml(COMPANY_INFO.name)} have been registered by the Environmental Protection Agency. Please avoid unnecessary contact with materials and comply with all instructions and recommendations from our technicians. Thanks for your patronage!<br>
-      National Emergency Poison Control: ${escapeHtml(COMPANY_INFO.poisonControl)}
+      ${escapeHtml(ctx.company.name)} is committed to the safety of our customers and our environment. All materials used by ${escapeHtml(ctx.company.name)} have been registered by the Environmental Protection Agency. Please avoid unnecessary contact with materials and comply with all instructions and recommendations from our technicians. Thanks for your patronage!<br>
+      National Emergency Poison Control: ${POISON_CONTROL}
     </div>
   </td></tr>
 
@@ -271,7 +282,7 @@ export function renderServiceNotificationHtml(ctx: ServiceNotificationContext): 
   </td></tr>
 
   <tr><td style="padding:0 24px 18px;font:11px Helvetica,Arial,sans-serif;color:${MUTED};text-align:center;">
-    Questions? Reply to this email or call ${escapeHtml(COMPANY_INFO.phone)}. <span style="color:${TEAL}">■</span> ${escapeHtml(COMPANY_INFO.name)}
+    Questions? Reply to this email or call ${escapeHtml(ctx.company.phone)}. <span style="color:${TEAL}">■</span> ${escapeHtml(ctx.company.name)}
   </td></tr>
 </table>
 </td></tr>
@@ -287,7 +298,9 @@ export function renderServiceNotificationText(ctx: ServiceNotificationContext): 
     banner.title,
     banner.detail,
     '',
-    `${COMPANY_INFO.name} · ${COMPANY_INFO.phone} · ${COMPANY_INFO.email}`,
+    `${ctx.company.name} · ${ctx.company.phone} · ${ctx.company.email}`,
+    ...ctx.company.addressLines,
+    ctx.company.license,
     '',
     `Customer: ${ctx.customer.name}`,
     `Invoice #: ${ctx.invoice.number} (${longDate(ctx.invoice.date)})`,

@@ -4,7 +4,7 @@ import { authenticate, authorize } from '../middleware/auth';
 import { asyncHandler } from '../utils/asyncHandler';
 import { ok } from '../utils/http';
 import { withTransaction } from '../config/db';
-import { getCompanySettings } from '../services/settingsService';
+import { getCompanySettings, getCompanyInfo } from '../services/settingsService';
 import { recordAudit } from '../services/auditService';
 
 const router = Router();
@@ -13,12 +13,22 @@ router.use(authenticate);
 const settingsSchema = z.object({
   companyName: z.string().min(1).max(200),
   phone: z.string().min(1).max(50),
-  address: z.string().min(1).max(500),
-  licenseNumber: z.string().min(1).max(100),
+  email: z.string().trim().email().max(200).or(z.literal('')).default(''),
+  address: z.string().max(500).default(''),
+  /** Blank prints as "---------" on documents. */
+  licenseNumber: z.string().max(100).default(''),
   defaultTaxRate: z.number().min(0).max(0.3),
   invoiceDueDays: z.number().int().min(0).max(365),
   appointmentReminderHours: z.number().int().min(0).max(720),
 });
+
+/** Company identity for documents the app renders (any signed-in user). */
+router.get(
+  '/company-info',
+  asyncHandler(async (_req, res) => {
+    ok(res, await getCompanyInfo());
+  }),
+);
 
 router.get(
   '/',
@@ -41,6 +51,7 @@ router.put(
         [JSON.stringify({
           companyName: body.companyName,
           phone: body.phone,
+          email: body.email,
           address: body.address,
           licenseNumber: body.licenseNumber,
           defaultTaxRate: body.defaultTaxRate,
