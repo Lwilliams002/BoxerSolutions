@@ -141,7 +141,7 @@ export default function DashboardScreen() {
         </View>
 
         {data?.recurringDue?.count ? (
-          <TouchableOpacity style={styles.alertBanner} onPress={() => router.push('/(tabs)/invoices')} activeOpacity={0.8}>
+          <TouchableOpacity style={styles.alertBanner} onPress={() => router.push({ pathname: '/(tabs)/invoices', params: { section: 'recurring' } })} activeOpacity={0.8}>
             <Ionicons name="repeat-outline" size={18} color={colors.danger} />
             <Text style={styles.alertText}>
               {data.recurringDue.count} recurring service{data.recurringDue.count === 1 ? '' : 's'} due · {money(data.recurringDue.amount)}
