@@ -491,7 +491,12 @@ export const paymentService = {
     return resultData;
   },
 
-  async refundPayment(paymentId: string, amount: number | null, userId: string, employeeId: string | null) {
+  /**
+   * Return money to the customer. Default mode refunds (falling back to a
+   * reversal/void when the transaction is unsettled); mode 'void' reverses a
+   * same-day card charge or voids a same-day ACH debit for the full amount.
+   */
+  async refundPayment(paymentId: string, amount: number | null, userId: string, employeeId: string | null, opts: { mode?: 'refund' | 'void' } = {}) {
     const paymentRes = await pool.query(
       `SELECT p.*, i.total AS invoice_total, i.amount_paid, i.status AS invoice_status, i.due_date,
               pm.method_type AS method_type, pm.bank_account_type AS bank_account_type
@@ -507,7 +512,9 @@ export const paymentService = {
       throw ApiError.badRequest('Only successful charge payments can be refunded');
     }
     const remaining = Number(payment.amount) - Number(payment.refunded_amount ?? 0);
-    const refundAmount = amount ?? remaining;
+    const isVoid = opts.mode === 'void';
+    if (isVoid && Number(payment.refunded_amount ?? 0) > 0) throw ApiError.badRequest('This payment has already been partially refunded; it can no longer be voided.');
+    const refundAmount = isVoid ? Number(payment.amount) : (amount ?? remaining);
     if (refundAmount <= 0 || refundAmount > remaining + 0.001) {
       throw ApiError.badRequest(`Refund amount must be between $0.01 and $${remaining.toFixed(2)}`);
     }
@@ -520,8 +527,9 @@ export const paymentService = {
       // when nothing has been refunded yet and the whole original amount is
       // going back — not merely the remaining balance of a partial refund.
       fullAmount: Number(payment.refunded_amount ?? 0) === 0 && refundAmount >= Number(payment.amount) - 0.001,
+      mode: isVoid ? 'void' : 'refund',
     });
-    if (!result.success) throw new ApiError(402, `Refund failed: ${result.failureReason}`);
+    if (!result.success) throw new ApiError(402, `${isVoid ? 'Void' : 'Refund'} failed: ${result.failureReason}`);
 
     const data = await withTransaction(async (tx) => {
       const locked = await tx.query(
@@ -558,7 +566,7 @@ export const paymentService = {
         );
         await tx.query('UPDATE customers SET balance = balance + $1, updated_at = now() WHERE id = $2', [refundAmount, current.customer_id]);
       }
-      await recordAudit({ userId, action: 'payment.refunded', entityType: 'payment', entityId: current.id, newValue: { amount: refundAmount, refundId: result.transactionId } }, tx);
+      await recordAudit({ userId, action: isVoid ? 'payment.voided' : 'payment.refunded', entityType: 'payment', entityId: current.id, newValue: { amount: refundAmount, refundId: result.transactionId } }, tx);
       return { refund: toCamel(refundRow.rows[0]), amount: refundAmount, invoiceId: current.invoice_id };
     });
     if (data.invoiceId) {
@@ -588,7 +596,7 @@ export const paymentService = {
     const { rows } = await pool.query(
       `SELECT p.*, (p.amount - p.refunded_amount) AS remaining_refundable_amount,
               i.invoice_number, c.first_name || ' ' || c.last_name AS customer_name,
-              pm.brand, right(coalesce(pm.last4::text, ''), 4) AS last4
+              pm.brand, right(coalesce(pm.last4::text, ''), 4) AS last4, pm.method_type
        FROM payments p
        LEFT JOIN invoices i ON i.id = p.invoice_id
        JOIN customers c ON c.id = p.customer_id

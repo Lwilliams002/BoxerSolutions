@@ -43,6 +43,8 @@ export interface RefundOptions {
   accountType?: EpxAccountType | null;
   /** True when the whole original amount is being returned (enables reversal/void fallback). */
   fullAmount?: boolean;
+  /** 'void' skips the refund attempt and reverses (card) / voids (ACH) the original transaction directly. */
+  mode?: 'refund' | 'void';
 }
 
 export interface PaymentProvider {

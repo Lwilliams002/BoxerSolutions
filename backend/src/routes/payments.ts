@@ -369,6 +369,15 @@ router.get(
   }),
 );
 
+/** Same-day cancel: reversal for a card charge, void for an ACH debit. Full amount only. */
+router.post(
+  '/:id/void',
+  authorize('payments:write'),
+  asyncHandler(async (req, res) => {
+    ok(res, await paymentService.refundPayment(req.params.id, null, req.user!.id, req.user!.employeeId, { mode: 'void' }), 'Payment voided', 201);
+  }),
+);
+
 router.post(
   '/:id/refund',
   authorize('payments:write'),

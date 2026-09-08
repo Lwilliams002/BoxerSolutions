@@ -47,6 +47,7 @@ interface PaymentRow {
   createdAt: string;
   brand?: string | null;
   last4?: string | null;
+  methodType?: 'card' | 'bank_account' | null;
   paymentSource?: string | null;
   parentPaymentId?: string | null;
   remainingRefundableAmount?: string | null;
@@ -238,6 +239,30 @@ export default function InvoiceScreen() {
     });
   };
 
+  // Same-day cancel: a reversal for a card charge, a void for an ACH debit.
+  // Only for the full amount and only while nothing has been refunded.
+  const voidPayment = (payment: PaymentRow) => {
+    const isBank = (payment.methodType ?? '').includes('bank');
+    confirmAction({
+      title: isBank ? 'Void bank debit' : 'Reverse card charge',
+      message: `Cancel the full ${money(payment.amount)} ${isBank ? 'ACH debit' : 'card charge'} for payment ${payment.receiptNumber ?? payment.id}? This ${isBank ? 'voids' : 'reverses'} the original transaction before it settles.`,
+      confirmText: isBank ? 'Void' : 'Reverse',
+      destructive: true,
+      onConfirm: async () => {
+        setBusy(`void-${payment.id}`);
+        try {
+          await api(`/payments/${payment.id}/void`, { method: 'POST', body: {} });
+          refresh();
+          notify(isBank ? 'Debit voided' : 'Charge reversed', `${money(payment.amount)} was cancelled.`);
+        } catch (e) {
+          notify(isBank ? 'Void failed' : 'Reversal failed', (e as Error).message);
+        } finally {
+          setBusy(null);
+        }
+      },
+    });
+  };
+
   const lastFailed = useMemo(() => (payments?.items ?? []).find((p) => p.status === 'failed'), [payments]);
 
   if (isLoading || !inv) return <Loading />;
@@ -327,6 +352,9 @@ export default function InvoiceScreen() {
           {paymentRows.map((p) => {
             const isRefund = Number(p.amount) < 0 || p.paymentSource === 'refund';
             const refundable = !isRefund && p.status === 'succeeded' && Number(p.remainingRefundableAmount ?? 0) > 0;
+            const untouched = Math.abs(Number(p.remainingRefundableAmount ?? p.amount) - Number(p.amount)) < 0.005;
+            const sameDay = new Date(p.processedAt ?? p.createdAt).toDateString() === new Date().toDateString();
+            const voidable = refundable && untouched && sameDay;
             const defaultRefundAmount = String(Number(p.remainingRefundableAmount ?? p.amount).toFixed(2));
             const refundText = refundAmountByPayment[p.id] ?? defaultRefundAmount;
             const processor = String(p.paymentProvider ?? p.payment_provider ?? '').trim();
@@ -362,6 +390,17 @@ export default function InvoiceScreen() {
                       onChangeText={(text) => setRefundAmountByPayment((prev) => ({ ...prev, [p.id]: text }))}
                     />
                     <Button title="Refund" variant="danger" onPress={() => refund(p)} loading={busy === `refund-${p.id}`} />
+                    {voidable ? (
+                      <>
+                        <Button
+                          title={(p.methodType ?? '').includes('bank') ? 'Void (same day, full amount)' : 'Reverse (same day, full amount)'}
+                          variant="outline"
+                          onPress={() => voidPayment(p)}
+                          loading={busy === `void-${p.id}`}
+                        />
+                        <Text style={styles.voidHint}>Cancels the original transaction before it settles instead of issuing a refund.</Text>
+                      </>
+                    ) : null}
                   </View>
                 ) : null}
               </Card>
@@ -420,6 +459,7 @@ const styles = StyleSheet.create({
   failureTitle: { color: colors.danger, fontWeight: '800', fontSize: 15 },
   failureText: { color: colors.text, marginTop: 4, marginBottom: 8 },
   refundBox: { marginTop: 10, paddingTop: 10, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: colors.border },
+  voidHint: { fontSize: 12, color: colors.textMuted, marginTop: 6, lineHeight: 16 },
   input: {
     borderWidth: 1,
     borderColor: colors.border,

@@ -261,6 +261,20 @@ export class NorthPaymentProvider implements PaymentProvider {
         };
       }
       const paymentMethod = options.paymentMethod ?? 'credit';
+      // Explicit void: reverse (card) / void (ACH) the original same-day
+      // transaction without attempting a refund first.
+      if (options.mode === 'void') {
+        if (!options.fullAmount) return { success: false, transactionId: null, failureReason: 'A void must return the full transaction amount.' };
+        try {
+          const res = paymentMethod === 'ach'
+            ? await epxEmbeddedPaymentsService.voidTransaction({ authGuid: transactionId, paymentMethod, accountType: options.accountType ?? null })
+            : await epxEmbeddedPaymentsService.reversal({ authGuid: transactionId });
+          if (res.approved) return { success: true, transactionId: res.authGuid ?? transactionId, failureReason: null };
+          return { success: false, transactionId: null, failureReason: formatNorthFailure(res) };
+        } catch (error) {
+          return { success: false, transactionId: null, failureReason: (error as Error).message || 'North void request failed.' };
+        }
+      }
       let refundError: string;
       try {
         const res = await epxEmbeddedPaymentsService.refund({ authGuid: transactionId, amount, paymentMethod, accountType: options.accountType ?? null });
