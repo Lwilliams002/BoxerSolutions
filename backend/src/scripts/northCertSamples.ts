@@ -33,7 +33,7 @@ const SAMPLE_LABELS: { label: string; title: string }[] = [
   { label: 'Embedded Checkout Payments — TOKEN SALE (CIT) [ach]', title: 'Token ACH Sale' },
   { label: 'Embedded Checkout Payments — REFUND [credit]', title: 'Credit Refund' },
   { label: 'Embedded Checkout Payments — REFUND [ach]', title: 'ACH Refund' },
-  { label: 'Embedded Checkout Payments — REVERSAL', title: 'Reversal (credit)' },
+  { label: 'Embedded Checkout Payments — REVERSAL [credit]', title: 'Reversal (credit)' },
   { label: 'Embedded Checkout Payments — VOID [ach]', title: 'Void (ACH)' },
 ];
 
