@@ -213,3 +213,27 @@ ssh -i "$SF_EC2_KEY" -o BatchMode=yes "$SF_EC2_HOST" '
 '
 ```
 
+
+## Native push notifications (EAS builds)
+
+Office users (Owner/Admin/Office Manager) get a phone push when a recurring
+service comes due, even with the app closed. Pushes only work in an installed
+iOS/Android build — not Expo Go and not the web build.
+
+One-time credential setup (run from `mobile/`, needs the Apple Developer and
+Google accounts):
+
+```bash
+cd mobile && npx eas-cli credentials
+```
+
+- iOS: choose **Push Notifications: Manage your Apple Push Notifications Key** and let EAS create/upload an APNs key.
+- Android: create a Firebase project for `com.boxersolutionspestcontrol.app`, download `google-services.json`, then choose **Google Service Account → FCM V1** in `eas credentials` and upload the service-account JSON.
+
+Build and install:
+
+```bash
+cd mobile && npx eas-cli build --profile preview --platform ios
+```
+
+Verify on the phone: sign in, allow notifications, open More → Notifications → **Send a test push to this phone**, then close the app. The banner should arrive within a few seconds. Optional hardening: set `EXPO_ACCESS_TOKEN` in the backend `.env` and enable "Enhanced push security" in the Expo dashboard.

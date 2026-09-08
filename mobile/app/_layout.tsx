@@ -7,6 +7,9 @@ import { useAuth } from '../src/lib/authStore';
 import { useSync } from '../src/lib/offline';
 import { Loading } from '../src/components/ui';
 import { colors } from '../src/lib/theme';
+import { configurePushHandling, registerForPushNotifications, subscribeToPushTaps } from '../src/lib/pushNotifications';
+
+configurePushHandling();
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -23,6 +26,14 @@ function AuthGate({ children }: { children: React.ReactNode }) {
     void hydrate();
     useSync.getState().init();
   }, []);
+
+  // Native builds: register this device for office pushes once signed in, and
+  // open the related screen when a push is tapped.
+  useEffect(() => {
+    if (!user) return;
+    void registerForPushNotifications();
+    return subscribeToPushTaps((route) => router.push(route as any));
+  }, [user?.id]);
 
   useEffect(() => {
     if (!hydrated) return;

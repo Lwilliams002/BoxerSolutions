@@ -1,6 +1,7 @@
 import { create } from 'zustand';
 import { SessionUser } from './types';
 import { API_URL } from './config';
+import { unregisterPushToken } from './pushNotifications';
 import { secureStorage } from './secureStorage';
 
 const ACCESS_KEY = 'sfa_access_token';
@@ -140,6 +141,7 @@ export const useAuth = create<AuthState>((set, get) => ({
   logout: async () => {
     const refresh = await secureStorage.getItem(REFRESH_KEY);
     const access = get().accessToken;
+    await unregisterPushToken();
     try {
       if (refresh) {
         await fetch(`${API_URL}/auth/logout`, {

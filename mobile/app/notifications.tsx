@@ -1,9 +1,11 @@
 import React from 'react';
-import { View, Text, ScrollView, StyleSheet, TouchableOpacity, Alert } from 'react-native';
+import { View, Text, ScrollView, StyleSheet, TouchableOpacity, Platform } from 'react-native';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { api } from '../src/lib/api';
 import { colors, fmtDate } from '../src/lib/theme';
 import { Card, EmptyState, Loading, Row, StatusBadge, Value } from '../src/components/ui';
+import { notify } from '../src/lib/confirm';
+import { registerForPushNotifications } from '../src/lib/pushNotifications';
 
 interface NotificationRow {
   id: string;
@@ -28,7 +30,27 @@ export default function NotificationsScreen() {
       await api(`/notifications/${id}/read`, { method: 'POST', body: {} });
       void qc.invalidateQueries({ queryKey: ['notifications'] });
     } catch (e) {
-      Alert.alert('Error', (e as Error).message);
+      notify('Error', (e as Error).message);
+    }
+  };
+
+  const [testing, setTesting] = React.useState(false);
+  const sendTestPush = async () => {
+    setTesting(true);
+    try {
+      await registerForPushNotifications();
+      const result = await api<{ devices: number }>('/notifications/test', { method: 'POST', body: {} });
+      notify(
+        result.devices ? 'Test sent' : 'No device registered',
+        result.devices
+          ? 'Close the app and the banner should still arrive within a few seconds.'
+          : 'This device has no push token. Push only works in the installed iOS/Android app with notifications allowed in Settings.',
+      );
+      void qc.invalidateQueries({ queryKey: ['notifications'] });
+    } catch (e) {
+      notify('Error', (e as Error).message);
+    } finally {
+      setTesting(false);
     }
   };
 
@@ -38,6 +60,11 @@ export default function NotificationsScreen() {
   return (
     <View style={{ flex: 1 }}>
       <ScrollView contentContainerStyle={styles.container}>
+        {Platform.OS !== 'web' ? (
+          <TouchableOpacity onPress={() => void sendTestPush()} disabled={testing} style={[styles.testButton, testing && { opacity: 0.5 }]}>
+            <Text style={styles.testText}>{testing ? 'Sending…' : 'Send a test push to this phone'}</Text>
+          </TouchableOpacity>
+        ) : null}
         {items.length === 0 ? (
           <EmptyState title="No notifications" />
         ) : (
@@ -81,4 +108,6 @@ const styles = StyleSheet.create({
     paddingHorizontal: 10,
   },
   readText: { color: colors.primaryDark, fontWeight: '800', fontSize: 13 },
+  testButton: { backgroundColor: colors.primary, borderRadius: 12, paddingVertical: 11, alignItems: 'center', marginBottom: 14 },
+  testText: { color: '#0D0D0D', fontWeight: '800', fontSize: 14 },
 });

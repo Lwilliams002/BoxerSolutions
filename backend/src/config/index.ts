@@ -65,6 +65,10 @@ export const config = {
     provider: process.env.PAYMENT_PROVIDER ?? 'mock',
     secretKey: process.env.PAYMENT_SECRET_KEY ?? '',
   },
+  push: {
+    /** Optional Expo access token ("enhanced push security" in the Expo dashboard). */
+    expoAccessToken: process.env.EXPO_ACCESS_TOKEN ?? '',
+  },
   email: {
     provider: process.env.EMAIL_PROVIDER ?? 'mock',
     from: process.env.EMAIL_FROM ?? '',

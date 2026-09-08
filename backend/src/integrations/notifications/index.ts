@@ -2,6 +2,7 @@ import { pool } from '../../config/db';
 import { config } from '../../config';
 import { SESv2Client, SendEmailCommand } from '@aws-sdk/client-sesv2';
 import { logger } from '../../utils/logger';
+import { pushToUsers } from './expoPush';
 
 /**
  * Notification provider abstraction. In development, notifications are
@@ -52,6 +53,16 @@ class DatabaseNotificationProvider implements NotificationProvider {
       ],
     );
     logger.debug({ type: payload.type, title: payload.title }, 'notification sent');
+    // Push channel: also deliver to the user's registered devices so the
+    // alert arrives with the app closed. The row above stays as in-app history.
+    if (payload.channel === 'push' && payload.userId) {
+      try {
+        const result = await pushToUsers([payload.userId], { title: payload.title, body: payload.body, data: { ...(payload.data ?? {}), type: payload.type } });
+        if (result.failed) logger.warn({ userId: payload.userId, ...result }, 'some push deliveries failed');
+      } catch (err) {
+        logger.error({ err, userId: payload.userId }, 'push delivery failed');
+      }
+    }
   }
 }
 
