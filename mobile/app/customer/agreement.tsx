@@ -33,6 +33,10 @@ import {
   SizeTier,
 } from '../../src/lib/pricing';
 import { pestImage } from '../../src/lib/pestImages';
+import {
+  DEFAULT_SERVICE_FREQUENCY, SERVICE_FREQUENCIES, SERVICE_FREQUENCY_LABELS, SERVICE_FREQUENCY_SHORT,
+  ServiceFrequency, buildChargeSchedule, parseServiceFrequency, scheduleCellLabel, todayIso,
+} from '../../src/lib/serviceSchedule';
 
 interface ServiceLocation {
   addressLine1: string;
@@ -66,6 +70,9 @@ interface BaseAgreement {
   initialTotal: number | null;
   recurringTotal: number | null;
   currentRecurringAmount: number | null;
+  currentFrequency?: string | null;
+  frequency?: string | null;
+  nextDueDate?: string | null;
   selections: {
     homeSize?: string | null;
     yardTier?: string | null;
@@ -74,6 +81,7 @@ interface BaseAgreement {
     odd?: unknown;
     overrides?: unknown;
     itemKeys?: unknown;
+    frequency?: unknown;
   } | null;
 }
 
@@ -133,9 +141,14 @@ export default function AgreementScreen() {
   const [oddKeys, setOddKeys] = useState<string[]>([]);
   const [priceOverrides, setPriceOverrides] = useState<Record<string, PriceOverride>>({});
   const [initialDiscountInput, setInitialDiscountInput] = useState('');
+  const [frequency, setFrequency] = useState<ServiceFrequency>(DEFAULT_SERVICE_FREQUENCY);
 
   // Pre-fill the builder from the current agreement's saved selections.
   useEffect(() => {
+    const cadence = parseServiceFrequency(baseAgreement?.currentFrequency)
+      ?? parseServiceFrequency(baseAgreement?.frequency)
+      ?? parseServiceFrequency(baseAgreement?.selections?.frequency);
+    if (cadence) setFrequency(cadence);
     const sel = baseAgreement?.selections;
     if (!sel) return;
     if (typeof sel.homeSize === 'string') {
@@ -264,6 +277,18 @@ export default function AgreementScreen() {
     () => Math.max(0, chargeSubtotal - initialDiscount),
     [chargeSubtotal, initialDiscount],
   );
+  /** Every charge across the term at the chosen cadence, shown on the document. */
+  const chargeSchedule = useMemo(
+    () => buildChargeSchedule({
+      startDate: todayIso(),
+      frequency,
+      termMonths: TERM_MONTHS,
+      initialAmount: isUpdate ? chargeTotal : initialTotal,
+      recurringAmount: regularTotal,
+      firstRegularDate: isUpdate ? baseAgreement?.nextDueDate ?? null : null,
+    }),
+    [frequency, isUpdate, chargeTotal, initialTotal, regularTotal, baseAgreement],
+  );
 
   if (!data) {
     return (
@@ -341,6 +366,7 @@ export default function AgreementScreen() {
         odd: oddKeys,
         overrides: priceOverrides,
         itemKeys: lineItems.map((i) => i.key),
+        frequency,
       };
       const summary = [
         'SERVICE AGREEMENT',
@@ -350,6 +376,7 @@ export default function AgreementScreen() {
         `Initial Discount: -${money(initialDiscount)}`,
         `Initial Total: ${money(initialTotal)}`,
         `Recurring Total: ${money(regularTotal)}/service`,
+        `Frequency: ${frequency}`,
         ...(isUpdate
           ? [
             'Update of previous agreement: YES',
@@ -475,7 +502,7 @@ export default function AgreementScreen() {
           try {
             await api('/recurring-charges', {
               method: 'POST',
-              body: { customerId: targetCustomerId, amount: Number(regularTotal.toFixed(2)) },
+              body: { customerId: targetCustomerId, amount: Number(regularTotal.toFixed(2)), frequency, startDate: todayIso(), isUpdate },
             });
           } catch {
             // Non-fatal; the recurring charge can be corrected from the invoices screen.
@@ -603,6 +630,20 @@ export default function AgreementScreen() {
             );
           })}
 
+        {/* ---------- Service frequency ---------- */}
+        <Text style={styles.pickHeader}>Service Frequency</Text>
+        <Text style={styles.pickSub}>How often the regular service is performed and charged.</Text>
+        <View style={styles.freqRow}>
+          {SERVICE_FREQUENCIES.map((f) => {
+            const active = frequency === f;
+            return (
+              <TouchableOpacity key={f} style={[styles.freqChip, active && styles.freqChipActive]} onPress={() => setFrequency(f)} activeOpacity={0.85}>
+                <Text style={[styles.freqChipText, active && styles.freqChipTextActive]}>{SERVICE_FREQUENCY_LABELS[f]}</Text>
+              </TouchableOpacity>
+            );
+          })}
+        </View>
+
         {/* ---------- Recurring add-ons ---------- */}
         <Text style={styles.pickHeader}>Add-Ons</Text>
         {ADDONS.map((a) => {
@@ -721,8 +762,8 @@ export default function AgreementScreen() {
           <View style={styles.totalDivider} />
           <View style={styles.totalCol}>
             <Text style={styles.totalLabel}>RECURRING</Text>
-            <Text style={styles.totalValue}>{money(regularTotal)}<Text style={styles.totalPer}>/service</Text></Text>
-            {isUpdate ? <Text style={styles.totalDiscount}>was {money(previousRecurring)}/service</Text> : null}
+            <Text style={styles.totalValue}>{money(regularTotal)}<Text style={styles.totalPer}>{SERVICE_FREQUENCY_SHORT[frequency]}</Text></Text>
+            {isUpdate ? <Text style={styles.totalDiscount}>was {money(previousRecurring)}/service</Text> : <Text style={styles.totalDiscount}>{SERVICE_FREQUENCY_LABELS[frequency]}</Text>}
           </View>
         </View>
 
@@ -765,7 +806,7 @@ export default function AgreementScreen() {
           <View style={styles.tblHead}>
             <Text style={[styles.tblCell, styles.tblItem, styles.tblHeadText]}>Service</Text>
             <Text style={[styles.tblCell, styles.tblNum, styles.tblHeadText]}>Initial</Text>
-            <Text style={[styles.tblCell, styles.tblNum, styles.tblHeadText]}>Regular</Text>
+            <Text style={[styles.tblCell, styles.tblNum, styles.tblHeadText]}>{SERVICE_FREQUENCY_LABELS[frequency]}</Text>
           </View>
           {lineItems.length === 0 ? (
             <Text style={styles.termsMuted}>No services selected yet.</Text>
@@ -802,6 +843,26 @@ export default function AgreementScreen() {
               <Text style={[styles.tblCell, styles.tblNum]}>—</Text>
             </View>
           ) : null}
+
+          {/* Charge schedule across the term */}
+          <Text style={styles.sectionBarFull}>{SERVICE_FREQUENCY_LABELS[frequency]} Service Schedule</Text>
+          {lineItems.length === 0 ? (
+            <Text style={styles.termsMuted}>Select services to see the schedule.</Text>
+          ) : (
+            <>
+              <View style={styles.schedGrid}>
+                {chargeSchedule.map((entry) => (
+                  <View key={entry.date} style={styles.schedCell}>
+                    <Text style={[styles.schedHead, entry.kind === 'initial' && styles.schedHeadInitial]}>{scheduleCellLabel(entry.date, frequency)}</Text>
+                    <Text style={styles.schedAmount}>{entry.kind === 'initial' ? '(I) ' : ''}{money(entry.amount)}</Text>
+                  </View>
+                ))}
+              </View>
+              <Text style={styles.schedNote}>
+                (I) {isUpdate ? 'due now for the added services' : 'initial service'}. Regular service {money(regularTotal)} {SERVICE_FREQUENCY_LABELS[frequency].toLowerCase()} through the {TERM_MONTHS}-month term, continuing at the same cadence until canceled.
+              </Text>
+            </>
+          )}
 
           {/* Covered pests */}
           <Text style={styles.sectionBarFull}>Covered Pests</Text>
@@ -1130,6 +1191,17 @@ const styles = StyleSheet.create({
   tblNum: { width: 66, textAlign: 'right', fontWeight: '700' },
   tblHeadText: { fontWeight: '800', fontSize: 11, color: colors.textMuted },
   tblTotalText: { fontWeight: '900', fontSize: 12.5 },
+  schedGrid: { flexDirection: 'row', flexWrap: 'wrap', marginHorizontal: -2 },
+  schedCell: { width: '16.66%', paddingHorizontal: 2, marginBottom: 4 },
+  schedHead: { backgroundColor: colors.primary, color: '#0D0D0D', fontWeight: '800', fontSize: 9, textAlign: 'center', paddingVertical: 2, borderTopLeftRadius: 3, borderTopRightRadius: 3 },
+  schedHeadInitial: { backgroundColor: '#0D0D0D', color: '#fff' },
+  schedAmount: { fontSize: 9, color: colors.text, textAlign: 'center', paddingVertical: 3, borderWidth: 1, borderTopWidth: 0, borderColor: colors.border, borderBottomLeftRadius: 3, borderBottomRightRadius: 3 },
+  schedNote: { fontSize: 10, color: colors.textMuted, marginTop: 4, lineHeight: 14 },
+  freqRow: { flexDirection: 'row', flexWrap: 'wrap', marginTop: 4 },
+  freqChip: { borderWidth: 1.5, borderColor: colors.border, borderRadius: 20, paddingVertical: 8, paddingHorizontal: 14, marginRight: 8, marginBottom: 8, backgroundColor: '#fff' },
+  freqChipActive: { borderColor: colors.primary, backgroundColor: colors.primary },
+  freqChipText: { fontSize: 13, fontWeight: '700', color: colors.text },
+  freqChipTextActive: { color: '#0D0D0D' },
   discountRowText: { color: '#B3261E', fontWeight: '800' },
   termsMuted: { fontSize: 11, color: colors.textMuted, fontStyle: 'italic', marginBottom: 4 },
   pestListWrap: { flexDirection: 'row', flexWrap: 'wrap' },

@@ -5,6 +5,7 @@ import { technicianScope, assertCustomerAccess } from '../middleware/scope';
 import { asyncHandler } from '../utils/asyncHandler';
 import { ok } from '../utils/http';
 import { recurringChargeService } from '../services/recurringChargeService';
+import { SERVICE_FREQUENCIES } from '../utils/serviceSchedule';
 
 const router = Router();
 router.use(authenticate);
@@ -17,6 +18,10 @@ const upsertSchema = z.object({
   customerId: z.string().uuid(),
   amount: z.number().positive(),
   sourceAgreementFileId: z.string().uuid().nullish(),
+  frequency: z.enum(SERVICE_FREQUENCIES as [string, ...string[]]).nullish(),
+  /** Initial service date (YYYY-MM-DD); defaults to today. */
+  startDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).nullish(),
+  isUpdate: z.boolean().optional(),
 });
 
 router.post(
@@ -30,8 +35,13 @@ router.post(
       body.customerId,
       body.amount,
       body.sourceAgreementFileId ?? null,
+      {
+        frequency: (body.frequency ?? null) as import('../utils/serviceSchedule').ServiceFrequency | null,
+        startDate: body.startDate ?? null,
+        isUpdate: body.isUpdate ?? false,
+      },
     );
-    ok(res, row ? { id: row.id, amount: Number(row.amount) } : null, 'Recurring charge saved');
+    ok(res, row ? { id: row.id, amount: Number(row.amount), frequency: row.frequency, nextDueDate: row.next_due_date } : null, 'Recurring charge saved');
   }),
 );
 

@@ -7,6 +7,7 @@ import { storage } from '../integrations/storage';
 import { invoiceService } from './invoiceService';
 import { paymentService } from './paymentService';
 import { recurringChargeService } from './recurringChargeService';
+import { DEFAULT_SERVICE_FREQUENCY, SERVICE_FREQUENCY_LABELS, ServiceFrequency, buildChargeSchedule, parseServiceFrequency } from '../utils/serviceSchedule';
 import { northGatewayService } from './northGatewayService';
 import { logger } from '../utils/logger';
 import { northFieldsPaymentService, type ConsentMeta } from './northFieldsPaymentService';
@@ -51,6 +52,8 @@ interface AgreementSnapshot {
   /** Amount to charge at signing for an update (new items only). */
   initialDueNow: number | null;
   previousRecurringTotal: number | null;
+  /** Service cadence from the Frequency line; monthly when an older note has none. */
+  frequency: ServiceFrequency;
 }
 
 const AGREEMENT_TERM_MONTHS_DEFAULT = 12;
@@ -224,10 +227,52 @@ async function buildSignedAgreementPdf(input: {
     doc.text(`Initial Subtotal: ${formatMoney(initialSubtotal)}`);
     if (initialDiscount > 0) doc.text(`Initial Discount: -${formatMoney(initialDiscount)}`);
     doc.text(`Initial Total: ${formatMoney(initialTotal)}`);
-    doc.text(`Recurring Total: ${formatMoney(recurringTotal)}/service`);
+    const frequency = input.agreement?.frequency ?? DEFAULT_SERVICE_FREQUENCY;
+    doc.text(`Recurring Total: ${formatMoney(recurringTotal)} ${SERVICE_FREQUENCY_LABELS[frequency].toLowerCase()}`);
+
+    // Charge schedule across the term, like the customer saw when signing.
+    const schedule = buildChargeSchedule({
+      startDate: new Date().toISOString().slice(0, 10),
+      frequency,
+      termMonths,
+      initialAmount: input.agreement?.isUpdate ? (input.agreement.initialDueNow ?? 0) : initialTotal,
+      recurringAmount: recurringTotal,
+    });
+    doc.moveDown(0.9);
+    doc.font('Helvetica-Bold').fontSize(11).fillColor('#0D0D0D').text(`Charge Schedule (${SERVICE_FREQUENCY_LABELS[frequency]})`);
+    doc.moveDown(0.3);
+    const cols = 6;
+    const cellW = (doc.page.width - doc.page.margins.left - doc.page.margins.right) / cols;
+    const cellH = 30;
+    let x = doc.page.margins.left;
+    let y = doc.y;
+    schedule.forEach((entry, index) => {
+      if (index > 0 && index % cols === 0) {
+        x = doc.page.margins.left;
+        y += cellH + 4;
+        if (y + cellH > doc.page.height - doc.page.margins.bottom) {
+          doc.addPage();
+          y = doc.page.margins.top;
+        }
+      }
+      const [yy, mm, dd] = entry.date.split('-').map(Number);
+      const label = frequency === 'monthly' || frequency === 'bimonthly'
+        ? new Date(Date.UTC(yy, mm - 1, dd, 12)).toLocaleDateString('en-US', { month: 'short', year: '2-digit', timeZone: 'UTC' }).replace(' ', " '")
+        : new Date(Date.UTC(yy, mm - 1, dd, 12)).toLocaleDateString('en-US', { month: 'short', day: 'numeric', timeZone: 'UTC' });
+      doc.rect(x, y, cellW - 4, 13).fill(entry.kind === 'initial' ? '#0D0D0D' : '#2DC4A2');
+      doc.font('Helvetica-Bold').fontSize(8).fillColor(entry.kind === 'initial' ? '#FFFFFF' : '#0D0D0D')
+        .text(label, x, y + 3, { width: cellW - 4, align: 'center' });
+      doc.rect(x, y + 13, cellW - 4, cellH - 13).stroke('#B9C9C5');
+      doc.font('Helvetica').fontSize(8).fillColor('#0D0D0D')
+        .text(`${entry.kind === 'initial' ? '(I) ' : ''}${formatMoney(entry.amount)}`, x, y + 17, { width: cellW - 4, align: 'center' });
+      x += cellW;
+    });
+    doc.x = doc.page.margins.left;
+    doc.y = y + cellH + 6;
+    doc.font('Helvetica').fontSize(8).fillColor('#30433F').text('(I) initial service. Regular services continue at the same cadence after the term until canceled.');
 
     doc.moveDown(0.9);
-    doc.font('Helvetica-Bold').fontSize(11).text('Covered Pests');
+    doc.font('Helvetica-Bold').fontSize(11).fillColor('#0D0D0D').text('Covered Pests');
     doc.font('Helvetica').fontSize(10).text(coveredPests);
 
     doc.moveDown(0.9);
@@ -312,8 +357,13 @@ function parseAgreementSnapshot(noteBody: string): AgreementSnapshot | null {
   let isUpdate = false;
   let initialDueNow: number | null = null;
   let previousRecurringTotal: number | null = null;
+  let frequency: ServiceFrequency | null = null;
 
   for (const line of lines) {
+    if (line.startsWith('Frequency:')) {
+      frequency = parseServiceFrequency(line.replace('Frequency:', ''));
+      continue;
+    }
     if (line.startsWith('Status:')) {
       status = line.replace('Status:', '').trim().toUpperCase().startsWith('SIGNED') ? 'SIGNED' : 'UNSIGNED';
       continue;
@@ -374,7 +424,8 @@ function parseAgreementSnapshot(noteBody: string): AgreementSnapshot | null {
     }
   }
 
-  return { lineItems, initialDiscount, initialTotal, recurringTotal, termMonths, coveredPests, status, selections, isUpdate, initialDueNow, previousRecurringTotal };
+  if (!frequency && selections) frequency = parseServiceFrequency(selections.frequency);
+  return { lineItems, initialDiscount, initialTotal, recurringTotal, termMonths, coveredPests, status, selections, isUpdate, initialDueNow, previousRecurringTotal, frequency: frequency ?? DEFAULT_SERVICE_FREQUENCY };
 }
 
 async function loadAgreementSnapshot(customerId: string) {
@@ -531,13 +582,17 @@ export const agreementSigningService = {
     const snapshot = parseAgreementSnapshot(String(rows[0].body));
     if (!snapshot) return null;
     const recurring = await pool.query(
-      'SELECT amount FROM recurring_charges WHERE customer_id = $1 AND active = true LIMIT 1',
+      'SELECT amount, frequency, next_due_date FROM recurring_charges WHERE customer_id = $1 AND active = true LIMIT 1',
       [customerId],
     );
+    const active = recurring.rows[0];
+    const nextDue = active?.next_due_date;
     return {
       ...snapshot,
       createdAt: rows[0].created_at,
-      currentRecurringAmount: recurring.rows[0] ? Number(recurring.rows[0].amount) : snapshot.recurringTotal,
+      currentRecurringAmount: active ? Number(active.amount) : snapshot.recurringTotal,
+      currentFrequency: (active && parseServiceFrequency(active.frequency)) || snapshot.frequency,
+      nextDueDate: nextDue instanceof Date ? nextDue.toISOString().slice(0, 10) : (nextDue ? String(nextDue).slice(0, 10) : null),
     };
   },
 
@@ -777,7 +832,10 @@ export const agreementSigningService = {
       ?? null;
     if (recurringTotal != null && recurringTotal > 0) {
       try {
-        await recurringChargeService.upsertFromAgreement(row.customer_id, recurringTotal, row.id);
+        await recurringChargeService.upsertFromAgreement(row.customer_id, recurringTotal, row.id, {
+          frequency: agreement?.frequency ?? null,
+          isUpdate: agreement?.isUpdate ?? false,
+        });
       } catch (error) {
         logger.warn({ err: error, customerId: row.customer_id }, 'failed to upsert recurring charge from agreement');
       }

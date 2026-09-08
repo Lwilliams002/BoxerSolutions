@@ -24,6 +24,7 @@ interface Dashboard {
   };
   invoices: { outstanding: number; pastDue: number };
   upcomingAppointments: number;
+  recurringDue?: { count: number; amount: number };
   technicianActivity: { technicianName: string; completed: number; remaining: number }[];
 }
 
@@ -138,6 +139,16 @@ export default function DashboardScreen() {
           <StatTile icon="hourglass-outline" label="Outstanding" value={money(data?.invoices.outstanding)} tone={colors.warning} />
           <StatTile icon="alert-circle-outline" label="Past Due" value={money(data?.invoices.pastDue)} tone={colors.danger} />
         </View>
+
+        {data?.recurringDue?.count ? (
+          <TouchableOpacity style={styles.alertBanner} onPress={() => router.push('/(tabs)/invoices')} activeOpacity={0.8}>
+            <Ionicons name="repeat-outline" size={18} color={colors.danger} />
+            <Text style={styles.alertText}>
+              {data.recurringDue.count} recurring service{data.recurringDue.count === 1 ? '' : 's'} due · {money(data.recurringDue.amount)}
+            </Text>
+            <Ionicons name="chevron-forward" size={16} color={colors.danger} />
+          </TouchableOpacity>
+        ) : null}
 
         {d?.failedPayments ? (
           <View style={styles.alertBanner}>
@@ -258,7 +269,7 @@ const styles = StyleSheet.create({
     padding: 12,
     marginTop: 8,
   },
-  alertText: { color: colors.danger, fontWeight: '700', marginLeft: 8, fontSize: 13 },
+  alertText: { flex: 1, color: colors.danger, fontWeight: '700', marginLeft: 8, fontSize: 13 },
   techRow: { flexDirection: 'row', justifyContent: 'space-between', paddingVertical: 6 },
   techName: { fontSize: 15, color: colors.text, fontWeight: '600' },
   techStats: { fontSize: 14, color: colors.textMuted },

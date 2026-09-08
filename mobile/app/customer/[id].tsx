@@ -559,6 +559,10 @@ export default function CustomerScreen() {
                   </Text>
                   <Value style={{ fontWeight: '700' }}>{money(rc.amount)}</Value>
                 </Row>
+                <Text style={[styles.metaText, rc.isDue && { color: colors.danger, fontWeight: '800' }]}>
+                  {rc.frequencyLabel ?? 'Monthly'}
+                  {rc.nextDueDate ? (rc.isDue ? ` · Service due ${fmtDate(rc.nextDueDate)}` : ` · Next service ${fmtDate(rc.nextDueDate)}`) : ''}
+                </Text>
                 {hasPermission('invoices:write', 'payments:collect', 'payments:write') && (
                   <Button
                     title={chargingRecurring ? 'Charging…' : `Charge ${money(rc.amount)}`}

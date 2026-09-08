@@ -17,6 +17,9 @@ interface RecurringCharge {
   description: string;
   amount: number;
   lastChargedAt: string | null;
+  frequencyLabel?: string;
+  nextDueDate?: string | null;
+  isDue?: boolean;
 }
 
 interface ChargeResult {
@@ -83,9 +86,13 @@ function RecurringSection() {
         <View key={item.id} style={styles.card}>
           <View style={styles.rowTop}>
             <Text style={styles.number}>{item.customerName}</Text>
-            <StatusBadge status="recurring" />
+            <StatusBadge status={item.isDue ? 'past_due' : 'recurring'} />
           </View>
           <Text style={styles.customer}>{item.description}</Text>
+          <Text style={[styles.date, item.isDue && styles.dueText]}>
+            {item.frequencyLabel ?? 'Monthly'}
+            {item.nextDueDate ? (item.isDue ? ` · Service due ${fmtDate(item.nextDueDate)}` : ` · Next service ${fmtDate(item.nextDueDate)}`) : ''}
+          </Text>
           <View style={styles.rowBottom}>
             <Text style={styles.date}>
               {item.lastChargedAt ? `Last charged ${fmtDate(item.lastChargedAt)}` : 'Not charged yet'}
@@ -188,6 +195,7 @@ const styles = StyleSheet.create({
   number: { fontSize: 15, fontWeight: '800', color: colors.text },
   customer: { fontSize: 14, color: colors.text, marginTop: 4 },
   date: { fontSize: 12, color: colors.textMuted },
+  dueText: { color: colors.danger, fontWeight: '800' },
   total: { fontSize: 15, fontWeight: '800', color: colors.text },
   recurringSection: { marginBottom: 8 },
   sectionTitle: { fontSize: 13, fontWeight: '800', color: colors.textMuted, textTransform: 'uppercase', marginBottom: 8 },

@@ -1,6 +1,7 @@
 import { logger } from '../utils/logger';
 import { generateAllRecurringAppointments } from './recurring';
 import { processAutopay, sendAppointmentReminders, markPastDueInvoices } from './billing';
+import { notifyDueRecurringServices } from './recurringDue';
 import { pool } from '../config/db';
 
 /**
@@ -22,7 +23,8 @@ export function startJobScheduler() {
       const reminders = await sendAppointmentReminders();
       const recurring = await generateAllRecurringAppointments(systemUserId);
       const autopay = await processAutopay(systemUserId);
-      logger.info({ pastDue, reminders, recurring, autopay }, 'background jobs cycle complete');
+      const dueServices = await notifyDueRecurringServices();
+      logger.info({ pastDue, reminders, recurring, autopay, dueServices }, 'background jobs cycle complete');
     } catch (err) {
       logger.error(err, 'background job cycle failed');
     }

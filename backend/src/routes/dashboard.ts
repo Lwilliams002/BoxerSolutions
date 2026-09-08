@@ -63,6 +63,14 @@ router.get(
           ),
     ]);
 
+    const recurringDue = scope
+      ? { rows: [{ total: 0, amount: 0 }] }
+      : await pool.query(
+          `SELECT count(*)::int AS total, coalesce(sum(rc.amount), 0) AS amount
+           FROM recurring_charges rc JOIN customers c ON c.id = rc.customer_id
+           WHERE rc.active = true AND c.deleted_at IS NULL AND rc.next_due_date <= CURRENT_DATE`,
+        );
+
     const upcoming = await pool.query(
       `SELECT count(*)::int AS total FROM appointments a
        WHERE a.scheduled_date > CURRENT_DATE AND a.scheduled_date <= CURRENT_DATE + 7
@@ -86,6 +94,7 @@ router.get(
         pastDue: Number(invoices.rows[0].past_due),
       },
       upcomingAppointments: upcoming.rows[0].total,
+      recurringDue: { count: Number(recurringDue.rows[0].total), amount: Number(recurringDue.rows[0].amount) },
       technicianActivity: activity.rows,
     });
   }),
