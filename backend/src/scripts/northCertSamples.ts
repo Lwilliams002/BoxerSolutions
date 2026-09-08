@@ -6,7 +6,7 @@
  * assembles the raw request/response blocks from the certification log into a
  * single text file for North's certification team.
  *
- *   npx tsx src/scripts/northCertSamples.ts [--customer <uuid>] [--card <id prefix>] [--bank <id prefix>] [--out <file>]
+ *   npx tsx src/scripts/northCertSamples.ts [--customer <uuid>] [--card <id prefix>] [--bank <id prefix>] [--out <file>] [--assemble-only]
  *
  * Every request is built by epxPayloads.ts and contains only the token
  * (orig_auth_guid), amount, payment_method, references, and cardholder name /
@@ -159,10 +159,15 @@ function assemble(outPath: string, since: string) {
 async function main() {
   const since = new Date().toISOString();
   const outPath = arg('out') ?? path.resolve(process.cwd(), `logs/north-cert-samples-${since.slice(0, 10)}.txt`);
-  try {
-    await run();
-  } finally {
+  if (process.argv.includes('--assemble-only')) {
+    // Build the file from the approved transactions already in the log.
     await pool.end().catch(() => undefined);
+  } else {
+    try {
+      await run();
+    } finally {
+      await pool.end().catch(() => undefined);
+    }
   }
   const summary = assemble(outPath, since);
   console.log(`\nWrote ${summary.sections} sections to ${summary.outPath}${summary.missing.length ? `; missing: ${summary.missing.join(', ')}` : ''}`);
