@@ -20,7 +20,7 @@ import { epxEmbeddedPaymentsService } from '../services/epxEmbeddedPaymentsServi
 import { EpxAccountType } from '../services/epx/epxPayloads';
 
 type Method = {
-  id: string; customer_id: string; provider_payment_method_id: string; method_type: 'card' | 'bank_account';
+  id: string; customer_id: string; deleted_at: Date | null; provider_payment_method_id: string; method_type: 'card' | 'bank_account';
   bank_account_type: EpxAccountType | null; brand: string | null; last4: string | null;
   first_name: string; last_name: string; address: string | null; city: string | null; state: string | null; zip: string | null;
 };
@@ -44,17 +44,20 @@ function arg(name: string) {
 
 async function loadMethods(customerId?: string): Promise<{ card: Method; bank: Method }> {
   const { rows } = await pool.query<Method>(
-    `SELECT pm.id, pm.customer_id, pm.provider_payment_method_id, pm.method_type, pm.bank_account_type, pm.brand, pm.last4,
+    `SELECT pm.id, pm.customer_id, pm.deleted_at, pm.provider_payment_method_id, pm.method_type, pm.bank_account_type, pm.brand, pm.last4,
             c.first_name, c.last_name, c.billing_address_line1 AS address, c.billing_city AS city, c.billing_state AS state, c.billing_postal_code AS zip
      FROM payment_methods pm JOIN customers c ON c.id = pm.customer_id
-     WHERE pm.deleted_at IS NULL AND pm.payment_provider IN ('north','north_embedded')
+     WHERE pm.payment_provider IN ('north','north_embedded')
        ${customerId ? 'AND pm.customer_id = $1' : ''}
-     ORDER BY pm.created_at DESC`,
+     ORDER BY (pm.deleted_at IS NULL) DESC, pm.created_at DESC`,
     customerId ? [customerId] : [],
   );
   const card = rows.find((r) => r.method_type === 'card');
   const bank = rows.find((r) => r.method_type === 'bank_account' && (!card || r.customer_id === card.customer_id))
     ?? rows.find((r) => r.method_type === 'bank_account');
+  // Tokens (BRICs) stay valid at North after a method is removed in the app, so a
+  // removed method is still fine for sandbox certification runs.
+  for (const m of [card, bank]) if (m?.deleted_at) console.warn(`Note: using a ${m.method_type} that was removed in the app on ${m.deleted_at.toISOString().slice(0, 10)}; its North token is still valid.`);
   if (!card || !bank) throw new Error(`Need one stored card and one stored bank account (found card=${!!card}, bank=${!!bank}). Store them through the app first.`);
   return { card, bank };
 }
