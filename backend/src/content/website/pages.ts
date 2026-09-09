@@ -1,6 +1,7 @@
 import { CompanyInfo } from '../../services/settingsService';
 import { escapeHtml } from '../serviceNotificationEmail';
 import { ADDONS, HOME_SIZES, ODD_JOBS, STANDARD_PESTS, TERM_MONTHS, WEB_REMOVAL, YARD_ANT_TIERS } from './pricing';
+import { FEATURED_PROGRAMS, PEST_PROGRAMS, SERVICE_CITIES } from './pests';
 
 /**
  * Public company website (home, services & pricing, contact, privacy, terms,
@@ -8,15 +9,24 @@ import { ADDONS, HOME_SIZES, ODD_JOBS, STANDARD_PESTS, TERM_MONTHS, WEB_REMOVAL,
  * address, license, phone and email stay in sync with the app.
  */
 export interface SitePage { path: string; title: string; description: string; render: (ctx: SiteContext) => string }
-export interface SiteContext { company: CompanyInfo; base: string; year: number }
+export interface SiteContext {
+  company: CompanyInfo;
+  base: string;
+  year: number;
+  /** Estimate form feedback after a POST (thank-you or validation error). */
+  notice?: { kind: 'ok' | 'error'; text: string } | null;
+  /** Previously submitted form values to re-fill after a validation error. */
+  form?: Record<string, string> | null;
+}
 
 const money = (n: number) => `$${n.toFixed(0)}`;
 const e = escapeHtml;
 
 const NAV: { href: string; label: string }[] = [
   { href: '/', label: 'Home' },
-  { href: '/#services', label: 'Services' },
+  { href: '/#pests', label: 'Pests' },
   { href: '/#pricing', label: 'Pricing' },
+  { href: '/#estimate', label: 'Free Estimate' },
   { href: '/contact', label: 'Contact' },
 ];
 
@@ -27,17 +37,21 @@ a{color:var(--teal-dark)}.wrap{max-width:1040px;margin:0 auto;padding:0 20px}
 header{background:var(--ink);color:#fff}header .wrap{display:flex;align-items:center;justify-content:space-between;gap:16px;min-height:68px;flex-wrap:wrap}
 .brand{display:flex;align-items:center;gap:12px;color:#fff;text-decoration:none;font-weight:800;font-size:18px}.brand img{width:40px;height:40px}
 nav a{color:#fff;text-decoration:none;margin-left:18px;font-weight:600;font-size:15px}nav a.cta{background:var(--teal);color:var(--ink);padding:8px 14px;border-radius:999px}
-.hero{background:linear-gradient(135deg,#0D0D0D 0%,#1E3B35 100%);color:#fff;padding:64px 0}.hero h1{font-size:40px;line-height:1.15;margin:0 0 12px}.hero p{font-size:18px;color:#CFE8E1;max-width:640px;margin:0 0 22px}
+.hero{position:relative;background:#0D0D0D center/cover no-repeat;color:#fff;padding:96px 0 72px;isolation:isolate}.hero:before{content:"";position:absolute;inset:0;background:linear-gradient(180deg,rgba(13,13,13,.35) 0%,rgba(13,13,13,.78) 70%,#0D0D0D 100%);z-index:-1}.hero .kicker{text-transform:uppercase;letter-spacing:.35em;font-size:12px;font-weight:700;color:var(--teal);margin:0 0 10px}.hero h1{font-size:40px;line-height:1.15;margin:0 0 12px}.hero p{font-size:18px;color:#CFE8E1;max-width:640px;margin:0 0 22px}
 .btn{display:inline-block;background:var(--teal);color:var(--ink);font-weight:800;padding:12px 20px;border-radius:12px;text-decoration:none}.btn.alt{background:#fff}
 section{padding:48px 0}h2{font-size:28px;margin:0 0 6px}.sub{color:var(--muted);margin:0 0 22px}
 .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:16px}.card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:18px}.card h3{margin:0 0 6px;font-size:18px}.card p{margin:0;color:var(--muted);font-size:15px;overflow-wrap:anywhere}
 table{width:100%;border-collapse:collapse;background:#fff;border:1px solid var(--line);border-radius:12px;overflow:hidden}th,td{padding:10px 12px;text-align:left;border-bottom:1px solid var(--line);font-size:15px}th{background:#E8F6F2;font-size:13px;text-transform:uppercase;letter-spacing:.04em;color:var(--muted)}td.num,th.num{text-align:right;white-space:nowrap}
 .pills{display:flex;flex-wrap:wrap;gap:8px;margin-top:10px}.pill{background:#E8F6F2;border-radius:999px;padding:5px 11px;font-size:13px;font-weight:600}
 .steps{counter-reset:s}.steps .card{position:relative;padding-left:58px}.steps .card:before{counter-increment:s;content:counter(s);position:absolute;left:16px;top:16px;width:30px;height:30px;border-radius:50%;background:var(--teal);color:var(--ink);font-weight:900;display:flex;align-items:center;justify-content:center}
+.cities{display:flex;flex-wrap:wrap;gap:8px}.cities span{border:1px solid var(--line);background:#fff;border-radius:6px;padding:6px 10px;font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:.06em}
+.feature{display:grid;grid-template-columns:120px 1fr;gap:22px;align-items:start;background:#fff;border:1px solid var(--line);border-radius:16px;padding:22px;margin-bottom:16px}.feature img{width:120px;height:120px;object-fit:contain}.feature .kicker{text-transform:uppercase;letter-spacing:.3em;font-size:11px;font-weight:800;color:var(--teal-dark);margin:0 0 6px}.feature h3{margin:0 0 8px;font-size:24px}.feature p{margin:0 0 12px;color:#30433F}.feature ol{margin:0 0 12px;padding-left:20px}.feature li{margin-bottom:6px;color:#30433F}.feature li b{color:var(--ink)}.badges{display:flex;flex-wrap:wrap;gap:6px}.badges span{background:#E8F6F2;border-radius:999px;padding:4px 10px;font-size:12px;font-weight:700}
+.pests{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:10px}.pest{background:#fff;border:1px solid var(--line);border-radius:12px}.pest summary{list-style:none;cursor:pointer;display:flex;flex-direction:column;align-items:center;padding:14px 8px 10px;text-align:center}.pest summary::-webkit-details-marker{display:none}.pest summary img{width:78px;height:78px;object-fit:contain;transition:transform .15s}.pest summary:hover img{transform:scale(1.06)}.pest summary b{font-size:11px;text-transform:uppercase;letter-spacing:.08em;margin-top:6px;color:var(--muted)}.pest[open]{grid-column:1/-1;border-color:var(--teal)}.pest[open] summary{flex-direction:row;gap:14px;text-align:left;padding:16px}.pest[open] summary b{font-size:16px;text-transform:none;letter-spacing:0;color:var(--ink)}.pest .detail{padding:0 16px 16px;display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:14px}.pest .detail h4{margin:0 0 4px;font-size:11px;text-transform:uppercase;letter-spacing:.25em;color:var(--teal-dark)}.pest .detail p,.pest .detail li{margin:0;font-size:14px;color:#30433F}.pest .detail ul{margin:0;padding-left:16px}.tag{font-size:11px;background:#E8F6F2;border-radius:999px;padding:2px 8px;margin-left:6px;font-weight:700}
+.estimate{background:#fff;border:1px solid var(--line);border-radius:16px;padding:22px}.estimate label{display:block;font-size:13px;font-weight:700;margin:12px 0 4px}.estimate input,.estimate select,.estimate textarea{width:100%;border:1px solid var(--line);border-radius:10px;padding:11px 12px;font:15px inherit;background:#F8FCFB;color:var(--ink)}.estimate textarea{min-height:110px}.estimate button{margin-top:16px;width:100%;background:var(--teal);color:var(--ink);border:0;border-radius:12px;padding:13px;font:800 16px inherit;cursor:pointer}.notice{border-radius:10px;padding:12px 14px;margin-bottom:12px;font-weight:600}.notice.ok{background:#E8F6F2;color:#0F5C4B}.notice.error{background:#FDECEC;color:#8A1C1C}
 .legal{max-width:760px}.legal h2{margin-top:32px;font-size:22px}.legal p,.legal li{color:#30433F}
 footer{background:var(--ink);color:#B9C9C5;padding:36px 0;font-size:14px}footer .wrap{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:24px}footer .wrap>div{min-width:0}footer a{color:#fff;text-decoration:none;overflow-wrap:anywhere}footer h4{color:#fff;margin:0 0 8px;font-size:14px;text-transform:uppercase;letter-spacing:.06em}
 .note{background:#fff;border-left:4px solid var(--teal);padding:12px 14px;border-radius:8px;color:#30433F}
-@media(max-width:640px){.hero h1{font-size:30px}nav a{margin-left:12px;font-size:14px}}
+@media(max-width:640px){.hero h1{font-size:30px}nav a{margin-left:12px;font-size:14px}.feature{grid-template-columns:1fr}.feature img{width:90px;height:90px}}
 `;
 
 function layout(ctx: SiteContext, page: { title: string; description: string; path: string }, body: string) {
@@ -68,14 +82,62 @@ function home(ctx: SiteContext) {
   const c = ctx.company;
   const b = ctx.base;
   const body = `
-<section class="hero"><div class="wrap">
-  <h1>Year-round pest protection for South Florida homes.</h1>
+<section class="hero" style="background-image:url('${b}/assets/hero-miami.jpg')"><div class="wrap">
+  <p class="kicker">South Florida · Miami-Dade, Broward &amp; Palm Beach</p>
+  <h1>South Florida pest control, built for the coast.</h1>
   <p>${e(c.name)} is a licensed, local pest control company. We start with an initial flush-out treatment, then keep your home protected with regular service on the schedule you choose — weekly, every two weeks, monthly or every two months.</p>
-  <a class="btn" href="tel:${e(c.phone.replace(/\D/g, ''))}">Call ${e(c.phone)}</a> &nbsp; <a class="btn alt" href="${b}/contact">Request a quote</a>
+  <a class="btn" href="tel:${e(c.phone.replace(/\D/g, ''))}">Call ${e(c.phone)}</a> &nbsp; <a class="btn alt" href="${b}/#estimate">Free estimate</a>
 </div></section>
 
-<section id="services"><div class="wrap">
-  <h2>Services</h2><p class="sub">Every plan includes free re-treatment between scheduled visits if covered pests come back.</p>
+<section><div class="wrap">
+  <div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(300px,1fr));align-items:start">
+    <div>
+      <p class="hero-kicker" style="text-transform:uppercase;letter-spacing:.3em;font-size:12px;font-weight:800;color:var(--teal-dark);margin:0 0 8px">From the 305 to the 561</p>
+      <h2>Built for the whole coast.</h2>
+      <p class="sub" style="font-size:17px">From South Beach high-rises and Brickell condos to Fort Lauderdale canals, Boca estates and Palm Beach pools — our program is engineered around humidity, ocean air and the pests that thrive in both. Ants, roaches, spiders, centipedes, millipedes, fleas, termites and rodents — handled.</p>
+      <a class="btn" href="${b}/#estimate">Book South Florida service</a>
+    </div>
+    <div>
+      <p style="text-transform:uppercase;letter-spacing:.3em;font-size:12px;font-weight:800;color:var(--teal-dark);margin:0 0 10px">Cities served</p>
+      <div class="cities">${SERVICE_CITIES.map((city) => `<span>${e(city)}</span>`).join('')}</div>
+    </div>
+  </div>
+</div></section>
+
+<section style="background:#fff"><div class="wrap">
+  <h2>This season's hotspots</h2><p class="sub">The three calls we get most in South Florida, and exactly how we handle each one.</p>
+  ${FEATURED_PROGRAMS.map((f) => `
+  <div class="feature">
+    <img src="${b}/assets/pests/${f.img}" alt="" loading="lazy">
+    <div>
+      <p class="kicker">${e(f.kicker)}</p>
+      <h3>${e(f.headline)}</h3>
+      <p>${e(f.body)}</p>
+      <ol>${f.steps.map((st) => `<li><b>${e(st.label)}.</b> ${e(st.body)}</li>`).join('')}</ol>
+      <div class="badges">${f.badges.map((bd) => `<span>${e(bd)}</span>`).join('')}</div>
+    </div>
+  </div>`).join('')}
+</div></section>
+
+<section id="pests"><div class="wrap">
+  <h2>South Florida pest programs</h2><p class="sub">Tap a pest to see what it is, the signs you have it, why it matters and how we treat it. ${PEST_PROGRAMS.length} programs.</p>
+  <div class="pests">
+    ${PEST_PROGRAMS.map((p) => `
+    <details class="pest" id="pest-${p.slug}">
+      <summary><img src="${b}/assets/pests/${p.img}" alt="" loading="lazy"><b>${e(p.short)}${p.southFloridaOnly ? '<span class="tag">South Florida</span>' : ''}</b></summary>
+      <div class="detail">
+        <div style="grid-column:1/-1"><h3 style="margin:0;font-size:20px">${e(p.name)}</h3></div>
+        <div><h4>What it is</h4><p>${e(p.about)}</p></div>
+        <div><h4>Signs you have them</h4><ul>${p.signs.map((sg) => `<li>${e(sg)}</li>`).join('')}</ul></div>
+        <div><h4>Why it matters</h4><p>${e(p.risk)}</p></div>
+        <div><h4>Our approach</h4><p>${e(p.approach)}</p></div>
+      </div>
+    </details>`).join('')}
+  </div>
+</div></section>
+
+<section id="services" style="background:#fff"><div class="wrap">
+  <h2>Service plans</h2><p class="sub">Every plan includes free re-treatment between scheduled visits if covered pests come back.</p>
   <div class="grid">
     <div class="card"><h3>Standard Four Point Service</h3><p>Interior and exterior treatment of your home's foundation, entry points, eaves and yard perimeter. Priced by home size.</p><div class="pills">${STANDARD_PESTS.map((p) => `<span class="pill">${e(p)}</span>`).join('')}</div></div>
     <div class="card"><h3>All Yard Ants</h3><p>Whole-yard treatment for fire ants, carpenter ants and other yard ants, priced by lot size.</p><div class="pills"><span class="pill">Yard Ants</span><span class="pill">Fire Ants</span><span class="pill">Carpenter Ants</span></div></div>
@@ -86,7 +148,7 @@ function home(ctx: SiteContext) {
   </div>
 </div></section>
 
-<section id="pricing" style="background:#fff"><div class="wrap">
+<section id="pricing"><div class="wrap">
   <h2>Pricing</h2><p class="sub">Initial service is a one-time charge at the first visit. Regular service is charged per treatment at your chosen frequency. Prices are before any applicable tax.</p>
   <div class="grid" style="align-items:start">
     <div><h3>Standard Four Point Service</h3><table><tr><th>Home size</th><th class="num">Initial</th><th class="num">Regular</th></tr>${HOME_SIZES.map((t) => `<tr><td>${e(t.label)}</td><td class="num">${money(t.initial)}</td><td class="num">${money(t.regular)}</td></tr>`).join('')}</table></div>
@@ -105,8 +167,42 @@ function home(ctx: SiteContext) {
     <div class="card"><h3>Billing</h3><p>Pay by card or bank account in our secure app, by emailed payment link, or by check. You receive an itemized service notification and receipt by email after every visit.</p></div>
   </div>
   <p class="note" style="margin-top:22px">Payments are processed by North, a PCI-compliant payment processor. Card and bank details are entered only in the processor's secure form and are never stored on ${e(c.name)} systems.</p>
-</div></section>`;
+</div></section>
+
+${estimateSection(ctx)}`;
   return layout(ctx, { title: 'Pest Control in South Florida', description: `${c.name}: licensed residential and commercial pest control with year-round protection plans.`, path: '/' }, body);
+}
+
+const PEST_CHOICES = ['Ants', 'Roaches', 'Spiders', 'Mosquitoes', 'Fleas / Ticks', 'Termites', 'Rodents', 'Wasps / Hornets', 'Centipedes / Millipedes', 'Silverfish / Earwigs', 'Other / Not sure'];
+
+/** Free-estimate form. Posts back to the site; the office gets an email. */
+export function estimateSection(ctx: SiteContext) {
+  const c = ctx.company;
+  const f = ctx.form ?? {};
+  const v = (k: string) => e(f[k] ?? '');
+  return `
+<section id="estimate" style="background:#fff"><div class="wrap">
+  <div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(300px,1fr));align-items:start">
+    <div>
+      <p style="text-transform:uppercase;letter-spacing:.3em;font-size:12px;font-weight:800;color:var(--teal-dark);margin:0 0 8px">Free South Florida estimate</p>
+      <h2>Tell us about the pest.</h2>
+      <p class="sub" style="font-size:17px">Miami to West Palm — we will come out, look closer than anyone else has, and write a plan that actually works for the coast. Prefer to talk? Call <a href="tel:${e(c.phone.replace(/\D/g, ''))}">${e(c.phone)}</a>.</p>
+    </div>
+    <form class="estimate" method="post" action="${ctx.base}/estimate">
+      ${ctx.notice ? `<div class="notice ${ctx.notice.kind}">${e(ctx.notice.text)}</div>` : ''}
+      <input type="text" name="company" value="" tabindex="-1" autocomplete="off" style="position:absolute;left:-9999px" aria-hidden="true">
+      <label for="est-name">Name</label><input id="est-name" name="name" required maxlength="100" value="${v('name')}">
+      <label for="est-phone">Phone</label><input id="est-phone" name="phone" type="tel" required maxlength="30" value="${v('phone')}">
+      <label for="est-email">Email</label><input id="est-email" name="email" type="email" maxlength="200" value="${v('email')}">
+      <label for="est-address">Service address</label><input id="est-address" name="address" maxlength="200" value="${v('address')}" placeholder="Street, city">
+      <label for="est-pest">What are you seeing?</label>
+      <select id="est-pest" name="pest">${PEST_CHOICES.map((p) => `<option${(f.pest ?? '') === p ? ' selected' : ''}>${e(p)}</option>`).join('')}</select>
+      <label for="est-message">Tell us more</label><textarea id="est-message" name="message" maxlength="1000" placeholder="Where you're seeing activity, home size, how long it's been going on…">${v('message')}</textarea>
+      <button type="submit">Request my free estimate</button>
+      <p style="font-size:12px;color:var(--muted);margin:10px 0 0">By submitting you agree to be contacted about your request. See our <a href="${ctx.base}/privacy">Privacy Policy</a>.</p>
+    </form>
+  </div>
+</div></section>`;
 }
 
 function contact(ctx: SiteContext) {
@@ -120,7 +216,10 @@ function contact(ctx: SiteContext) {
     <div class="card"><h3>Office</h3>${c.addressLines.length ? c.addressLines.map((l) => `<p>${e(l)}</p>`).join('') : '<p>Serving Miami-Dade and Broward counties</p>'}<p>${e(c.license)}</p></div>
   </div>
   <h2>Request a quote</h2>
-  <p>Call or email us with your address, approximate home size and the pests you are seeing. A technician will confirm pricing from the price sheet on our home page and schedule your initial service.</p>
+  <p>Use the form below, or call or email us with your address, approximate home size and the pests you are seeing. A technician will confirm pricing from the <a href="${ctx.base}/#pricing">price sheet</a> and schedule your initial service.</p>
+</div></section>
+${estimateSection(ctx)}
+<section><div class="wrap legal">
   <h2>Billing questions</h2>
   <p>For questions about an invoice, a receipt, a payment method on file or a refund, email <a href="mailto:${e(c.email)}">${e(c.email)}</a> with your invoice number, or call ${e(c.phone)}. See our <a href="${ctx.base}/refund-policy">Refund &amp; Cancellation Policy</a>.</p>
 </div></section>`;

@@ -19,13 +19,25 @@ test('home page lists services and prices; policies state cancellation and refun
   const home = SITE_PAGES.find((p) => p.path === '/')!.render(ctx);
   assert.ok(home.includes('Standard Four Point Service') && home.includes('$340') && home.includes('$139'));
   assert.ok(home.includes('never stored'));
+  for (const section of ['Cities served', 'Miami Gardens', "This season's hotspots", 'Mosquito season is here.', 'South Florida pest programs', 'Termite Control', 'Signs you have them', 'Tell us about the pest.', 'action="/estimate"']) {
+    assert.ok(home.includes(section), `home missing ${section}`);
+  }
   const refunds = SITE_PAGES.find((p) => p.path === '/refund-policy')!.render(ctx);
   assert.match(refunds, /third business day/);
   assert.match(refunds, /original payment method/);
+});
+
+test('estimate form re-fills values and shows notices', () => {
+  const html = SITE_PAGES.find((p) => p.path === '/')!.render({ ...ctx, notice: { kind: 'error', text: 'Please enter your name' }, form: { name: 'Jane <b>', phone: '3055550100', pest: 'Termites' } });
+  assert.ok(html.includes('class="notice error"'));
+  assert.ok(html.includes('value="Jane &lt;b&gt;"'));
+  assert.ok(html.includes('<option selected>Termites</option>'));
 });
 
 test('preview base prefixes links when served under /site', () => {
   const html = SITE_PAGES.find((p) => p.path === '/')!.render({ ...ctx, base: '/site' });
   assert.ok(html.includes('href="/site/privacy"'));
   assert.ok(html.includes('src="/site/assets/logo-mark.png"'));
+  assert.ok(html.includes('action="/site/estimate"'));
+  assert.ok(html.includes("url('/site/assets/hero-miami.jpg')"));
 });
