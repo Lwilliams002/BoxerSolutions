@@ -9,11 +9,9 @@ export const pool = new Pool({
   connectionString: config.databaseUrl,
   max: 10,
   idleTimeoutMillis: 30_000,
-});
-
-// CURRENT_DATE / now()::date inside SQL use the business's calendar day.
-pool.on('connect', (client) => {
-  client.query('SET timezone TO $1', [config.timezone]).catch(() => undefined);
+  // Session timezone at connect time so CURRENT_DATE / now()::date inside SQL
+  // mean the business's calendar day, not UTC's.
+  options: `-c timezone=${config.timezone}`,
 });
 
 export async function withTransaction<T>(fn: (client: PoolClient) => Promise<T>): Promise<T> {
