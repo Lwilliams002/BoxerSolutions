@@ -33,6 +33,9 @@ interface ApptDetail {
   notes: string | null;
   invoiceId: string | null;
   services: { name: string; unitPrice: number; quantity: number }[];
+  recurringChargeId?: string | null;
+  recurringFrequency?: string | null;
+  recurringAmount?: string | number | null;
 }
 
 interface NoteRow { id: string; body: string; createdAt: string; authorName: string }
@@ -164,14 +167,17 @@ export default function StopScreen() {
   };
 
   const complete = async () => {
+    const recurring = !!appt?.recurringChargeId;
     confirmAction({
       title: 'Complete Service',
-      message: 'Complete this appointment and generate the invoice?',
+      message: recurring
+        ? `Complete this recurring visit? An invoice for ${money(appt?.recurringAmount ?? 0)} will be created for the customer.`
+        : 'Complete this appointment and generate the invoice?',
       confirmText: 'Complete',
       onConfirm: async () => {
           setBusy('complete');
           try {
-            const { queued, data } = await mutateOrQueue<{ invoice?: { id: string } }>(
+            const { queued, data } = await mutateOrQueue<{ invoice?: { id: string }; recurring?: { invoiceId: string | null; amount: number; charged: boolean; reason: string | null; nextDueDate: string } }>(
               `/appointments/${id}/complete`,
               {
                 method: 'POST',
@@ -183,6 +189,14 @@ export default function StopScreen() {
             if (queued) {
               notify('Saved offline', 'Completion will sync when you are back online.');
             } else if (data?.invoice?.id) {
+              if (data?.recurring) {
+                notify(
+                  data.recurring.charged ? 'Visit completed and charged' : 'Visit completed',
+                  data.recurring.charged
+                    ? `${money(data.recurring.amount)} was charged to the card on file. Next visit due ${data.recurring.nextDueDate}.`
+                    : `Invoice for ${money(data.recurring.amount)} created${data.recurring.reason ? ` (${data.recurring.reason})` : ''}. Next visit due ${data.recurring.nextDueDate}.`,
+                );
+              }
               router.push(`/invoice/${data.invoice.id}`);
             }
           } catch (e) {
@@ -218,6 +232,9 @@ export default function StopScreen() {
           {appt.customerPhone ? <Text style={styles.phone}>{appt.customerPhone}</Text> : null}
           {appt.accessNotes ? <Text style={styles.access}>Access: {appt.accessNotes}</Text> : null}
           <View style={{ marginTop: 8 }}>
+            {appt.recurringChargeId && appt.services.length === 0 ? (
+              <Row><Value>Regular recurring service{appt.recurringFrequency ? ` · ${appt.recurringFrequency}` : ''}</Value><Value style={{ fontWeight: '700' }}>{money(appt.recurringAmount ?? 0)}</Value></Row>
+            ) : null}
             {appt.services.map((s, i) => (
               <Row key={i} style={{ marginVertical: 2 }}>
                 <Value>{s.name} ×{s.quantity}</Value>

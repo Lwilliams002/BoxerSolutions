@@ -8,6 +8,8 @@ export interface CompanySettings {
   licenseNumber: string;
   defaultTaxRate: number;
   invoiceDueDays: number;
+  /** Charge the saved payment method when a recurring visit is completed (owner default: off). */
+  chargeRecurringOnCompletion: boolean;
   appointmentReminderHours: number;
 }
 
@@ -19,6 +21,7 @@ export const DEFAULT_SETTINGS: CompanySettings = {
   licenseNumber: '',
   defaultTaxRate: 0.0825,
   invoiceDueDays: 15,
+  chargeRecurringOnCompletion: false,
   appointmentReminderHours: 24,
 };
 
@@ -41,6 +44,7 @@ export async function getCompanySettings(db: Queryable = pool): Promise<CompanyS
     licenseNumber: String(company.licenseNumber ?? company.license ?? DEFAULT_SETTINGS.licenseNumber),
     defaultTaxRate: readNumber(company.defaultTaxRate ?? company.taxRate ?? invoicing.defaultTaxRate, DEFAULT_SETTINGS.defaultTaxRate),
     invoiceDueDays: readNumber(invoicing.invoiceDueDays ?? invoicing.defaultDueDays, DEFAULT_SETTINGS.invoiceDueDays),
+    chargeRecurringOnCompletion: invoicing.chargeRecurringOnCompletion === true,
     appointmentReminderHours: readNumber(appointments.appointmentReminderHours ?? appointments.reminderHours, DEFAULT_SETTINGS.appointmentReminderHours),
   };
 }

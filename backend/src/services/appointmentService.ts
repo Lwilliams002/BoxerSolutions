@@ -4,6 +4,8 @@ import { ApiError } from '../utils/errors';
 import { recordAudit } from './auditService';
 import { rowsToCamel, toCamel } from './customerService';
 import { invoiceService } from './invoiceService';
+import { recurringChargeService } from './recurringChargeService';
+import { getCompanySettings } from './settingsService';
 import { notifications } from '../integrations/notifications';
 import { communicationService, safelyQueueCommunication } from './communicationService';
 
@@ -30,12 +32,14 @@ const APPOINTMENT_SELECT = `
             'taxable', s.taxable))
           FROM appointment_services aps JOIN services s ON s.id = aps.service_id
           WHERE aps.appointment_id = a.id) AS services,
-         (SELECT i.id FROM invoices i WHERE i.appointment_id = a.id AND i.deleted_at IS NULL LIMIT 1) AS invoice_id
+         (SELECT i.id FROM invoices i WHERE i.appointment_id = a.id AND i.deleted_at IS NULL LIMIT 1) AS invoice_id,
+         rc.frequency AS recurring_frequency, rc.amount AS recurring_amount
   FROM appointments a
   JOIN customers c ON c.id = a.customer_id
   JOIN service_locations sl ON sl.id = a.service_location_id
   LEFT JOIN employees te ON te.id = a.technician_id
-  LEFT JOIN users tu ON tu.id = te.user_id`;
+  LEFT JOIN users tu ON tu.id = te.user_id
+  LEFT JOIN recurring_charges rc ON rc.id = a.recurring_charge_id`;
 
 async function detectConflict(
   db: PoolClient | typeof pool,
@@ -213,7 +217,8 @@ export const appointmentService = {
     if (!['in_progress', 'arrived'].includes(existing.status)) {
       throw ApiError.badRequest(`Appointment must be in progress to complete (current: ${existing.status})`);
     }
-    if (!existing.services || existing.services.length === 0) {
+    const isRecurringVisit = !!existing.recurringChargeId;
+    if (!isRecurringVisit && (!existing.services || existing.services.length === 0)) {
       throw ApiError.badRequest('Appointment has no services to complete');
     }
 
@@ -232,7 +237,7 @@ export const appointmentService = {
       }
 
       let invoice = null;
-      if (opts.generateInvoice !== false) {
+      if (!isRecurringVisit && opts.generateInvoice !== false) {
         invoice = await invoiceService.createFromAppointment(tx, existing, userId, opts.taxRate);
       }
 
@@ -244,13 +249,23 @@ export const appointmentService = {
       return { appointment: toCamel(rows[0]), invoice };
     });
 
+    // Recurring visit: invoice the plan amount, charge only if the owner
+    // turned that on, and roll the plan's due date forward.
+    let recurring: { invoiceId: string | null; amount: number; charged: boolean; reason: string | null; nextDueDate: string } | null = null;
+    if (isRecurringVisit && opts.generateInvoice !== false) {
+      const settings = await getCompanySettings();
+      recurring = await recurringChargeService.completeVisit(existing.recurringChargeId, id, userId, { charge: settings.chargeRecurringOnCompletion });
+      if (recurring.invoiceId) (result as any).invoice = { id: recurring.invoiceId };
+      (result as any).recurring = recurring;
+    }
+
     safelyQueueCommunication(async () => {
       await notifications.send({
         customerId: existing.customerId, channel: 'email', type: 'service_completed',
         title: 'Service completed', body: 'Your service visit has been completed. Thank you!',
       });
     });
-    if ((result as any).invoice?.id) {
+    if ((result as any).invoice?.id && !recurring) {
       safelyQueueCommunication(() => communicationService.sendInvoiceTemplate((result as any).invoice.id, 'invoice_created', null));
     }
 

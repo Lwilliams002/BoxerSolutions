@@ -19,6 +19,7 @@ const settingsSchema = z.object({
   licenseNumber: z.string().max(100).default(''),
   defaultTaxRate: z.number().min(0).max(0.3),
   invoiceDueDays: z.number().int().min(0).max(365),
+  chargeRecurringOnCompletion: z.boolean().optional().default(false),
   appointmentReminderHours: z.number().int().min(0).max(720),
 });
 
@@ -60,7 +61,7 @@ router.put(
       await tx.query(
         `INSERT INTO settings (key, value, updated_at) VALUES ('invoicing', $1::jsonb, now())
          ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = now()`,
-        [JSON.stringify({ invoiceDueDays: body.invoiceDueDays })],
+        [JSON.stringify({ invoiceDueDays: body.invoiceDueDays, chargeRecurringOnCompletion: body.chargeRecurringOnCompletion })],
       );
       await tx.query(
         `INSERT INTO settings (key, value, updated_at) VALUES ('appointments', $1::jsonb, now())

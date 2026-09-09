@@ -1,4 +1,6 @@
 import { Router } from 'express';
+import { rowsToCamel } from '../services/customerService';
+import { pool } from '../config/db';
 import { z } from 'zod';
 import { authenticate, authorize } from '../middleware/auth';
 import { technicianScope, assertAppointmentAccess } from '../middleware/scope';
@@ -62,6 +64,37 @@ router.get(
       offset,
     );
     ok(res, { ...result, page, pageSize });
+  }),
+);
+
+/**
+ * What the office still has to place on the calendar: upcoming appointments
+ * without a technician, and recurring plans due soon with no visit created
+ * (usually because the customer has no service address yet).
+ */
+router.get(
+  '/needs-scheduling',
+  authorize('appointments:read', 'appointments:write'),
+  asyncHandler(async (_req, res) => {
+    const unassigned = await pool.query(
+      `${'SELECT a.id, a.customer_id, a.scheduled_date, a.window_start, a.window_end, a.recurring_charge_id, c.first_name, c.last_name, c.company, sl.address_line1, sl.city'}
+       FROM appointments a JOIN customers c ON c.id = a.customer_id JOIN service_locations sl ON sl.id = a.service_location_id
+       WHERE a.deleted_at IS NULL AND a.status = 'scheduled' AND a.technician_id IS NULL
+         AND a.scheduled_date BETWEEN CURRENT_DATE AND CURRENT_DATE + 14
+       ORDER BY a.scheduled_date, a.window_start`,
+    );
+    const plans = await pool.query(
+      `SELECT rc.id AS recurring_charge_id, rc.customer_id, rc.next_due_date, rc.frequency, rc.amount, c.first_name, c.last_name, c.company,
+              (SELECT count(*)::int FROM service_locations sl WHERE sl.customer_id = c.id AND sl.deleted_at IS NULL) AS location_count
+       FROM recurring_charges rc JOIN customers c ON c.id = rc.customer_id AND c.deleted_at IS NULL AND c.status <> 'inactive'
+       WHERE rc.active = true AND rc.next_due_date IS NOT NULL AND rc.next_due_date <= CURRENT_DATE + 14
+         AND NOT EXISTS (SELECT 1 FROM appointments a WHERE a.recurring_charge_id = rc.id AND a.deleted_at IS NULL AND a.status <> 'cancelled' AND a.scheduled_date >= CURRENT_DATE)
+       ORDER BY rc.next_due_date`,
+    );
+    ok(res, {
+      unassigned: rowsToCamel(unassigned.rows).map((r: any) => ({ ...r, kind: 'unassigned' })),
+      duePlans: rowsToCamel(plans.rows).map((r: any) => ({ ...r, kind: 'due_plan', reason: r.locationCount ? 'No visit on the calendar yet' : 'Customer has no service address' })),
+    });
   }),
 );
 

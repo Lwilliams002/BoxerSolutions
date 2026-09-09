@@ -40,7 +40,16 @@ interface Appointment {
   technicianId: string | null;
   technicianName: string | null;
   services: { name: string; durationMinutes?: number | null }[] | null;
+  recurringChargeId?: string | null;
+  recurringFrequency?: string | null;
 }
+
+interface NeedsScheduling {
+  unassigned: { id: string; customerId: string; scheduledDate: string; windowStart: string; firstName: string; lastName: string; company: string | null; addressLine1: string; city: string }[];
+  duePlans: { recurringChargeId: string; customerId: string; nextDueDate: string; frequency: string; amount: string; firstName: string; lastName: string; company: string | null; reason: string }[];
+}
+
+const FREQUENCY_LABEL: Record<string, string> = { weekly: 'Weekly', biweekly: 'Every 2 weeks', monthly: 'Monthly', bimonthly: 'Every 2 months' };
 
 interface ListResponse<T> { items: T[]; page: number; pageSize: number; total: number }
 interface Lane { id: string | null; name: string; color: string }
@@ -118,6 +127,12 @@ export default function ScheduleScreen() {
     queryFn: () => api<ListResponse<Appointment>>(`/appointments?date=${selectedDate}&pageSize=500`),
   });
   const techQuery = useQuery({ queryKey: ['technicians'], queryFn: () => api<Technician[]>('/users/technicians') });
+  const needsQuery = useQuery({
+    queryKey: ['needs-scheduling'],
+    queryFn: () => api<NeedsScheduling>('/appointments/needs-scheduling'),
+    enabled: canWrite,
+    refetchInterval: 120_000,
+  });
   const weekQuery = useQuery({
     queryKey: ['schedule-week', weekStart],
     queryFn: () => api<ListResponse<Appointment>>(`/appointments?from=${weekStart}&to=${addDays(weekStart, 6)}&pageSize=700`),
@@ -190,6 +205,7 @@ export default function ScheduleScreen() {
   };
 
   const refresh = () => {
+    void needsQuery.refetch();
     void appointmentsQuery.refetch();
     if (mode === 'week') void weekQuery.refetch();
     void techQuery.refetch();
@@ -224,6 +240,42 @@ export default function ScheduleScreen() {
 
       <SyncBanner />
 
+      {canWrite && needsQuery.data && (needsQuery.data.unassigned.length || needsQuery.data.duePlans.length) ? (
+        <View style={styles.needsWrap}>
+          <Text style={styles.needsTitle}>Needs scheduling · {needsQuery.data.unassigned.length + needsQuery.data.duePlans.length}</Text>
+          <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.needsRow} contentContainerStyle={{ paddingHorizontal: 12, alignItems: 'center', gap: 8 }}>
+            {needsQuery.data.unassigned.map((u) => (
+              <View key={u.id} style={styles.needsCard}>
+                <Text style={styles.needsName} numberOfLines={1}>{u.company ?? `${u.firstName} ${u.lastName}`}</Text>
+                <Text style={styles.needsMeta} numberOfLines={1}>{fmtDate(u.scheduledDate)} · {fmtTime(u.windowStart)} · no technician</Text>
+                <TouchableOpacity
+                  style={styles.needsBtn}
+                  onPress={async () => {
+                    try {
+                      const appt = await api<Appointment>(`/appointments/${u.id}`);
+                      setSelectedDate(String(appt.scheduledDate).slice(0, 10));
+                      openAppointment(appt);
+                      setEditorMode('reassign');
+                    } catch (e) { notify('Unable to open appointment', (e as Error).message); }
+                  }}
+                >
+                  <Text style={styles.needsBtnText}>Assign tech</Text>
+                </TouchableOpacity>
+              </View>
+            ))}
+            {needsQuery.data.duePlans.map((p) => (
+              <View key={p.recurringChargeId} style={styles.needsCard}>
+                <Text style={styles.needsName} numberOfLines={1}>{p.company ?? `${p.firstName} ${p.lastName}`}</Text>
+                <Text style={styles.needsMeta} numberOfLines={1}>Due {fmtDate(p.nextDueDate)} · {FREQUENCY_LABEL[p.frequency] ?? p.frequency} · {p.reason}</Text>
+                <TouchableOpacity style={styles.needsBtn} onPress={() => router.push({ pathname: '/appointment/new', params: { customerId: p.customerId } })}>
+                  <Text style={styles.needsBtnText}>Schedule</Text>
+                </TouchableOpacity>
+              </View>
+            ))}
+          </ScrollView>
+        </View>
+      ) : null}
+
       {appointmentsQuery.isLoading || techQuery.isLoading ? <Loading /> : mode === 'week' ? (
         <WeekView
           days={weekDays}
@@ -257,6 +309,13 @@ export default function ScheduleScreen() {
                   </View>
                   <StatusBadge status={selected.status} />
                 </View>
+
+                {selected.recurringChargeId ? (
+                  <View style={styles.recurringTag}>
+                    <Ionicons name="repeat-outline" size={14} color={colors.primaryDark} />
+                    <Text style={styles.recurringTagText}>Recurring visit · {FREQUENCY_LABEL[selected.recurringFrequency ?? ''] ?? 'Regular service'}</Text>
+                  </View>
+                ) : null}
 
                 {editorMode === 'actions' ? (
                   <View>
@@ -484,6 +543,16 @@ function WeekView({ days, appointments, loading, refreshing, onRefresh, onDayPre
 }
 
 const styles = StyleSheet.create({
+  needsWrap: { backgroundColor: '#FFF7E6', borderBottomWidth: 1, borderBottomColor: '#F5D9A6', paddingVertical: 8 },
+  needsTitle: { fontSize: 12, fontWeight: '900', color: '#8A5A00', textTransform: 'uppercase', letterSpacing: 0.5, paddingHorizontal: 12, marginBottom: 6 },
+  needsRow: { flexGrow: 0, flexShrink: 0, height: 78 },
+  needsCard: { width: 230, backgroundColor: '#fff', borderRadius: 12, padding: 10, borderWidth: 1, borderColor: '#F5D9A6', height: 74, justifyContent: 'space-between' },
+  needsName: { fontWeight: '800', color: colors.text, fontSize: 13 },
+  needsMeta: { fontSize: 11, color: colors.textMuted },
+  needsBtn: { alignSelf: 'flex-start', backgroundColor: colors.primary, borderRadius: 8, paddingVertical: 4, paddingHorizontal: 10 },
+  needsBtnText: { fontSize: 12, fontWeight: '800', color: '#0D0D0D' },
+  recurringTag: { flexDirection: 'row', alignItems: 'center', gap: 6, alignSelf: 'flex-start', backgroundColor: '#E8F6F2', borderRadius: 8, paddingVertical: 4, paddingHorizontal: 8, marginBottom: 10 },
+  recurringTagText: { fontSize: 12, fontWeight: '800', color: colors.primaryDark },
   screen: { flex: 1, backgroundColor: colors.bg },
   header: { backgroundColor: colors.text, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 18, paddingBottom: 14 },
   headerToggleRow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 4 },

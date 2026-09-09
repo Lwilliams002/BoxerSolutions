@@ -8,16 +8,7 @@ import {
   addServiceInterval, advanceDueDate, parseServiceFrequency,
 } from '../utils/serviceSchedule';
 
-function todayIso() {
-  const d = new Date();
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
-}
-
-function toIsoDate(value: unknown): string | null {
-  if (!value) return null;
-  if (value instanceof Date) return value.toISOString().slice(0, 10);
-  return String(value).slice(0, 10);
-}
+import { todayIso, toIsoDate } from '../utils/dates';
 
 export interface RecurringChargeUpsertOptions {
   frequency?: ServiceFrequency | null;
@@ -128,6 +119,52 @@ export const recurringChargeService = {
       params,
     );
     return { items: rows.map(mapRow), total: rows.length };
+  },
+
+  /**
+   * A recurring visit was completed: invoice the recurring amount (linked to
+   * the appointment), optionally charge the saved method, and move the plan's
+   * next due date forward.
+   */
+  async completeVisit(id: string, appointmentId: string, userId: string, opts: { charge: boolean }) {
+    const { rows } = await pool.query('SELECT * FROM recurring_charges WHERE id = $1 AND active = true', [id]);
+    const charge = rows[0];
+    if (!charge) throw ApiError.notFound('Recurring charge not found.');
+    const amount = Number(Number(charge.amount).toFixed(2));
+    const invoice = (await invoiceService.create(
+      {
+        customerId: charge.customer_id,
+        appointmentId,
+        dueDate: todayIso(),
+        taxRate: 0,
+        notes: 'Recurring service charge',
+        items: [{ description: charge.description || 'Regular recurring service', quantity: 1, unitPrice: amount, taxable: false }],
+      },
+      userId,
+    )) as { id?: unknown };
+    const invoiceId = String(invoice?.id ?? '');
+    const frequency = parseServiceFrequency(charge.frequency) ?? DEFAULT_SERVICE_FREQUENCY;
+    const nextDueDate = advanceDueDate(toIsoDate(charge.next_due_date), frequency, todayIso());
+    await pool.query('UPDATE recurring_charges SET next_due_date = $2, updated_at = now() WHERE id = $1', [id, nextDueDate]);
+
+    let charged = false;
+    let reason: string | null = null;
+    if (opts.charge && invoiceId) {
+      const methods = (await paymentService.listMethods(charge.customer_id)) as Array<{ id: string; isDefault?: boolean }>;
+      const method = methods.find((m) => m.isDefault) ?? methods[0];
+      if (!method) reason = 'No saved payment method on file.';
+      else {
+        try {
+          await paymentService.chargeInvoice(invoiceId, method.id, null, userId, null, { mit: true });
+          await pool.query('UPDATE recurring_charges SET last_charged_invoice_id = $2, last_charged_at = now(), updated_at = now() WHERE id = $1', [id, invoiceId]);
+          charged = true;
+        } catch (error) {
+          reason = error instanceof Error ? error.message : 'Recurring charge failed.';
+          logger.warn({ err: error, recurringChargeId: id, invoiceId }, 'recurring visit charge failed');
+        }
+      }
+    }
+    return { invoiceId: invoiceId || null, amount, charged, reason, nextDueDate };
   },
 
   /**

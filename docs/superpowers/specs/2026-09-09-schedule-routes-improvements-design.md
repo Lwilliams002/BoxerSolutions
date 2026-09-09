@@ -11,7 +11,7 @@ Approved scope (owner, 2026-09-09): everything from the review except the Google
   - window = the customer's last completed visit's start time, else 09:00; duration 60 minutes;
   - notes "Recurring service · <frequency>".
 - Rescheduling or reassigning the visit in the app keeps the link; cancelling it leaves the plan due (a new visit is created on the next run only if the due date moves).
-- Completing a linked visit: create the invoice for the recurring amount (one line, no tax), charge the default payment method as a merchant-initiated sale when Company Settings → "Charge recurring service on completion" is on (default on), advance `next_due_date` one interval, and send the service notification email. Failures leave the invoice open and notify the office, same as the manual Charge button.
+- Completing a linked visit: create the invoice for the recurring amount (one line, no tax), charge the default payment method as a merchant-initiated sale when Company Settings → "Charge recurring service on completion" is on (default off; owner decision 2026-09-09), advance `next_due_date` one interval, and send the service notification email. Failures leave the invoice open and notify the office, same as the manual Charge button.
 
 ## 2. "Needs scheduling" strip on the Schedule tab
 
