@@ -1,5 +1,5 @@
-import React, { useMemo, useState } from 'react';
-import { Modal, RefreshControl, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
+import React, { useMemo, useRef, useState } from 'react';
+import { Animated, Modal, PanResponder, RefreshControl, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useRouter } from 'expo-router';
@@ -293,6 +293,21 @@ export default function ScheduleScreen() {
           refreshing={appointmentsQuery.isRefetching || techQuery.isRefetching}
           onRefresh={refresh}
           onAppointmentPress={openAppointment}
+          canDrag={canWrite}
+          onDrop={(appt, change) => {
+            const techLabel = change.technicianId === (appt.technicianId ?? null)
+              ? null
+              : (change.technicianId ? (techQuery.data ?? []).find((t) => t.employeeId === change.technicianId) : null);
+            const techText = change.technicianId === (appt.technicianId ?? null)
+              ? ''
+              : change.technicianId ? ` and assign to ${techLabel ? `${techLabel.firstName} ${techLabel.lastName}` : 'the selected technician'}` : ' and leave unassigned';
+            confirmAction({
+              title: 'Move appointment',
+              message: `Move ${customerName(appt)} to ${fmtTime(change.windowStart)} – ${fmtTime(change.windowEnd)}${techText}?`,
+              confirmText: 'Move',
+              onConfirm: () => reschedule.mutate({ id: appt.id, body: { scheduledDate: String(appt.scheduledDate).slice(0, 10), windowStart: change.windowStart, windowEnd: change.windowEnd, technicianId: change.technicianId } }),
+            });
+          }}
         />
       )}
 
@@ -419,13 +434,23 @@ function Choice({ label, active, onPress }: { label: string; active: boolean; on
   );
 }
 
-function DayBoard({ appointments, lanes, refreshing, onRefresh, onAppointmentPress }: {
+interface DropChange { windowStart: string; windowEnd: string; technicianId: string | null }
+
+function minutesToHHMM(total: number) {
+  const clamped = Math.max(START_HOUR * 60, Math.min(END_HOUR * 60, total));
+  return `${String(Math.floor(clamped / 60)).padStart(2, '0')}:${String(clamped % 60).padStart(2, '0')}`;
+}
+
+function DayBoard({ appointments, lanes, refreshing, onRefresh, onAppointmentPress, canDrag, onDrop }: {
   appointments: Appointment[];
   lanes: Lane[];
   refreshing: boolean;
   onRefresh: () => void;
   onAppointmentPress: (appt: Appointment) => void;
+  canDrag: boolean;
+  onDrop: (appt: Appointment, change: DropChange) => void;
 }) {
+  const [dragging, setDragging] = useState(false);
   if (!appointments.length) {
     return (
       <ScrollView refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={colors.primary} />} contentContainerStyle={styles.emptyWrap}>
@@ -447,8 +472,22 @@ function DayBoard({ appointments, lanes, refreshing, onRefresh, onAppointmentPre
     };
   });
 
+  const handleDrop = (appt: Appointment, laneIndex: number, dx: number, dy: number) => {
+    setDragging(false);
+    const startMin = minutesOf(appt.windowStart);
+    const duration = Math.max(15, minutesOf(appt.windowEnd) - startMin || appt.durationMinutes || 60);
+    const deltaMin = Math.round((dy / HOUR_HEIGHT) * 60 / 15) * 15;
+    const laneDelta = Math.round(dx / (LANE_WIDTH + 10));
+    const targetLane = lanes[Math.max(0, Math.min(lanes.length - 1, laneIndex + laneDelta))];
+    const newStart = Math.max(START_HOUR * 60, Math.min(END_HOUR * 60 - duration, startMin + deltaMin));
+    const change: DropChange = { windowStart: minutesToHHMM(newStart), windowEnd: minutesToHHMM(newStart + duration), technicianId: targetLane?.id ?? null };
+    if (change.windowStart === appt.windowStart && change.technicianId === (appt.technicianId ?? null)) return;
+    onDrop(appt, change);
+  };
+
   return (
-    <ScrollView refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={colors.primary} />}>
+    <ScrollView scrollEnabled={!dragging} refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={colors.primary} />}>
+      {canDrag ? <Text style={styles.dragHint}>Hold an appointment to drag it to a new time or technician.</Text> : null}
       <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.daySummaryRail}>
         {laneData.map((lane) => (
           <View key={lane.id ?? 'unassigned'} style={styles.daySummaryCard}>
@@ -462,7 +501,7 @@ function DayBoard({ appointments, lanes, refreshing, onRefresh, onAppointmentPre
         ))}
       </ScrollView>
 
-      <ScrollView horizontal showsHorizontalScrollIndicator contentContainerStyle={styles.boardScroll}>
+      <ScrollView horizontal scrollEnabled={!dragging} showsHorizontalScrollIndicator contentContainerStyle={styles.boardScroll}>
         <View style={styles.axisColumn}>
           <View style={styles.laneHeaderSpacer} />
           <View style={styles.axisBody}>
@@ -471,12 +510,15 @@ function DayBoard({ appointments, lanes, refreshing, onRefresh, onAppointmentPre
             ))}
           </View>
         </View>
-        {laneData.map((lane) => (
+        {laneData.map((lane, laneIndex) => (
           <LaneColumn
             key={lane.id ?? 'unassigned'}
             lane={lane}
             appointments={lane.appointments}
             onAppointmentPress={onAppointmentPress}
+            canDrag={canDrag}
+            onDragStart={() => setDragging(true)}
+            onDrop={(appt, dx, dy) => handleDrop(appt, laneIndex, dx, dy)}
           />
         ))}
       </ScrollView>
@@ -484,7 +526,59 @@ function DayBoard({ appointments, lanes, refreshing, onRefresh, onAppointmentPre
   );
 }
 
-function LaneColumn({ lane, appointments, onAppointmentPress }: { lane: Lane; appointments: Appointment[]; onAppointmentPress: (appt: Appointment) => void }) {
+const FINISHED = ['completed', 'cancelled', 'no_access'];
+
+function DraggableBlock({ appt, top, height, canDrag, onPress, onDragStart, onDrop }: {
+  appt: Appointment; top: number; height: number; canDrag: boolean;
+  onPress: () => void; onDragStart: () => void; onDrop: (dx: number, dy: number) => void;
+}) {
+  const pan = useRef(new Animated.ValueXY()).current;
+  const armed = useRef(false);
+  const [lifted, setLifted] = useState(false);
+  const responder = useRef(PanResponder.create({
+    onStartShouldSetPanResponder: () => false,
+    onMoveShouldSetPanResponder: () => armed.current,
+    onPanResponderGrant: () => { pan.setValue({ x: 0, y: 0 }); },
+    onPanResponderMove: Animated.event([null, { dx: pan.x, dy: pan.y }], { useNativeDriver: false }),
+    onPanResponderRelease: (_e, g) => {
+      armed.current = false;
+      setLifted(false);
+      pan.setValue({ x: 0, y: 0 });
+      onDrop(g.dx, g.dy);
+    },
+    onPanResponderTerminate: () => { armed.current = false; setLifted(false); pan.setValue({ x: 0, y: 0 }); },
+  })).current;
+  const color = statusColors[appt.status] ?? colors.textMuted;
+  const finished = FINISHED.includes(appt.status);
+  const draggable = canDrag && !finished;
+  return (
+    <Animated.View
+      {...(draggable ? responder.panHandlers : {})}
+      style={[styles.apptBlock, { top, height, borderLeftColor: color }, finished && styles.apptBlockDone, lifted && styles.apptBlockLifted, { transform: pan.getTranslateTransform() }]}
+    >
+      <TouchableOpacity
+        activeOpacity={0.82}
+        style={{ flex: 1 }}
+        onPress={onPress}
+        delayLongPress={250}
+        onLongPress={draggable ? () => { armed.current = true; setLifted(true); onDragStart(); } : undefined}
+      >
+        <View style={styles.apptTopRow}>
+          <Text style={styles.apptTime}>{fmtTime(appt.windowStart)} – {fmtTime(appt.windowEnd)}</Text>
+          {appt.status === 'completed' ? <Ionicons name="checkmark-circle" size={14} color={statusColors.completed} /> : null}
+          {appt.recurringChargeId ? <Ionicons name="repeat-outline" size={13} color={colors.primaryDark} /> : null}
+        </View>
+        <Text style={[styles.apptName, appt.status === 'cancelled' && styles.apptStruck]} numberOfLines={2}>{customerName(appt)}</Text>
+        <Text style={styles.apptMeta} numberOfLines={1}>{appt.status !== 'scheduled' ? `${appt.status.replace(/_/g, ' ')} · ` : ''}{appt.services?.map((s) => s.name).join(', ') || appt.addressLine1}</Text>
+      </TouchableOpacity>
+    </Animated.View>
+  );
+}
+
+function LaneColumn({ lane, appointments, onAppointmentPress, canDrag, onDragStart, onDrop }: {
+  lane: Lane; appointments: Appointment[]; onAppointmentPress: (appt: Appointment) => void;
+  canDrag: boolean; onDragStart: () => void; onDrop: (appt: Appointment, dx: number, dy: number) => void;
+}) {
   return (
     <View style={styles.lane}>
       <View style={styles.laneHeader}>
@@ -498,13 +592,17 @@ function LaneColumn({ lane, appointments, onAppointmentPress }: { lane: Lane; ap
           const top = Math.max(0, (minutesOf(appt.windowStart) - START_HOUR * 60) / 60 * HOUR_HEIGHT);
           const minutes = Math.max(30, minutesOf(appt.windowEnd) - minutesOf(appt.windowStart) || appt.durationMinutes || 60);
           const height = Math.max(54, minutes / 60 * HOUR_HEIGHT - 4);
-          const color = statusColors[appt.status] ?? colors.textMuted;
           return (
-            <TouchableOpacity key={appt.id} activeOpacity={0.82} style={[styles.apptBlock, { top, height, borderLeftColor: color }]} onPress={() => onAppointmentPress(appt)}>
-              <Text style={styles.apptTime}>{fmtTime(appt.windowStart)} – {fmtTime(appt.windowEnd)}</Text>
-              <Text style={styles.apptName} numberOfLines={2}>{customerName(appt)}</Text>
-              <Text style={styles.apptMeta} numberOfLines={1}>{appt.services?.map((s) => s.name).join(', ') || appt.addressLine1}</Text>
-            </TouchableOpacity>
+            <DraggableBlock
+              key={appt.id}
+              appt={appt}
+              top={top}
+              height={height}
+              canDrag={canDrag}
+              onPress={() => onAppointmentPress(appt)}
+              onDragStart={onDragStart}
+              onDrop={(dx, dy) => onDrop(appt, dx, dy)}
+            />
           );
         })}
       </View>
@@ -547,8 +645,8 @@ function WeekView({ days, appointments, loading, refreshing, onRefresh, onDayPre
               <View key={tech} style={styles.weekGroup}>
                 <Text style={styles.weekTech}>{tech} · {items.length}</Text>
                 {items.slice(0, 3).map((a) => (
-                  <TouchableOpacity key={a.id} style={styles.weekAppt} onPress={(e) => { e.stopPropagation(); onAppointmentPress(a); }}>
-                    <Text style={styles.weekApptText} numberOfLines={1}>{fmtTime(a.windowStart)} {customerName(a)}</Text>
+                  <TouchableOpacity key={a.id} style={[styles.weekAppt, { borderLeftColor: statusColors[a.status] ?? colors.textMuted }]} onPress={(e) => { e.stopPropagation(); onAppointmentPress(a); }}>
+                    <Text style={[styles.weekApptText, a.status === 'cancelled' && styles.apptStruck]} numberOfLines={1}>{fmtTime(a.windowStart)} {customerName(a)}{a.recurringChargeId ? ' ↻' : ''}</Text>
                     <StatusBadge status={a.status} />
                   </TouchableOpacity>
                 ))}
@@ -596,6 +694,11 @@ const styles = StyleSheet.create({
   laneBody: { height: BOARD_HEIGHT, backgroundColor: '#FFFFFF', borderWidth: 1, borderTopWidth: 0, borderColor: colors.border, position: 'relative', overflow: 'hidden' },
   hourLine: { position: 'absolute', left: 0, right: 0, height: 1, backgroundColor: colors.border },
   apptBlock: { position: 'absolute', left: 6, right: 6, backgroundColor: '#F7FFFD', borderRadius: 12, borderLeftWidth: 5, borderWidth: 1, borderColor: colors.border, padding: 8, shadowColor: colors.text, shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.08, shadowRadius: 5, elevation: 2 },
+  apptTopRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 4 },
+  apptBlockDone: { opacity: 0.6, backgroundColor: '#F3F6F5' },
+  apptBlockLifted: { shadowOpacity: 0.3, shadowRadius: 12, elevation: 8, zIndex: 50, borderColor: colors.primary },
+  apptStruck: { textDecorationLine: 'line-through', color: colors.textMuted },
+  dragHint: { fontSize: 11, color: colors.textMuted, textAlign: 'center', paddingTop: 8 },
   apptTime: { color: colors.primaryDark, fontSize: 11, lineHeight: 14, fontWeight: '900' },
   apptName: { color: colors.text, fontSize: 13, lineHeight: 16, fontWeight: '900', marginTop: 2 },
   apptMeta: { color: colors.textMuted, fontSize: 11, lineHeight: 14, marginTop: 2 },
@@ -628,7 +731,7 @@ const styles = StyleSheet.create({
   weekEmpty: { color: colors.textMuted, fontSize: 13, lineHeight: 18, fontWeight: '600' },
   weekGroup: { borderTopWidth: 1, borderColor: colors.border, paddingTop: 8, marginTop: 8 },
   weekTech: { color: colors.primaryDark, fontSize: 12, lineHeight: 16, fontWeight: '900', marginBottom: 4 },
-  weekAppt: { minHeight: 34, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
+  weekAppt: { minHeight: 34, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', borderLeftWidth: 4, borderLeftColor: colors.border, paddingLeft: 8, marginBottom: 4, borderRadius: 4 },
   weekApptText: { flex: 1, color: colors.text, fontSize: 13, lineHeight: 17, fontWeight: '700', marginRight: 8 },
   moreText: { color: colors.textMuted, fontSize: 12, lineHeight: 16, fontWeight: '700', marginTop: 2 },
   modalBackdrop: { flex: 1, justifyContent: 'flex-end', backgroundColor: 'rgba(13,13,13,0.45)' },
