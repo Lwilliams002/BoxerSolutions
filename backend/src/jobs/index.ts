@@ -4,6 +4,8 @@ import { processAutopay, sendAppointmentReminders, markPastDueInvoices } from '.
 import { notifyDueRecurringServices } from './recurringDue';
 import { geocodePendingLocations } from '../services/geocodingService';
 import { scheduleRecurringVisits } from './recurringVisits';
+import { routeService } from '../services/routeService';
+import { todayIso } from '../utils/dates';
 import { pool } from '../config/db';
 
 /**
@@ -28,7 +30,11 @@ export function startJobScheduler() {
       const dueServices = await notifyDueRecurringServices();
       const geocoding = await geocodePendingLocations();
       const recurringVisits = await scheduleRecurringVisits(systemUserId);
-      logger.info({ pastDue, reminders, recurring, autopay, dueServices, geocoding, recurringVisits }, 'background jobs cycle complete');
+      // From 5am local, keep today's routes built from the schedule (idempotent).
+      const routeBuild = new Date().getHours() >= 5
+        ? await routeService.buildForDate(todayIso(), null, systemUserId).catch((err) => { logger.warn({ err }, 'route build failed'); return null; })
+        : null;
+      logger.info({ pastDue, reminders, recurring, autopay, dueServices, geocoding, recurringVisits, routeBuild }, 'background jobs cycle complete');
     } catch (err) {
       logger.error(err, 'background job cycle failed');
     }

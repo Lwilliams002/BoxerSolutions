@@ -1,6 +1,7 @@
 import React, { useCallback, useState } from 'react';
 import { View, Text, FlatList, StyleSheet, TouchableOpacity, RefreshControl } from 'react-native';
-import { useQuery } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { confirmAction, notify } from '../../src/lib/confirm';
 import { useFocusEffect, useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -42,10 +43,36 @@ export default function RoutesScreen() {
   const weekStart = React.useMemo(() => startOfWeek(date), [date]);
   const weekEnd = React.useMemo(() => addDays(weekStart, 6), [weekStart]);
 
+  const qc = useQueryClient();
   const { data, isLoading, refetch, isRefetching } = useQuery({
     queryKey: ['routes', weekStart],
     queryFn: () => api<{ items: RouteRow[] }>(`/routes?from=${weekStart}&to=${weekEnd}`),
+    refetchInterval: 60_000,
   });
+  const canCreate = hasPermission('routes:write');
+  const unrouted = useQuery({
+    queryKey: ['unrouted', weekStart],
+    queryFn: () => api<{ items: { id: string; scheduledDate: string }[]; byDate: Record<string, number>; total: number }>(`/appointments/unrouted?from=${weekStart}&to=${weekEnd}`),
+    enabled: canCreate,
+    refetchInterval: 60_000,
+  });
+  const build = useMutation({
+    mutationFn: (buildDate: string) => api<{ added: number; routes: unknown[] }>('/routes/build', { method: 'POST', body: { date: buildDate } }),
+    onSuccess: (result, buildDate) => {
+      notify(result.added ? 'Routes built' : 'Routes up to date', result.added ? `${result.added} stop(s) added for ${fmtDate(buildDate)} and optimized.` : `Every scheduled appointment on ${fmtDate(buildDate)} is already on a route.`);
+      void qc.invalidateQueries({ queryKey: ['routes'] });
+      void qc.invalidateQueries({ queryKey: ['unrouted'] });
+    },
+    onError: (e) => notify('Unable to build routes', (e as Error).message),
+  });
+  const buildFor = (buildDate: string) =>
+    confirmAction({
+      title: 'Build routes',
+      message: `Create or top up routes for ${fmtDate(buildDate)} from every scheduled appointment with a technician, then optimize the stop order?`,
+      confirmText: 'Build',
+      onConfirm: () => build.mutate(buildDate),
+    });
+  const unroutedDays = Object.entries(unrouted.data?.byDate ?? {}).sort(([a], [b]) => a.localeCompare(b));
 
   useFocusEffect(
     useCallback(() => {
@@ -54,7 +81,6 @@ export default function RoutesScreen() {
   );
 
   const items = data?.items ?? [];
-  const canCreate = hasPermission('routes:write');
 
   return (
     <View style={{ flex: 1, backgroundColor: colors.bg }}>
@@ -77,6 +103,28 @@ export default function RoutesScreen() {
       <MonthWeekPicker value={date} onChange={setDate} />
 
       <SyncBanner />
+
+      {canCreate ? (
+        <View style={styles.buildBar}>
+          <TouchableOpacity style={styles.buildBtn} onPress={() => buildFor(todayISO())} disabled={build.isPending}>
+            <Ionicons name="flash-outline" size={16} color="#0D0D0D" />
+            <Text style={styles.buildBtnText}>{build.isPending ? 'Building…' : "Build today's routes"}</Text>
+          </TouchableOpacity>
+          {unroutedDays.length ? (
+            <View style={{ flex: 1 }}>
+              {unroutedDays.map(([d, n]) => (
+                <TouchableOpacity key={d} style={styles.unroutedRow} onPress={() => buildFor(d)}>
+                  <View style={styles.unroutedBadge}><Text style={styles.unroutedBadgeText}>{n}</Text></View>
+                  <Text style={styles.unroutedText} numberOfLines={1}>not on a route · {fmtDate(d)}</Text>
+                  <Text style={styles.unroutedAction}>Add</Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+          ) : (
+            <Text style={styles.buildHint}>{unrouted.isLoading ? '' : 'All scheduled stops this week are routed.'}</Text>
+          )}
+        </View>
+      ) : null}
 
       {isLoading ? (
         <Loading />
@@ -151,6 +199,15 @@ const styles = StyleSheet.create({
     paddingVertical: 8, paddingHorizontal: 14,
   },
   createBtnText: { color: '#0D0D0D', fontWeight: '800', fontSize: 14, marginLeft: 4 },
+  buildBar: { flexDirection: 'row', alignItems: 'flex-start', gap: 10, paddingHorizontal: 16, paddingVertical: 10, backgroundColor: '#fff', borderBottomWidth: 1, borderBottomColor: colors.border },
+  buildBtn: { flexDirection: 'row', alignItems: 'center', gap: 6, backgroundColor: colors.primary, borderRadius: 12, paddingVertical: 9, paddingHorizontal: 12 },
+  buildBtnText: { fontWeight: '800', color: '#0D0D0D', fontSize: 13 },
+  buildHint: { flex: 1, fontSize: 12, color: colors.textMuted, alignSelf: 'center' },
+  unroutedRow: { flexDirection: 'row', alignItems: 'center', gap: 8, paddingVertical: 4 },
+  unroutedBadge: { minWidth: 22, height: 22, borderRadius: 11, backgroundColor: colors.danger, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 6 },
+  unroutedBadgeText: { color: '#fff', fontWeight: '800', fontSize: 12 },
+  unroutedText: { flex: 1, fontSize: 12, color: colors.text, fontWeight: '600' },
+  unroutedAction: { fontSize: 12, fontWeight: '800', color: colors.primaryDark },
   empty: { alignItems: 'center', paddingVertical: 60 },
   emptyTitle: { fontSize: 16, color: colors.textMuted, fontWeight: '600', marginTop: 12 },
   emptyAction: {

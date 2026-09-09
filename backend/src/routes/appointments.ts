@@ -1,4 +1,5 @@
 import { Router } from 'express';
+import { ApiError } from '../utils/errors';
 import { rowsToCamel } from '../services/customerService';
 import { pool } from '../config/db';
 import { z } from 'zod';
@@ -95,6 +96,33 @@ router.get(
       unassigned: rowsToCamel(unassigned.rows).map((r: any) => ({ ...r, kind: 'unassigned' })),
       duePlans: rowsToCamel(plans.rows).map((r: any) => ({ ...r, kind: 'due_plan', reason: r.locationCount ? 'No visit on the calendar yet' : 'Customer has no service address' })),
     });
+  }),
+);
+
+/** Scheduled appointments with a technician that are not on any route yet, plus per-day counts. */
+router.get(
+  '/unrouted',
+  authorize('appointments:read', 'routes:write'),
+  asyncHandler(async (req, res) => {
+    const from = String(req.query.from ?? '').slice(0, 10);
+    const to = String(req.query.to ?? '').slice(0, 10);
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(from) || !/^\d{4}-\d{2}-\d{2}$/.test(to)) throw ApiError.badRequest('from and to (YYYY-MM-DD) are required');
+    const { rows } = await pool.query(
+      `SELECT a.id, a.customer_id, a.scheduled_date, a.window_start, a.technician_id,
+              c.first_name, c.last_name, c.company, tu.first_name || ' ' || tu.last_name AS technician_name
+       FROM appointments a
+       JOIN customers c ON c.id = a.customer_id
+       LEFT JOIN employees te ON te.id = a.technician_id LEFT JOIN users tu ON tu.id = te.user_id
+       WHERE a.deleted_at IS NULL AND a.status = 'scheduled' AND a.technician_id IS NOT NULL
+         AND a.scheduled_date BETWEEN $1 AND $2
+         AND NOT EXISTS (SELECT 1 FROM route_stops rs WHERE rs.appointment_id = a.id)
+       ORDER BY a.scheduled_date, a.window_start`,
+      [from, to],
+    );
+    const items = rowsToCamel(rows);
+    const byDate: Record<string, number> = {};
+    for (const r of items as Array<{ scheduledDate: string }>) byDate[String(r.scheduledDate).slice(0, 10)] = (byDate[String(r.scheduledDate).slice(0, 10)] ?? 0) + 1;
+    ok(res, { items, byDate, total: items.length });
   }),
 );
 

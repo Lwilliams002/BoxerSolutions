@@ -327,6 +327,26 @@ export default function ScheduleScreen() {
                       <Ionicons name="person-outline" size={20} color={colors.primaryDark} />
                       <Text style={styles.actionText}>Open customer</Text>
                     </TouchableOpacity>
+                    {canWrite && selected.technicianId && selected.status === 'scheduled' ? (
+                      <TouchableOpacity
+                        style={styles.actionRow}
+                        onPress={() => {
+                          const date = String(selected.scheduledDate).slice(0, 10);
+                          const techId = selected.technicianId;
+                          void (async () => {
+                            try {
+                              const result = await api<{ added: number }>('/routes/build', { method: 'POST', body: { date, technicianId: techId } });
+                              notify(result.added ? 'Added to route' : 'Already on the route', result.added ? `${selected.technicianName ?? 'The technician'}'s route for ${fmtDate(date)} now includes this stop.` : 'This appointment was already on the route.');
+                              void qc.invalidateQueries({ queryKey: ['routes'] });
+                              void qc.invalidateQueries({ queryKey: ['unrouted'] });
+                            } catch (e) { notify('Unable to add to route', (e as Error).message); }
+                          })();
+                        }}
+                      >
+                        <Ionicons name="navigate-outline" size={20} color={colors.primaryDark} />
+                        <Text style={styles.actionText}>Add to {selected.technicianName ? `${selected.technicianName.split(' ')[0]}'s` : 'the'} route</Text>
+                      </TouchableOpacity>
+                    ) : null}
                     {canWrite ? (
                       <>
                         <TouchableOpacity style={styles.actionRow} onPress={() => setEditorMode('reschedule')}>

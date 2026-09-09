@@ -53,6 +53,20 @@ router.post(
   }),
 );
 
+/** Build today's (or any day's) routes from scheduled appointments. */
+router.post(
+  '/build',
+  authorize('routes:write'),
+  asyncHandler(async (req, res) => {
+    const body = z.object({
+      date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+      technicianId: z.string().uuid().nullish(),
+    }).parse(req.body ?? {});
+    const result = await routeService.buildForDate(body.date, body.technicianId ?? null, req.user!.id);
+    ok(res, result, result.added ? `${result.added} stop(s) added to ${result.routes.length} route(s)` : 'Routes are up to date');
+  }),
+);
+
 router.post(
   '/:id/stops',
   authorize('routes:write'),

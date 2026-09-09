@@ -1,3 +1,5 @@
+import { toIsoDate } from '../utils/dates';
+import { logger } from '../utils/logger';
 import { pool, withTransaction } from '../config/db';
 import { ApiError } from '../utils/errors';
 import { recordAudit } from './auditService';
@@ -80,6 +82,41 @@ export const routeService = {
     return this.getById(rows[0].id);
   },
 
+  /**
+   * Build (or top up) the day's route for one technician, or for every
+   * technician with appointments that day: create the route if missing, add
+   * every scheduled appointment that is not on a route yet, then optimize.
+   * Idempotent — running it again only adds newly scheduled stops.
+   */
+  async buildForDate(routeDate: string, technicianId: string | null, userId: string) {
+    const techs = technicianId
+      ? [technicianId]
+      : (await pool.query(
+          `SELECT DISTINCT technician_id FROM appointments
+           WHERE scheduled_date = $1 AND deleted_at IS NULL AND technician_id IS NOT NULL AND status NOT IN ('cancelled','completed','no_access')`,
+          [routeDate],
+        )).rows.map((r) => String(r.technician_id));
+    const summary: { technicianId: string; routeId: string; added: number; optimized: boolean }[] = [];
+    for (const tech of techs) {
+      const route = (await this.createOrGet(routeDate, tech, userId)) as { id: string };
+      const missing = await pool.query(
+        `SELECT a.id FROM appointments a
+         WHERE a.scheduled_date = $1 AND a.technician_id = $2 AND a.deleted_at IS NULL
+           AND a.status NOT IN ('cancelled','completed','no_access')
+           AND NOT EXISTS (SELECT 1 FROM route_stops rs WHERE rs.appointment_id = a.id)
+         ORDER BY a.window_start`,
+        [routeDate, tech],
+      );
+      for (const row of missing.rows) await this.addStop(route.id, String(row.id), userId);
+      let optimized = false;
+      if (missing.rows.length) {
+        try { await this.optimize(route.id, userId); optimized = true; } catch (err) { logger.info({ err, routeId: route.id }, 'route build: optimize skipped'); }
+      }
+      summary.push({ technicianId: tech, routeId: route.id, added: missing.rows.length, optimized });
+    }
+    return { routeDate, routes: summary, added: summary.reduce((s, r) => s + r.added, 0) };
+  },
+
   /** Add an appointment to a route as the last stop. */
   async addStop(routeId: string, appointmentId: string, userId: string) {
     return withTransaction(async (tx) => {
@@ -87,7 +124,7 @@ export const routeService = {
       if (!route.rows[0]) throw ApiError.notFound('Route not found');
       const appt = await tx.query('SELECT * FROM appointments WHERE id = $1 AND deleted_at IS NULL', [appointmentId]);
       if (!appt.rows[0]) throw ApiError.notFound('Appointment not found');
-      if (appt.rows[0].scheduled_date.toISOString().slice(0, 10) !== route.rows[0].route_date.toISOString().slice(0, 10)) {
+      if (toIsoDate(appt.rows[0].scheduled_date) !== toIsoDate(route.rows[0].route_date)) {
         throw ApiError.badRequest('Appointment date does not match route date');
       }
       // Keep the appointment's technician in sync with the route.
