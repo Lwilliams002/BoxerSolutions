@@ -72,7 +72,7 @@ ${body}
 <footer><div class="wrap">
   <div><h4>${e(c.name)}</h4>${c.addressLines.map((l) => `<div>${e(l)}</div>`).join('')}<div>${e(c.license)}</div></div>
   <div><h4>Customer Service</h4><div><a href="tel:${e(c.phone.replace(/\D/g, ''))}">${e(c.phone)}</a></div><div><a href="mailto:${e(c.email)}">${e(c.email)}</a></div><div>Mon–Fri 8am–6pm · Sat 9am–2pm</div></div>
-  <div><h4>Policies</h4><div><a href="${b}/privacy">Privacy Policy</a></div><div><a href="${b}/terms">Terms of Service</a></div><div><a href="${b}/refund-policy">Refund &amp; Cancellation Policy</a></div><div><a href="${b}/contact">Contact Us</a></div></div>
+  <div><h4>Policies</h4><div><a href="${b}/privacy">Privacy Policy</a></div><div><a href="${b}/terms">Terms of Service</a></div><div><a href="${b}/refund-policy">Refund &amp; Cancellation Policy</a></div><div><a href="${b}/recurring-billing">Recurring Billing Terms</a></div><div><a href="${b}/contact">Contact Us</a></div></div>
   <div><h4>Payments</h4><div>We accept Visa, Mastercard, American Express, Discover and bank (ACH) payments through our secure mobile app and emailed payment links. Card details are entered only in our payment processor's secure form and are never stored on our systems.</div><div style="margin-top:10px">© ${ctx.year} ${e(c.name)}. All rights reserved.</div></div>
 </div></footer>
 </body></html>`;
@@ -260,6 +260,8 @@ function terms(ctx: SiteContext) {
   <p>You may cancel a service agreement at any time before midnight of the third business day after the date you signed it by giving written notice to ${e(c.name)}. See our <a href="${ctx.base}/refund-policy">Refund &amp; Cancellation Policy</a>.</p>
   <h2>Pricing and payment</h2>
   <p>Prices are stated on your agreement and on our published price sheet. The initial service is due upon completion of the initial treatment. Regular service is due at each scheduled treatment. Invoices are payable by card or bank (ACH) in our app, by emailed payment link, or by check. By saving a payment method or signing an ACH authorization you authorize us to charge the amounts due under your agreement.</p>
+  <h2>Recurring billing</h2>
+  <p>Regular service under an agreement is billed per treatment at the frequency you chose. The full terms, including amounts, timing, authorization and how to cancel, are in our <a href="${ctx.base}/recurring-billing">Recurring Billing Terms</a>.</p>
   <h2>Re-treatment guarantee</h2>
   <p>If covered pest activity persists between scheduled visits, we will re-treat at no additional charge. Call ${e(c.phone)} to schedule.</p>
   <h2>Access and safety</h2>
@@ -280,7 +282,7 @@ function refunds(ctx: SiteContext) {
   <h2>Cancelling a new agreement</h2>
   <p>You may cancel a service agreement for a full refund of any amount paid, provided no service has been performed, by notifying us in writing before midnight of the third business day after signing. Email <a href="mailto:${e(c.email)}">${e(c.email)}</a> or call ${e(c.phone)}.</p>
   <h2>Cancelling recurring service</h2>
-  <p>You may stop recurring service at any time by contacting us. You will not be charged for treatments after your cancellation date. Treatments already performed are not refundable. If your agreement included an initial service discount and is cancelled before the end of its term, the discount is repayable as stated on the agreement.</p>
+  <p>Recurring charges are governed by our <a href="${ctx.base}/recurring-billing">Recurring Billing Terms</a>. You may stop recurring service at any time by contacting us. You will not be charged for treatments after your cancellation date. Treatments already performed are not refundable. If your agreement included an initial service discount and is cancelled before the end of its term, the discount is repayable as stated on the agreement.</p>
   <h2>Service problems</h2>
   <p>If you are not satisfied with a treatment, tell us within 30 days and we will re-treat at no charge. If we cannot resolve the problem, we will refund the charge for that treatment.</p>
   <h2>Billing errors and duplicate charges</h2>
@@ -293,12 +295,37 @@ function refunds(ctx: SiteContext) {
   return layout(ctx, { title: 'Refund & Cancellation Policy', description: `Refund and cancellation terms for ${c.name} services.`, path: '/refund-policy' }, body);
 }
 
+function recurringBilling(ctx: SiteContext) {
+  const c = ctx.company;
+  const body = `
+<section><div class="wrap legal">
+  <h1>Recurring Billing Terms</h1>
+  <p class="sub">These terms apply to customers who sign a service agreement with ${e(c.name)} for regular pest control service.</p>
+  <h2>What is billed</h2>
+  <p>Your service agreement lists two prices: a one-time <b>initial service</b> charge, and a <b>regular service</b> charge billed each time we perform a scheduled treatment. Both amounts, and the service frequency you selected (weekly, every two weeks, monthly, or every two months), are printed on the agreement together with a schedule of the charges across the ${TERM_MONTHS}-month term. Published starting prices are on our <a href="${ctx.base}/#pricing">price sheet</a>.</p>
+  <h2>When you are charged</h2>
+  <p>The initial service charge is due when the initial treatment is completed. Each regular service charge is due when that treatment is completed; it is never charged in advance. If a visit is skipped or cancelled, you are not charged for it. Prices do not change during the term of your agreement.</p>
+  <h2>How you authorize recurring charges</h2>
+  <p>By signing the agreement and saving a card or bank account through our secure payment form, or by signing the ACH authorization, you authorize ${e(c.name)} to charge that payment method for the amounts due under your agreement after each completed service. You will receive an itemized service notification and receipt by email for every charge. Card and bank details are entered only in our payment processor's secure form and are never stored on our systems.</p>
+  <h2>How to cancel</h2>
+  <p>You may cancel recurring service at any time by calling ${e(c.phone)} or emailing <a href="mailto:${e(c.email)}">${e(c.email)}</a>. Cancellation takes effect immediately for future visits; you will not be charged for treatments after your cancellation date. Treatments already performed are not refundable. If your agreement included an initial service discount and is cancelled before the end of its term, that discount is repayable as stated on the agreement. You may also cancel a new agreement in full within three business days of signing as described in our <a href="${ctx.base}/refund-policy">Refund &amp; Cancellation Policy</a>.</p>
+  <h2>Declined or failed payments</h2>
+  <p>If a recurring charge is declined, we will notify you by email and may retry the charge or ask you for another payment method. Service may be paused until the balance is paid.</p>
+  <h2>Changes to these terms</h2>
+  <p>We will notify you by email at least 30 days before any change to these terms or to your recurring price takes effect.</p>
+  <h2>Contact</h2>
+  <p>${e(c.name)}${c.addressLines.length ? ` · ${e(c.addressLines.join(', '))}` : ''} · ${e(c.phone)} · <a href="mailto:${e(c.email)}">${e(c.email)}</a></p>
+</div></section>`;
+  return layout(ctx, { title: 'Recurring Billing Terms', description: `How ${c.name} bills recurring pest control service and how to cancel.`, path: '/recurring-billing' }, body);
+}
+
 export const SITE_PAGES: SitePage[] = [
   { path: '/', title: 'Home', description: 'Pest control in South Florida', render: home },
   { path: '/contact', title: 'Contact', description: 'Contact us', render: contact },
   { path: '/privacy', title: 'Privacy Policy', description: 'Privacy policy', render: privacy },
   { path: '/terms', title: 'Terms of Service', description: 'Terms of service', render: terms },
   { path: '/refund-policy', title: 'Refund & Cancellation Policy', description: 'Refund policy', render: refunds },
+  { path: '/recurring-billing', title: 'Recurring Billing Terms', description: 'Recurring billing terms', render: recurringBilling },
 ];
 
 export function renderSitemap(origin: string) {

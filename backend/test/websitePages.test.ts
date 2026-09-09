@@ -34,6 +34,13 @@ test('estimate form re-fills values and shows notices', () => {
   assert.ok(html.includes('<option selected>Termites</option>'));
 });
 
+test('recurring billing terms page states timing, authorization and cancellation', () => {
+  const html = SITE_PAGES.find((p) => p.path === '/recurring-billing')!.render(ctx);
+  for (const needle of ['When you are charged', 'never charged in advance', 'How you authorize recurring charges', 'How to cancel', '(305) 713-5011']) assert.ok(html.includes(needle), `missing ${needle}`);
+  const footer = SITE_PAGES.find((p) => p.path === '/')!.render(ctx);
+  assert.ok(footer.includes('href="/recurring-billing"'));
+});
+
 test('preview base prefixes links when served under /site', () => {
   const html = SITE_PAGES.find((p) => p.path === '/')!.render({ ...ctx, base: '/site' });
   assert.ok(html.includes('href="/site/privacy"'));
