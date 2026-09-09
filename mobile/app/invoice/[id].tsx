@@ -1,5 +1,5 @@
 import React, { useMemo, useState } from 'react';
-import { View, Text, ScrollView, StyleSheet, Alert, Linking, TextInput } from 'react-native';
+import { View, Text, ScrollView, StyleSheet, Alert, Linking, TextInput, TouchableOpacity } from 'react-native';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { api, newIdempotencyKey } from '../../src/lib/api';
@@ -84,6 +84,13 @@ export default function InvoiceScreen() {
   const hasPermission = useAuth((s) => s.hasPermission);
   const [busy, setBusy] = useState<string | null>(null);
   const [refundAmountByPayment, setRefundAmountByPayment] = useState<Record<string, string>>({});
+  // Payment taken outside the app (North Payments Hub virtual terminal, cash, check).
+  type OutsideMethod = 'north_hub' | 'cash' | 'check' | 'other';
+  const [recordOpen, setRecordOpen] = useState(false);
+  const [recordMethod, setRecordMethod] = useState<OutsideMethod>('north_hub');
+  const [recordAmount, setRecordAmount] = useState('');
+  const [recordRef, setRecordRef] = useState('');
+  const [recordLast4, setRecordLast4] = useState('');
 
   const { data: inv, isLoading } = useQuery({
     queryKey: ['invoice', id],
@@ -239,6 +246,39 @@ export default function InvoiceScreen() {
     });
   };
 
+  const recordOutsidePayment = () => {
+    const amount = Number(recordAmount || inv?.balanceDue || 0);
+    if (!Number.isFinite(amount) || amount <= 0) {
+      notify('Invalid amount', 'Enter the amount that was collected.');
+      return;
+    }
+    const labels: Record<OutsideMethod, string> = { north_hub: 'North Payments Hub', cash: 'cash', check: 'check', other: 'another method' };
+    confirmAction({
+      title: 'Record outside payment',
+      message: `Mark ${money(amount)} as paid by ${labels[recordMethod]}${recordRef ? ` (ref ${recordRef})` : ''}? The customer will receive a receipt email.`,
+      confirmText: 'Record payment',
+      onConfirm: async () => {
+        setBusy('record-outside');
+        try {
+          await api(`/payments/invoices/${id}/record`, {
+            method: 'POST',
+            body: { amount, method: recordMethod, reference: recordRef || null, last4: /^\d{4}$/.test(recordLast4) ? recordLast4 : null },
+          });
+          setRecordOpen(false);
+          setRecordAmount('');
+          setRecordRef('');
+          setRecordLast4('');
+          refresh();
+          notify('Payment recorded', `${money(amount)} was recorded on this invoice.`);
+        } catch (e) {
+          notify('Could not record payment', (e as Error).message);
+        } finally {
+          setBusy(null);
+        }
+      },
+    });
+  };
+
   // Same-day cancel: a reversal for a card charge, a void for an ACH debit.
   // Only for the full amount and only while nothing has been refunded.
   const voidPayment = (payment: PaymentRow) => {
@@ -341,6 +381,35 @@ export default function InvoiceScreen() {
       ) : null}
       {canCollect || hasPermission('payments:write') ? (
         <Button title="Create North Payment Link" variant="secondary" onPress={createNorthInvoiceLink} loading={busy === 'north-link'} />
+      ) : null}
+      {unpaid && canCollect ? (
+        <Button title={recordOpen ? 'Cancel' : 'Record Outside Payment'} variant="outline" onPress={() => setRecordOpen((v) => !v)} />
+      ) : null}
+      {unpaid && canCollect && recordOpen ? (
+        <Card>
+          <Value style={{ fontWeight: '800' }}>Record a payment taken outside the app</Value>
+          <Text style={styles.outsideHint}>
+            Key the card into North Payments Hub (virtual terminal), or take cash or check, then record it here. Enter the reference only — never the card number.
+          </Text>
+          <View style={styles.chipRow}>
+            {([['north_hub', 'North Payments Hub'], ['cash', 'Cash'], ['check', 'Check'], ['other', 'Other']] as [OutsideMethod, string][]).map(([key, label]) => (
+              <TouchableOpacity key={key} style={[styles.chip, recordMethod === key && styles.chipActive]} onPress={() => setRecordMethod(key)}>
+                <Text style={[styles.chipText, recordMethod === key && styles.chipTextActive]}>{label}</Text>
+              </TouchableOpacity>
+            ))}
+          </View>
+          <Label>Amount</Label>
+          <TextInput style={styles.input} keyboardType="decimal-pad" value={recordAmount} placeholder={String(Number(inv.balanceDue ?? 0).toFixed(2))} placeholderTextColor={colors.textMuted} onChangeText={setRecordAmount} />
+          <Label>{recordMethod === 'north_hub' ? 'Payments Hub transaction / auth #' : recordMethod === 'check' ? 'Check number' : 'Reference (optional)'}</Label>
+          <TextInput style={styles.input} value={recordRef} autoCapitalize="characters" onChangeText={setRecordRef} />
+          {recordMethod === 'north_hub' ? (
+            <>
+              <Label>Card last 4 (optional)</Label>
+              <TextInput style={styles.input} keyboardType="number-pad" maxLength={4} value={recordLast4} onChangeText={(t) => setRecordLast4(t.replace(/\D/g, ''))} />
+            </>
+          ) : null}
+          <Button title="Record Payment" variant="success" onPress={recordOutsidePayment} loading={busy === 'record-outside'} />
+        </Card>
       ) : null}
       {unpaid && canRequestCharge && !canCollect ? (
         <Button title="Request Owner Charge" variant="outline" onPress={requestOwnerCharge} loading={busy === 'request-charge'} />
@@ -460,6 +529,12 @@ const styles = StyleSheet.create({
   failureText: { color: colors.text, marginTop: 4, marginBottom: 8 },
   refundBox: { marginTop: 10, paddingTop: 10, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: colors.border },
   voidHint: { fontSize: 12, color: colors.textMuted, marginTop: 6, lineHeight: 16 },
+  outsideHint: { fontSize: 13, color: colors.textMuted, marginTop: 4, marginBottom: 10, lineHeight: 18 },
+  chipRow: { flexDirection: 'row', flexWrap: 'wrap', marginBottom: 8 },
+  chip: { borderWidth: 1, borderColor: colors.border, borderRadius: 18, paddingVertical: 7, paddingHorizontal: 12, marginRight: 8, marginBottom: 8, backgroundColor: '#fff' },
+  chipActive: { backgroundColor: colors.primary, borderColor: colors.primary },
+  chipText: { fontSize: 13, fontWeight: '600', color: colors.text },
+  chipTextActive: { color: '#0D0D0D', fontWeight: '800' },
   input: {
     borderWidth: 1,
     borderColor: colors.border,

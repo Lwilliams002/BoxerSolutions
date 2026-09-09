@@ -369,6 +369,40 @@ router.get(
   }),
 );
 
+const EXTERNAL_METHODS = ['north_hub', 'cash', 'check', 'other'] as const;
+const recordExternalSchema = z.object({
+  amount: z.number().positive().nullish(),
+  method: z.enum(EXTERNAL_METHODS),
+  /** Payments Hub transaction id, check number, or any reference. */
+  reference: z.string().trim().max(80).nullish(),
+  brand: z.string().trim().max(40).nullish(),
+  /** Last four digits only; never accept a full card number. */
+  last4: z.string().trim().regex(/^\d{4}$/).nullish(),
+});
+
+/**
+ * Record a payment taken outside the app — keyed into North's Payments Hub
+ * virtual terminal, cash, or check. Marks the invoice paid, issues a receipt
+ * and sends the customer's payment email. No card data is accepted here.
+ */
+router.post(
+  '/invoices/:id/record',
+  authorize('payments:collect', 'payments:write'),
+  asyncHandler(async (req, res) => {
+    const body = recordExternalSchema.parse(req.body ?? {});
+    const invoice = await pool.query('SELECT total, amount_paid FROM invoices WHERE id = $1 AND deleted_at IS NULL', [req.params.id]);
+    if (!invoice.rows[0]) throw ApiError.notFound('Invoice not found');
+    const balanceDue = Number(invoice.rows[0].total) - Number(invoice.rows[0].amount_paid);
+    const amount = body.amount ?? Number(balanceDue.toFixed(2));
+    const reference = body.reference || `EXT-${Date.now().toString(36).toUpperCase()}`;
+    const result = await paymentService.recordExternalInvoicePayment(
+      req.params.id, amount, `external_${body.method}`, reference, req.user!.id, req.user!.employeeId,
+      { brand: body.brand ?? (body.method === 'north_hub' ? 'Card (Payments Hub)' : body.method === 'cash' ? 'Cash' : body.method === 'check' ? 'Check' : 'Other'), last4: body.last4 ?? null },
+    );
+    ok(res, result, result.duplicate ? 'Payment was already recorded' : 'Payment recorded', 201);
+  }),
+);
+
 /** Same-day cancel: reversal for a card charge, void for an ACH debit. Full amount only. */
 router.post(
   '/:id/void',

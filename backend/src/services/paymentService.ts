@@ -511,6 +511,9 @@ export const paymentService = {
     if (payment.status !== 'succeeded' || Number(payment.amount) <= 0 || !payment.provider_transaction_id) {
       throw ApiError.badRequest('Only successful charge payments can be refunded');
     }
+    if (String(payment.payment_provider ?? '').startsWith('external_')) {
+      throw ApiError.badRequest('This payment was taken outside the app (Payments Hub, cash or check). Refund it where it was collected, then record a credit here.');
+    }
     const remaining = Number(payment.amount) - Number(payment.refunded_amount ?? 0);
     const isVoid = opts.mode === 'void';
     if (isVoid && Number(payment.refunded_amount ?? 0) > 0) throw ApiError.badRequest('This payment has already been partially refunded; it can no longer be voided.');
