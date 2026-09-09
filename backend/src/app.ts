@@ -33,6 +33,7 @@ import customerPortalRoutes from './routes/customerPortal';
 import serviceRequestRoutes from './routes/serviceRequests';
 import agreementRoutes from './routes/agreements';
 import recurringChargeRoutes from './routes/recurringCharges';
+import { createWebsiteRouter, websiteVhost } from './routes/website';
 
 export function createApp() {
   const app = express();
@@ -74,6 +75,12 @@ export function createApp() {
   app.use(idempotency);
 
   app.get('/health', (_req, res) => res.json({ success: true, data: { status: 'ok' }, message: null }));
+
+  // Public company website: on the marketing hostnames at /, and at /site on
+  // the API host for preview.
+  const website = createWebsiteRouter();
+  app.use(websiteVhost(website));
+  app.use('/site', website);
 
   const v1 = express.Router();
   v1.use('/auth', authRoutes);

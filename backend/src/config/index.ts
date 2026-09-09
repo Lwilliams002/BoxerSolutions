@@ -49,6 +49,11 @@ export const config = {
   databaseUrl: required('DATABASE_URL'),
   /** Business timezone; applied to the Node process and every DB session so dates mean the office's day. */
   timezone: process.env.APP_TIMEZONE ?? 'America/New_York',
+  website: {
+    /** Hostnames that serve the public company website instead of the API. */
+    hosts: (process.env.WEBSITE_HOSTS ?? 'boxersolutionspestcontrol.com,www.boxersolutionspestcontrol.com')
+      .split(',').map((h) => h.trim().toLowerCase()).filter(Boolean),
+  },
   jwt: {
     secret: required('JWT_SECRET'),
     accessTtlSeconds: parseInt(process.env.JWT_ACCESS_TTL ?? '900', 10),
