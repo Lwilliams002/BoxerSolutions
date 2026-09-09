@@ -47,6 +47,8 @@ export const config = {
   env: process.env.NODE_ENV ?? 'development',
   port: parseInt(process.env.PORT ?? '4000', 10),
   databaseUrl: required('DATABASE_URL'),
+  /** Business timezone; applied to the Node process and every DB session so dates mean the office's day. */
+  timezone: process.env.APP_TIMEZONE ?? 'America/New_York',
   jwt: {
     secret: required('JWT_SECRET'),
     accessTtlSeconds: parseInt(process.env.JWT_ACCESS_TTL ?? '900', 10),
@@ -114,3 +116,6 @@ export const config = {
   },
   routeOptimizer: process.env.ROUTE_OPTIMIZER ?? 'nearest-neighbor',
 };
+
+// Node re-reads TZ when it changes; set it before any Date formatting happens.
+if (!process.env.TZ) process.env.TZ = config.timezone;

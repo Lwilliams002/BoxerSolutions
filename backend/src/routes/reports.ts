@@ -1,4 +1,5 @@
 import { Router } from 'express';
+import { todayIso } from '../utils/dates';
 import { z } from 'zod';
 import { authenticate, authorize } from '../middleware/auth';
 import { asyncHandler } from '../utils/asyncHandler';
@@ -19,8 +20,8 @@ function dateRange(query: Record<string, unknown>) {
   const today = new Date();
   const thirtyDaysAgo = new Date(today.getTime() - 30 * 86400_000);
   return {
-    from: parsed.from ?? thirtyDaysAgo.toISOString().slice(0, 10),
-    to: parsed.to ?? today.toISOString().slice(0, 10),
+    from: parsed.from ?? todayIso(thirtyDaysAgo),
+    to: parsed.to ?? todayIso(today),
     technicianId: parsed.technicianId,
   };
 }

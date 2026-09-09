@@ -475,7 +475,7 @@ export default function AgreementScreen() {
                 method: 'POST',
                 body: {
                   customerId: targetCustomerId,
-                  dueDate: new Date().toISOString().slice(0, 10),
+                  dueDate: todayIso(),
                   taxRate: 0,
                   notes: isUpdate ? 'Agreement update charge (new services)' : 'Initial agreement charge',
                   items: initialChargeItems,

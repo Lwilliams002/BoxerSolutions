@@ -10,6 +10,7 @@ import {
   renderServiceNotificationHtml, renderServiceNotificationText,
 } from '../content/serviceNotificationEmail';
 import { getCompanyInfo } from './settingsService';
+import { parseIsoDateLocal } from '../utils/dates';
 import { escapeHtml } from '../content/serviceNotificationEmail';
 
 export type CommunicationChannel = 'sms' | 'email' | 'push';
@@ -45,7 +46,7 @@ const DEFAULT_CHANNEL: Record<CommunicationTemplateKey, CommunicationChannel> = 
 };
 
 function fmtDate(value: string | Date) {
-  const date = value instanceof Date ? value : new Date(value);
+  const date = value instanceof Date ? value : (/^\d{4}-\d{2}-\d{2}$/.test(String(value)) ? parseIsoDateLocal(String(value)) : new Date(value));
   return date.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
 }
 

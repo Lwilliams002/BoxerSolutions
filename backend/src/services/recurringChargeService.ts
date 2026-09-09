@@ -147,7 +147,7 @@ export const recurringChargeService = {
     const invoice = (await invoiceService.create(
       {
         customerId: charge.customer_id,
-        dueDate: new Date().toISOString().slice(0, 10),
+        dueDate: todayIso(),
         taxRate: 0,
         notes: 'Recurring service charge',
         items: [

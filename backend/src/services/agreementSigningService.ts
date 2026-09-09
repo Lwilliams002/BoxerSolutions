@@ -8,6 +8,7 @@ import { invoiceService } from './invoiceService';
 import { paymentService } from './paymentService';
 import { recurringChargeService } from './recurringChargeService';
 import { CompanyInfo, getCompanyInfo } from './settingsService';
+import { todayIso } from '../utils/dates';
 import { DEFAULT_SERVICE_FREQUENCY, SERVICE_FREQUENCY_LABELS, ServiceFrequency, buildChargeSchedule, parseServiceFrequency } from '../utils/serviceSchedule';
 import { northGatewayService } from './northGatewayService';
 import { logger } from '../utils/logger';
@@ -238,7 +239,7 @@ async function buildSignedAgreementPdf(input: {
 
     // Charge schedule across the term, like the customer saw when signing.
     const schedule = buildChargeSchedule({
-      startDate: new Date().toISOString().slice(0, 10),
+      startDate: todayIso(),
       frequency,
       termMonths,
       initialAmount: input.agreement?.isUpdate ? (input.agreement.initialDueNow ?? 0) : initialTotal,
@@ -513,7 +514,7 @@ async function chargeSignedAgreementInitial(customerId: string, agreement: Agree
   try {
     const invoice = await invoiceService.create({
      customerId,
-     dueDate: new Date().toISOString().slice(0, 10),
+     dueDate: todayIso(),
      taxRate: 0,
      notes: agreement.isUpdate ? 'Agreement update charge (new services)' : 'Initial agreement charge',
      items: [{
