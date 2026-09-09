@@ -450,7 +450,10 @@ export default function AgreementScreen() {
         // New customers: invoice the full initial total. Updates: invoice only
         // the items that are new versus the current agreement. Charge it right
         // away when a payment method is already on file.
-        if ((!existingCustomerId || isUpdate) && chargeTotal > 0.009) {
+        // Every signing that carries an initial amount is invoiced: a new
+        // customer or a fresh "Add Agreement" gets the full initial total,
+        // an update only the newly added items (chargeItems handles both).
+        if (chargeTotal > 0.009) {
           try {
             const initialChargeItems = chargeItems
               .map((item) => ({
