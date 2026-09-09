@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { View, Text, ScrollView, StyleSheet, Image, TextInput } from 'react-native';
+import { View, Text, ScrollView, StyleSheet, Image, TextInput, TouchableOpacity } from 'react-native';
 import * as ImagePicker from 'expo-image-picker';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useLocalSearchParams, useRouter } from 'expo-router';
@@ -36,7 +36,11 @@ interface ApptDetail {
   recurringChargeId?: string | null;
   recurringFrequency?: string | null;
   recurringAmount?: string | number | null;
+  products?: { id: string; productId: string; name: string; quantity: string | number; unit: string; applicationMethod: string | null; targetPests: string | null }[] | null;
 }
+
+interface CatalogProduct { id: string; name: string; unit: string; defaultQuantity: string | number }
+interface UsedProduct { productId: string; name: string; quantity: string; unit: string; applicationMethod: string }
 
 interface NoteRow { id: string; body: string; createdAt: string; authorName: string }
 
@@ -46,6 +50,8 @@ export default function StopScreen() {
   const qc = useQueryClient();
   const [busy, setBusy] = useState<string | null>(null);
   const [noteText, setNoteText] = useState('');
+  const [used, setUsed] = useState<UsedProduct[] | null>(null);
+  const catalog = useQuery({ queryKey: ['products'], queryFn: () => api<{ items: CatalogProduct[]; applicationMethods: string[] }>('/products') });
   const [localPhotos, setLocalPhotos] = useState<string[]>([]);
 
   const { data: appt, isLoading } = useQuery({
@@ -208,6 +214,28 @@ export default function StopScreen() {
     });
   };
 
+  const usedList: UsedProduct[] = used ?? (appt?.products ?? []).map((p) => ({ productId: p.productId, name: p.name, quantity: String(Number(p.quantity)), unit: p.unit, applicationMethod: p.applicationMethod ?? '' }));
+  const toggleProduct = (c: CatalogProduct) => {
+    const exists = usedList.some((u) => u.productId === c.id);
+    setUsed(exists ? usedList.filter((u) => u.productId !== c.id) : [...usedList, { productId: c.id, name: c.name, quantity: String(Number(c.defaultQuantity) || 1), unit: c.unit, applicationMethod: '' }]);
+  };
+  const updateUsed = (productId: string, patch: Partial<UsedProduct>) => setUsed(usedList.map((u) => (u.productId === productId ? { ...u, ...patch } : u)));
+  const saveProducts = async () => {
+    setBusy('products');
+    try {
+      await api(`/appointments/${id}/products`, {
+        method: 'POST',
+        body: { items: usedList.map((u) => ({ productId: u.productId, quantity: Number(u.quantity) || 0, unit: u.unit, applicationMethod: u.applicationMethod || null })) },
+      });
+      notify('Products saved', usedList.length ? `${usedList.length} product${usedList.length === 1 ? '' : 's'} recorded for this visit.` : 'No products recorded.');
+      void qc.invalidateQueries({ queryKey: ['appointment', id] });
+    } catch (e) {
+      notify('Could not save products', (e as Error).message);
+    } finally {
+      setBusy(null);
+    }
+  };
+
   if (isLoading || !appt) return <Loading />;
 
   const name = appt.customerCompany ?? `${appt.customerFirstName} ${appt.customerLastName}`;
@@ -275,6 +303,42 @@ export default function StopScreen() {
           <Button title="No Access" variant="danger" onPress={() => setStatus('no_access')} loading={busy === 'no_access'} />
         )}
 
+        {(appt.status === 'in_progress' || appt.status === 'arrived' || appt.status === 'completed') && (
+          <>
+            <SectionTitle>Products Used ({usedList.length})</SectionTitle>
+            <Card>
+              <Text style={styles.productHint}>Tap the products applied on this visit. They print on the customer's service report.</Text>
+              <View style={styles.productGrid}>
+                {(catalog.data?.items ?? []).map((c) => {
+                  const on = usedList.some((u) => u.productId === c.id);
+                  return (
+                    <TouchableOpacity key={c.id} style={[styles.productChip, on && styles.productChipOn]} onPress={() => toggleProduct(c)}>
+                      <Text style={[styles.productChipText, on && styles.productChipTextOn]}>{c.name}</Text>
+                    </TouchableOpacity>
+                  );
+                })}
+              </View>
+              {usedList.map((u) => (
+                <View key={u.productId} style={styles.usedRow}>
+                  <Text style={styles.usedName}>{u.name}</Text>
+                  <View style={styles.usedInputs}>
+                    <TextInput style={styles.qtyInput} keyboardType="decimal-pad" value={u.quantity} onChangeText={(quantity) => updateUsed(u.productId, { quantity })} />
+                    <Text style={styles.unitText}>{u.unit}</Text>
+                  </View>
+                  <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.methodRow} contentContainerStyle={{ alignItems: 'center' }}>
+                    {(catalog.data?.applicationMethods ?? []).map((m) => (
+                      <TouchableOpacity key={m} style={[styles.methodChip, u.applicationMethod === m && styles.methodChipOn]} onPress={() => updateUsed(u.productId, { applicationMethod: u.applicationMethod === m ? '' : m })}>
+                        <Text style={[styles.methodText, u.applicationMethod === m && styles.methodTextOn]}>{m}</Text>
+                      </TouchableOpacity>
+                    ))}
+                  </ScrollView>
+                </View>
+              ))}
+              <Button title="Save Products" variant="outline" onPress={() => void saveProducts()} loading={busy === 'products'} />
+            </Card>
+          </>
+        )}
+
         {(appt.status === 'in_progress' || appt.status === 'arrived') && (
           <>
             <SectionTitle>Service Notes</SectionTitle>
@@ -337,6 +401,22 @@ export default function StopScreen() {
 }
 
 const styles = StyleSheet.create({
+  productHint: { fontSize: 12, color: colors.textMuted, marginBottom: 8, lineHeight: 16 },
+  productGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginBottom: 6 },
+  productChip: { borderWidth: 1, borderColor: colors.border, borderRadius: 16, paddingVertical: 6, paddingHorizontal: 10, backgroundColor: '#fff' },
+  productChipOn: { backgroundColor: colors.primary, borderColor: colors.primary },
+  productChipText: { fontSize: 12, fontWeight: '700', color: colors.text },
+  productChipTextOn: { color: '#0D0D0D', fontWeight: '800' },
+  usedRow: { borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: colors.border, paddingTop: 8, marginTop: 6 },
+  usedName: { fontWeight: '800', color: colors.text, fontSize: 13 },
+  usedInputs: { flexDirection: 'row', alignItems: 'center', marginTop: 4 },
+  qtyInput: { width: 70, borderWidth: 1, borderColor: colors.border, borderRadius: 8, padding: 6, color: colors.text, backgroundColor: '#fff' },
+  unitText: { marginLeft: 8, color: colors.textMuted, fontWeight: '700' },
+  methodRow: { flexGrow: 0, flexShrink: 0, height: 34, marginTop: 6 },
+  methodChip: { borderWidth: 1, borderColor: colors.border, borderRadius: 14, paddingVertical: 4, paddingHorizontal: 9, marginRight: 6, backgroundColor: '#fff' },
+  methodChipOn: { backgroundColor: '#E8F6F2', borderColor: colors.primary },
+  methodText: { fontSize: 11, fontWeight: '700', color: colors.textMuted },
+  methodTextOn: { color: colors.primaryDark },
   container: { padding: 16, paddingBottom: 60 },
   name: { fontSize: 18, fontWeight: '800', color: colors.text, flex: 1, marginRight: 8 },
   addr: { fontSize: 14, color: colors.textMuted, marginTop: 4 },

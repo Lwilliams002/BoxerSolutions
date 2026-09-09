@@ -203,6 +203,28 @@ router.post(
   }),
 );
 
+const productsSchema = z.object({
+  items: z.array(z.object({
+    productId: z.string().uuid(),
+    quantity: z.number().min(0).max(10000),
+    unit: z.string().trim().max(20).nullish(),
+    applicationMethod: z.string().trim().max(60).nullish(),
+    targetPests: z.string().trim().max(200).nullish(),
+  })).max(50),
+});
+
+/** Record the products applied on a visit (replaces the previous list). */
+router.post(
+  '/:id/products',
+  authorize('appointments:write', 'appointments:write_assigned'),
+  asyncHandler(async (req, res) => {
+    const scope = technicianScope(req, 'appointments:write');
+    await assertAppointmentAccess(scope, req.params.id);
+    const body = productsSchema.parse(req.body ?? {});
+    ok(res, await appointmentService.setProducts(req.params.id, body.items, req.user!.id), 'Products saved');
+  }),
+);
+
 router.post(
   '/:id/cancel',
   authorize('appointments:write'),

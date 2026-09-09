@@ -5,7 +5,7 @@
  * status banner for the event that triggered it. Pure: takes a context object
  * and returns HTML + plain text, so it is unit-testable and provider-agnostic.
  */
-export type ServiceNotificationKind = 'invoice_created' | 'payment_received' | 'payment_failed' | 'payment_refunded';
+export type ServiceNotificationKind = 'invoice_created' | 'payment_received' | 'payment_failed' | 'payment_refunded' | 'service_completed';
 
 export interface ServiceNotificationItem {
   description: string;
@@ -13,6 +13,8 @@ export interface ServiceNotificationItem {
   unitPrice: number;
   lineTotal: number;
 }
+
+export interface ServiceNotificationProduct { name: string; quantity: number; unit: string; applicationMethod: string | null; targetPests: string | null }
 
 export interface ServiceNotificationPayment {
   amount: number;
@@ -67,6 +69,7 @@ export interface ServiceNotificationContext {
     timeIn: string | null;
     timeOut: string | null;
     comments: string | null;
+    products?: ServiceNotificationProduct[];
   } | null;
   payments: ServiceNotificationPayment[];
   previousBalance: number;
@@ -104,6 +107,8 @@ export function bannerFor(ctx: ServiceNotificationContext): { title: string; det
       return { title: `Payment could not be processed — ${amount}`, detail: `${ctx.eventReason ? `${ctx.eventReason}. ` : ''}Please call ${ctx.company.phone} or update your payment method.`, color: '#B42318' };
     case 'payment_refunded':
       return { title: `Refund processed — ${amount}`, detail: `A refund was issued to your original payment method for invoice ${ctx.invoice.number}.`, color: GREEN };
+    case 'service_completed':
+      return { title: 'Service completed', detail: `Thank you, ${ctx.customer.firstName}. Here is the report from today's visit.`, color: GREEN };
     default:
       return { title: `Invoice ${ctx.invoice.number} is ready`, detail: `Please pay from this invoice${ctx.invoice.dueDate ? ` by ${longDate(ctx.invoice.dueDate)}` : ''}.`, color: INK };
   }
@@ -219,6 +224,26 @@ export function renderServiceNotificationHtml(ctx: ServiceNotificationContext): 
     </table>
   </td></tr>` : ''}
 
+  ${appt?.products?.length ? `
+  <tr><td style="padding:0 24px;">
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0">
+      ${sectionTitle('Products Used')}
+      <tr>
+        <th style="text-align:left;padding:6px 0;font:700 12px Helvetica,Arial,sans-serif;color:${INK};border-bottom:1px solid #E3ECEA;">Product</th>
+        <th style="text-align:left;padding:6px 0;font:700 12px Helvetica,Arial,sans-serif;color:${INK};border-bottom:1px solid #E3ECEA;">Unit</th>
+        <th style="text-align:left;padding:6px 0;font:700 12px Helvetica,Arial,sans-serif;color:${INK};border-bottom:1px solid #E3ECEA;">Quantity</th>
+        <th style="text-align:left;padding:6px 0;font:700 12px Helvetica,Arial,sans-serif;color:${INK};border-bottom:1px solid #E3ECEA;">Application Method</th>
+      </tr>
+      ${appt.products.map((p) => `<tr>
+        <td style="padding:6px 0;font:12px Helvetica,Arial,sans-serif;color:${INK};">${escapeHtml(p.name)}</td>
+        <td style="padding:6px 0;font:12px Helvetica,Arial,sans-serif;color:${INK};">${escapeHtml(p.unit)}</td>
+        <td style="padding:6px 0;font:12px Helvetica,Arial,sans-serif;color:${INK};">${p.quantity}</td>
+        <td style="padding:6px 0;font:12px Helvetica,Arial,sans-serif;color:${INK};">${escapeHtml(p.applicationMethod ?? '—')}${p.targetPests ? ` <span style="color:${MUTED}">· ${escapeHtml(p.targetPests)}</span>` : ''}</td>
+      </tr>`).join('')}
+    </table>
+  </td></tr>` : ''}
+
+  ${ctx.kind === 'service_completed' && !ctx.invoice.items.length ? '' : `
   <!-- Invoice items -->
   <tr><td style="padding:0 24px;">
     <table role="presentation" width="100%" cellpadding="0" cellspacing="0">
@@ -229,7 +254,7 @@ export function renderServiceNotificationHtml(ctx: ServiceNotificationContext): 
       <tr><td style="padding:2px 0;font:12px Helvetica,Arial,sans-serif;color:${INK};">Tax ${(ctx.invoice.taxRate * 100).toFixed(3)} %</td><td style="padding:2px 0;font:12px Helvetica,Arial,sans-serif;text-align:right;">${money(ctx.invoice.taxAmount)}</td></tr>
       <tr><td style="padding:6px 0;font:700 13px Helvetica,Arial,sans-serif;color:${INK};border-top:2px solid ${RULE};">Service Total:</td><td style="padding:6px 0;font:700 13px Helvetica,Arial,sans-serif;text-align:right;border-top:2px solid ${RULE};">${money(ctx.invoice.total)}</td></tr>
     </table>
-  </td></tr>
+  </td></tr>`}
 
   ${paymentsRows ? `
   <tr><td style="padding:0 24px;">
@@ -310,6 +335,7 @@ export function renderServiceNotificationText(ctx: ServiceNotificationContext): 
       `Service Date: ${longDate(ctx.appointment.date)}`,
       `Service: ${ctx.appointment.services.join(', ') || '—'}`,
       ...(ctx.appointment.comments ? ['', 'Technician Comments:', ctx.appointment.comments] : []),
+      ...(ctx.appointment.products?.length ? ['', 'Products Used:', ...ctx.appointment.products.map((p) => `  ${p.name} — ${p.quantity} ${p.unit}${p.applicationMethod ? ` · ${p.applicationMethod}` : ''}`)] : []),
     ] : []),
     '',
     'Invoice Items:',

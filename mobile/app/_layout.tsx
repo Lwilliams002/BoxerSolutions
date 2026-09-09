@@ -86,6 +86,7 @@ export default function RootLayout() {
             <Stack.Screen name="admin/services" options={{ title: 'Service Catalog Admin' }} />
             <Stack.Screen name="admin/employees" options={{ title: 'Employees Admin' }} />
             <Stack.Screen name="admin/settings" options={{ title: 'Company Settings' }} />
+            <Stack.Screen name="admin/products" options={{ title: 'Products' }} />
             <Stack.Screen name="admin/audit" options={{ title: 'Audit Logs' }} />
             <Stack.Screen name="admin/service-requests" options={{ title: 'Service Requests' }} />
             <Stack.Screen name="signature" options={{ title: 'Customer Signature', presentation: 'modal' }} />

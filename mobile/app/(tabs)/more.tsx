@@ -98,6 +98,11 @@ export default function MoreScreen() {
                 <Card><Row><View><Value style={{ fontWeight: '800' }}>Employees</Value><Text style={styles.meta}>Manage users, roles, and permissions</Text></View><Text style={styles.chevron}>›</Text></Row></Card>
               </TouchableOpacity>
             )}
+            {(canSettingsAdmin || canServicesAdmin) && (
+              <TouchableOpacity onPress={() => router.push('/admin/products')} activeOpacity={0.75}>
+                <Card><Row><View><Value style={{ fontWeight: '800' }}>Products</Value><Text style={styles.meta}>Chemicals and materials techs record on each visit</Text></View><Text style={styles.chevron}>›</Text></Row></Card>
+              </TouchableOpacity>
+            )}
             {canSettingsAdmin && (
               <TouchableOpacity onPress={() => router.push('/admin/settings')} activeOpacity={0.75}>
                 <Card><Row><View><Value style={{ fontWeight: '800' }}>Company Settings</Value><Text style={styles.meta}>Address, license, email, tax rate, invoice due days</Text></View><Text style={styles.chevron}>›</Text></Row></Card>

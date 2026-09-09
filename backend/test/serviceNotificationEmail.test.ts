@@ -53,3 +53,16 @@ test('plain text twin lists items and totals', () => {
   assert.match(text, /Standard Four Point Service · Medium  \$340\.00/);
   assert.match(text, /Amount Due \$0\.00/);
 });
+
+test('products used table and service report without invoice', () => {
+  const ctx = sample({ kind: 'service_completed', eventAmount: null, payments: [], invoice: { ...sample().invoice, items: [], total: 0, subtotal: 0, amountPaid: 0 } });
+  ctx.appointment = { ...ctx.appointment!, products: [{ name: 'Suspend SC', quantity: 2, unit: 'oz', applicationMethod: 'Crack & Crevice', targetPests: 'Roaches' }] };
+  const html = renderServiceNotificationHtml(ctx);
+  assert.ok(html.includes('Products Used'));
+  assert.ok(html.includes('Suspend SC'));
+  assert.ok(html.includes('Crack &amp; Crevice'));
+  assert.ok(!html.includes('Invoice Items'), 'no invoice section when the visit produced no invoice');
+  assert.match(bannerFor(ctx).title, /Service completed/);
+  const text = renderServiceNotificationText(ctx);
+  assert.match(text, /Products Used:\n  Suspend SC — 2 oz · Crack & Crevice/);
+});

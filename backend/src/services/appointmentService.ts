@@ -33,7 +33,10 @@ const APPOINTMENT_SELECT = `
           FROM appointment_services aps JOIN services s ON s.id = aps.service_id
           WHERE aps.appointment_id = a.id) AS services,
          (SELECT i.id FROM invoices i WHERE i.appointment_id = a.id AND i.deleted_at IS NULL LIMIT 1) AS invoice_id,
-         rc.frequency AS recurring_frequency, rc.amount AS recurring_amount
+         rc.frequency AS recurring_frequency, rc.amount AS recurring_amount,
+         (SELECT json_agg(json_build_object('id', ap.id, 'productId', ap.product_id, 'name', p.name, 'quantity', ap.quantity,
+            'unit', ap.unit, 'applicationMethod', ap.application_method, 'targetPests', ap.target_pests) ORDER BY p.name)
+          FROM appointment_products ap JOIN products p ON p.id = ap.product_id WHERE ap.appointment_id = a.id) AS products
   FROM appointments a
   JOIN customers c ON c.id = a.customer_id
   JOIN service_locations sl ON sl.id = a.service_location_id
@@ -202,6 +205,25 @@ export const appointmentService = {
     });
   },
 
+  /** Replace the products recorded for a visit. */
+  async setProducts(id: string, items: { productId: string; quantity: number; unit?: string | null; applicationMethod?: string | null; targetPests?: string | null }[], userId: string) {
+    await withTransaction(async (tx) => {
+      const appt = await tx.query('SELECT id FROM appointments WHERE id = $1 AND deleted_at IS NULL', [id]);
+      if (!appt.rows[0]) throw ApiError.notFound('Appointment not found');
+      await tx.query('DELETE FROM appointment_products WHERE appointment_id = $1', [id]);
+      for (const item of items) {
+        const product = await tx.query('SELECT unit FROM products WHERE id = $1', [item.productId]);
+        if (!product.rows[0]) throw ApiError.badRequest('Unknown product');
+        await tx.query(
+          `INSERT INTO appointment_products (appointment_id, product_id, quantity, unit, application_method, target_pests, applied_by)
+           VALUES ($1,$2,$3,$4,$5,$6,$7)`,
+          [id, item.productId, item.quantity, item.unit || product.rows[0].unit, item.applicationMethod ?? null, item.targetPests ?? null, userId],
+        );
+      }
+    });
+    return (await this.getById(id) as any).products ?? [];
+  },
+
   /**
    * Complete Appointment — the real operation (spec §51): validates state,
    * records completion time + technician, optionally saves a completion note,
@@ -267,6 +289,9 @@ export const appointmentService = {
     });
     if ((result as any).invoice?.id && !recurring) {
       safelyQueueCommunication(() => communicationService.sendInvoiceTemplate((result as any).invoice.id, 'invoice_created', null));
+    } else if (!(result as any).invoice?.id) {
+      // No invoice from this visit: still send the customer their service report.
+      safelyQueueCommunication(() => communicationService.sendServiceReport(id, userId));
     }
 
     return result;
