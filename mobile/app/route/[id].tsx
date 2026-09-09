@@ -16,6 +16,7 @@ import { useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { api } from '../../src/lib/api';
+import { confirmAction, notify } from '../../src/lib/confirm';
 import { useAuth } from '../../src/lib/authStore';
 import { mutateOrQueue } from '../../src/lib/offline';
 import { Coordinate, formatDistanceEta, haversineMeters } from '../../src/lib/geo';
@@ -123,12 +124,12 @@ export default function RouteDetailScreen() {
             }
           : prev,
       );
-      if (queued) Alert.alert('Saved offline', 'Arrival status will sync when you are back online.');
+      if (queued) notify('Saved offline', 'Arrival status will sync when you are back online.');
       void qc.invalidateQueries({ queryKey: ['route', id] });
       void qc.invalidateQueries({ queryKey: ['appointment', appointmentId] });
       void qc.invalidateQueries({ queryKey: ['dashboard'] });
     },
-    onError: (e) => Alert.alert('Error', (e as Error).message),
+    onError: (e) => notify('Error', (e as Error).message),
   });
 
   const stops = data?.stops ?? [];
@@ -265,21 +266,16 @@ export default function RouteDetailScreen() {
                 haversineMeters(current, activeCoord) <= ARRIVAL_RADIUS_METERS
               ) {
                 promptedStopsRef.current.add(activeStop.stopId);
-                Alert.alert(
-                  "You've arrived",
-                  `You've arrived at ${activeStop.company ?? activeStop.customerName} — mark as Arrived?`,
-                  [
-                    { text: 'Not yet', style: 'cancel' },
-                    {
-                      text: 'Yes',
-                      onPress: () =>
-                        updateStopStatus.mutate({
-                          appointmentId: activeStop.appointmentId,
-                          status: 'arrived',
-                        }),
-                    },
-                  ],
-                );
+                confirmAction({
+                  title: "You've arrived",
+                  message: `You've arrived at ${activeStop.company ?? activeStop.customerName} — mark as Arrived?`,
+                  confirmText: 'Yes',
+                  onConfirm: () =>
+                    updateStopStatus.mutate({
+                      appointmentId: activeStop.appointmentId,
+                      status: 'arrived',
+                    }),
+                });
               }
             },
           );
@@ -296,7 +292,7 @@ export default function RouteDetailScreen() {
 
   const startRoute = () => {
     if (pendingStops.length === 0) {
-      Alert.alert('All done!', 'No pending stops on this route.');
+      notify('All done!', 'No pending stops on this route.');
       return;
     }
     setRouteStarted(true);
@@ -311,9 +307,8 @@ export default function RouteDetailScreen() {
     void refetch();
     const next = activeStopIdx + 1;
     if (next >= pendingStops.length) {
-      Alert.alert('Route Complete! 🎉', 'All stops have been visited.', [
-        { text: 'Done', onPress: () => setRouteStarted(false) },
-      ]);
+      notify('Route Complete! 🎉', 'All stops have been visited.');
+      setRouteStarted(false);
     } else {
       setActiveStopIdx(next);
     }

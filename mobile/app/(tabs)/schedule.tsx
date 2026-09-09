@@ -15,6 +15,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useRouter } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { api, ApiRequestError } from '../../src/lib/api';
+import { confirmAction, notify } from '../../src/lib/confirm';
 import { useAuth } from '../../src/lib/authStore';
 import { colors, fmtDate, fmtTime, statusColors, todayISO } from '../../src/lib/theme';
 import { EmptyState, Loading, StatusBadge } from '../../src/components/ui';
@@ -156,12 +157,15 @@ export default function ScheduleScreen() {
     onError: (e, vars) => {
       const err = isWriteError(e) ? e as ApiRequestError : new ApiRequestError((e as Error).message, 0);
       if (err.status === 409) {
-        Alert.alert('Scheduling Conflict', `${conflictMessage(err)}\n\nOverride this conflict?`, [
-          { text: 'Cancel', style: 'cancel' },
-          { text: 'Override', style: 'destructive', onPress: () => reschedule.mutate({ id: vars.id, body: { ...vars.body, allowConflict: true } }) },
-        ]);
+        confirmAction({
+          title: 'Scheduling Conflict',
+          message: `${conflictMessage(err)}\n\nOverride this conflict?`,
+          confirmText: 'Override',
+          destructive: true,
+          onConfirm: () => reschedule.mutate({ id: vars.id, body: { ...vars.body, allowConflict: true } }),
+        });
       } else {
-        Alert.alert('Unable to update appointment', err.message);
+        notify('Unable to update appointment', err.message);
       }
     },
   });

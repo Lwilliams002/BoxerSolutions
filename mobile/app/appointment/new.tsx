@@ -3,6 +3,7 @@ import { View, Text, ScrollView, StyleSheet, TouchableOpacity, Alert, TextInput 
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { api, ApiRequestError } from '../../src/lib/api';
+import { confirmAction } from '../../src/lib/confirm';
 import { colors, fmtDate, money, todayISO } from '../../src/lib/theme';
 import { Button, SectionTitle, ErrorText, Loading } from '../../src/components/ui';
 
@@ -185,10 +186,13 @@ export default function NewAppointmentScreen() {
     } catch (e) {
       const err = e as ApiRequestError;
       if (err.status === 409) {
-        Alert.alert('Scheduling Conflict', `${err.message}\n\nSchedule anyway?`, [
-          { text: 'Cancel', style: 'cancel' },
-          { text: 'Schedule Anyway', style: 'destructive', onPress: () => void create(true) },
-        ]);
+        confirmAction({
+          title: 'Scheduling Conflict',
+          message: `${err.message}\n\nSchedule anyway?`,
+          confirmText: 'Schedule Anyway',
+          destructive: true,
+          onConfirm: () => void create(true),
+        });
       } else {
         setError(err.message);
       }

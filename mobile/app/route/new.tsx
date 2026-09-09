@@ -13,6 +13,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { api } from '../../src/lib/api';
+import { notify } from '../../src/lib/confirm';
 import { colors, fmtTime, todayISO, money } from '../../src/lib/theme';
 import { Button, SectionTitle, Loading, ErrorText, StatusBadge } from '../../src/components/ui';
 import { SyncBanner } from '../../src/components/SyncBanner';
@@ -129,12 +130,8 @@ export default function NewRouteScreen() {
       void qc.invalidateQueries({ queryKey: ['routes'] });
       void qc.invalidateQueries({ queryKey: ['route', route.id] });
 
-      Alert.alert('Route Created!', `${selectedAppts.length} stop(s) added and optimized.`, [
-        {
-          text: 'View Route',
-          onPress: () => router.replace(`/route/${route.id}`),
-        },
-      ]);
+      notify('Route Created!', `${selectedAppts.length} stop(s) added and optimized.`);
+      router.replace(`/route/${route.id}`);
     } catch (e) {
       setError((e as Error).message);
     } finally {
@@ -224,7 +221,7 @@ export default function NewRouteScreen() {
             <Button
               title="Next: Stops →"
               onPress={() => {
-                if (!techId) { Alert.alert('Select a technician first'); return; }
+                if (!techId) { notify('Select a technician first'); return; }
                 setStep(STEP_STOPS);
               }}
               style={{ flex: 2 }}
@@ -302,7 +299,7 @@ export default function NewRouteScreen() {
             <Button
               title="Review →"
               onPress={() => {
-                if (selectedAppts.length === 0) { Alert.alert('Add at least one stop'); return; }
+                if (selectedAppts.length === 0) { notify('Add at least one stop'); return; }
                 setStep(STEP_REVIEW);
               }}
               style={{ flex: 2 }}

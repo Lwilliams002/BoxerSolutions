@@ -7,6 +7,7 @@ import { api, newIdempotencyKey } from '../../src/lib/api';
 import { mutateOrQueue, useSync } from '../../src/lib/offline';
 import { compressPhoto, persistLocally, uploadPendingPhoto, PendingPhoto } from '../../src/lib/photos';
 import { colors, fmtTime, money, statusLabel } from '../../src/lib/theme';
+import { confirmAction, notify } from '../../src/lib/confirm';
 import { Card, Button, StatusBadge, Loading, SectionTitle, Row, Value } from '../../src/components/ui';
 import { SyncBanner } from '../../src/components/SyncBanner';
 import { openNavigation } from '../route/[id]';
@@ -81,21 +82,21 @@ export default function StopScreen() {
         );
         if (status === 'en_route') {
           await useSync.getState().enqueueApi(`/appointments/${id}/notify-on-my-way`, { method: 'POST', body: {} });
-          Alert.alert('Saved offline', 'On My Way notification will sync when you are back online.');
+          notify('Saved offline', 'On My Way notification will sync when you are back online.');
         }
       } else {
         if (status === 'en_route') {
           try {
             await api(`/appointments/${id}/notify-on-my-way`, { method: 'POST', body: {} });
-            Alert.alert('Notification sent', 'Customer was notified that you are on the way.');
+            notify('Notification sent', 'Customer was notified that you are on the way.');
           } catch (e) {
-            Alert.alert('Status updated', `On My Way status was saved, but notification failed: ${(e as Error).message}`);
+            notify('Status updated', `On My Way status was saved, but notification failed: ${(e as Error).message}`);
           }
         }
         refresh();
       }
     } catch (e) {
-      Alert.alert('Error', (e as Error).message);
+      notify('Error', (e as Error).message);
     } finally {
       setBusy(null);
     }
@@ -110,10 +111,10 @@ export default function StopScreen() {
         body: { appointmentId: id, body: noteText.trim() },
       });
       setNoteText('');
-      if (queued) Alert.alert('Saved offline', 'Note will sync when you are back online.');
+      if (queued) notify('Saved offline', 'Note will sync when you are back online.');
       else void qc.invalidateQueries({ queryKey: ['notes', id] });
     } catch (e) {
-      Alert.alert('Error', (e as Error).message);
+      notify('Error', (e as Error).message);
     } finally {
       setBusy(null);
     }
@@ -124,7 +125,7 @@ export default function StopScreen() {
       ? await ImagePicker.requestCameraPermissionsAsync()
       : await ImagePicker.requestMediaLibraryPermissionsAsync();
     if (!perm.granted) {
-      Alert.alert('Permission required', 'Camera/library access is needed to attach photos.');
+      notify('Permission required', 'Camera/library access is needed to attach photos.');
       return;
     }
     const result = fromCamera
@@ -153,21 +154,21 @@ export default function StopScreen() {
         void qc.invalidateQueries({ queryKey: ['photos', id] });
       } catch {
         await useSync.getState().enqueuePhoto(pending);
-        Alert.alert('Saved offline', 'Photo will upload when you are back online.');
+        notify('Saved offline', 'Photo will upload when you are back online.');
       }
     } catch (e) {
-      Alert.alert('Error', (e as Error).message);
+      notify('Error', (e as Error).message);
     } finally {
       setBusy(null);
     }
   };
 
   const complete = async () => {
-    Alert.alert('Complete Service', 'Complete this appointment and generate the invoice?', [
-      { text: 'Cancel', style: 'cancel' },
-      {
-        text: 'Complete',
-        onPress: async () => {
+    confirmAction({
+      title: 'Complete Service',
+      message: 'Complete this appointment and generate the invoice?',
+      confirmText: 'Complete',
+      onConfirm: async () => {
           setBusy('complete');
           try {
             const { queued, data } = await mutateOrQueue<{ invoice?: { id: string } }>(
@@ -180,18 +181,17 @@ export default function StopScreen() {
             );
             refresh();
             if (queued) {
-              Alert.alert('Saved offline', 'Completion will sync when you are back online.');
+              notify('Saved offline', 'Completion will sync when you are back online.');
             } else if (data?.invoice?.id) {
               router.push(`/invoice/${data.invoice.id}`);
             }
           } catch (e) {
-            Alert.alert('Error', (e as Error).message);
+            notify('Error', (e as Error).message);
           } finally {
             setBusy(null);
           }
-        },
       },
-    ]);
+    });
   };
 
   if (isLoading || !appt) return <Loading />;
