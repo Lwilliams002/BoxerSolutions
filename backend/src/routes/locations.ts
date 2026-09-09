@@ -7,6 +7,8 @@ import { pool } from '../config/db';
 import { ApiError } from '../utils/errors';
 import { rowsToCamel, toCamel } from '../services/customerService';
 import { createLocationSchema, updateLocationSchema } from '../validators/customers';
+import { deriveStage } from '../utils/customerStage';
+import { queueGeocode } from '../services/geocodingService';
 import { technicianScope } from '../middleware/scope';
 
 const router = Router();
@@ -16,25 +18,48 @@ router.get(
   '/map',
   authorize('customers:read', 'customers:read_assigned'),
   asyncHandler(async (req, res) => {
+    // Every staff member sees every pin. Technicians may only open the
+    // customers they are assigned to (or have appointments with).
     const scope = technicianScope(req, 'customers:read');
     const params: unknown[] = [];
-    const where = ['sl.deleted_at IS NULL', 'c.deleted_at IS NULL', 'sl.latitude IS NOT NULL', 'sl.longitude IS NOT NULL'];
+    let canOpenSql = 'true';
     if (scope) {
       params.push(scope);
-      where.push(`(c.assigned_technician_id = $${params.length}
-        OR EXISTS (SELECT 1 FROM appointments a WHERE a.customer_id = c.id AND a.technician_id = $${params.length} AND a.deleted_at IS NULL))`);
+      canOpenSql = `(c.assigned_technician_id = $${params.length}
+        OR EXISTS (SELECT 1 FROM appointments a WHERE a.customer_id = c.id AND a.technician_id = $${params.length} AND a.deleted_at IS NULL))`;
     }
     const { rows } = await pool.query(
       `SELECT sl.id, sl.customer_id, sl.label, sl.address_line1, sl.city, sl.state, sl.postal_code,
               sl.latitude, sl.longitude,
-              c.first_name, c.last_name, c.company, c.assigned_technician_id
+              c.first_name, c.last_name, c.company, c.status, c.assigned_technician_id, c.created_at,
+              (cu.first_name || ' ' || cu.last_name) AS deal_owner_name,
+              (tu.first_name || ' ' || tu.last_name) AS technician_name,
+              EXISTS (
+                SELECT 1 FROM notes n WHERE n.customer_id = c.id AND n.deleted_at IS NULL
+                  AND n.body LIKE 'SERVICE AGREEMENT%' AND n.body LIKE '%Status: SIGNED%'
+              ) OR EXISTS (
+                SELECT 1 FROM files f WHERE f.customer_id = c.id AND f.deleted_at IS NULL AND f.file_name LIKE 'service-agreement-signed-%'
+              ) OR EXISTS (
+                SELECT 1 FROM recurring_charges rc WHERE rc.customer_id = c.id AND rc.active
+              ) AS has_signed_agreement,
+              EXISTS (
+                SELECT 1 FROM appointments a WHERE a.customer_id = c.id AND a.status = 'completed' AND a.deleted_at IS NULL
+              ) AS has_completed_service,
+              ${canOpenSql} AS can_open
        FROM service_locations sl
        JOIN customers c ON c.id = sl.customer_id
-       WHERE ${where.join(' AND ')}
+       LEFT JOIN users cu ON cu.id = c.created_by
+       LEFT JOIN employees te ON te.id = c.assigned_technician_id
+       LEFT JOIN users tu ON tu.id = te.user_id
+       WHERE sl.deleted_at IS NULL AND c.deleted_at IS NULL AND sl.latitude IS NOT NULL AND sl.longitude IS NOT NULL
        ORDER BY c.last_name, c.first_name`,
       params,
     );
-    ok(res, rowsToCamel(rows));
+    ok(res, rows.map((r) => ({
+      ...toCamel(r),
+      stage: deriveStage({ hasSignedAgreement: !!r.has_signed_agreement, hasCompletedService: !!r.has_completed_service }),
+      inactive: r.status === 'inactive',
+    })));
   }),
 );
 
@@ -63,6 +88,7 @@ router.post(
       [body.customerId, body.label, body.addressLine1, body.addressLine2 ?? null, body.city, body.state,
        body.postalCode, body.latitude ?? null, body.longitude ?? null, body.accessNotes ?? null, body.isPrimary],
     );
+    if (body.latitude == null || body.longitude == null) queueGeocode(rows[0].id);
     ok(res, toCamel(rows[0]), 'Location created', 201);
   }),
 );
@@ -92,6 +118,12 @@ router.patch(
       params,
     );
     if (!rows[0]) throw ApiError.notFound('Location not found');
+    const addressChanged = ['addressLine1', 'city', 'state', 'postalCode'].some((k) => k in body);
+    if (addressChanged && !('latitude' in body)) {
+      // Address edited without coordinates: re-geocode so the pin moves with it.
+      await pool.query('UPDATE service_locations SET latitude = NULL, longitude = NULL WHERE id = $1', [req.params.id]);
+      queueGeocode(req.params.id);
+    }
     ok(res, toCamel(rows[0]), 'Location updated');
   }),
 );

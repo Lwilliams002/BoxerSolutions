@@ -2,6 +2,7 @@ import { logger } from '../utils/logger';
 import { generateAllRecurringAppointments } from './recurring';
 import { processAutopay, sendAppointmentReminders, markPastDueInvoices } from './billing';
 import { notifyDueRecurringServices } from './recurringDue';
+import { geocodePendingLocations } from '../services/geocodingService';
 import { pool } from '../config/db';
 
 /**
@@ -24,7 +25,8 @@ export function startJobScheduler() {
       const recurring = await generateAllRecurringAppointments(systemUserId);
       const autopay = await processAutopay(systemUserId);
       const dueServices = await notifyDueRecurringServices();
-      logger.info({ pastDue, reminders, recurring, autopay, dueServices }, 'background jobs cycle complete');
+      const geocoding = await geocodePendingLocations();
+      logger.info({ pastDue, reminders, recurring, autopay, dueServices, geocoding }, 'background jobs cycle complete');
     } catch (err) {
       logger.error(err, 'background job cycle failed');
     }

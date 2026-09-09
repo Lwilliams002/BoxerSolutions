@@ -2,6 +2,7 @@ import { pool, withTransaction } from '../config/db';
 import { config } from '../config';
 import { ApiError } from '../utils/errors';
 import { recordAudit } from './auditService';
+import { queueGeocode } from './geocodingService';
 import { cognitoUsers } from '../integrations/cognito';
 
 function camel(row: Record<string, unknown> | undefined | null) {
@@ -128,7 +129,8 @@ export const customerService = {
   },
 
   async create(data: Record<string, any>, userId: string) {
-    return withTransaction(async (tx) => {
+    let pendingGeocodeId: string | null = null;
+    const created = await withTransaction(async (tx) => {
       const { rows } = await tx.query(
         `INSERT INTO customers (first_name, last_name, company, email, phone, customer_type, status,
            billing_address_line1, billing_address_line2, billing_city, billing_state, billing_postal_code,
@@ -146,13 +148,15 @@ export const customerService = {
 
       if (data.serviceLocation) {
         const l = data.serviceLocation;
-        await tx.query(
+        const loc = await tx.query(
           `INSERT INTO service_locations (customer_id, label, address_line1, address_line2, city, state, postal_code,
              latitude, longitude, access_notes, is_primary)
-           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,true)`,
+           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,true) RETURNING id`,
           [customer.id, l.label, l.addressLine1, l.addressLine2 ?? null, l.city, l.state, l.postalCode,
            l.latitude ?? null, l.longitude ?? null, l.accessNotes ?? null],
         );
+        // No coordinates from the form: geocode the address once the row is committed so the pin appears.
+        if (l.latitude == null || l.longitude == null) pendingGeocodeId = loc.rows[0].id;
       }
 
       await recordAudit(
@@ -165,6 +169,8 @@ export const customerService = {
       }
       return camel(customer);
     });
+    if (pendingGeocodeId) queueGeocode(pendingGeocodeId);
+    return created;
   },
 
   async update(id: string, data: Record<string, any>, userId: string) {

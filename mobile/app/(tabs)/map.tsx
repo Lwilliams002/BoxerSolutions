@@ -1,6 +1,8 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Alert, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
-import MapView, { Marker, Polygon, PROVIDER_DEFAULT } from 'react-native-maps';
+import MapView, { Callout, Marker, Polygon, PROVIDER_DEFAULT } from 'react-native-maps';
+import { Ionicons } from '@expo/vector-icons';
+import { CustomerStage, MapPin, STAGE_META, STAGE_ORDER, filterPins, pinColor, pinSubtitle, pinTitle } from '../../src/lib/mapPins';
 import { useRouter } from 'expo-router';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import * as Location from 'expo-location';
@@ -25,19 +27,6 @@ interface Territory {
   technicianColor?: string | null;
 }
 
-interface MapLocation {
-  id: string;
-  customerId: string;
-  addressLine1: string;
-  city: string;
-  state: string;
-  postalCode: string;
-  latitude: number;
-  longitude: number;
-  firstName: string;
-  lastName: string;
-  company: string | null;
-}
 
 // Fallback only — the map recenters on the device's location once permission
 // is granted (applies to technicians and owners alike).
@@ -60,6 +49,8 @@ export default function TerritoryMapScreen() {
   const [draftTechId, setDraftTechId] = useState<string | null>(null);
   const [draftPoints, setDraftPoints] = useState<{ latitude: number; longitude: number }[]>([]);
   const [locationGranted, setLocationGranted] = useState(false);
+  const [stages, setStages] = useState<Set<CustomerStage>>(new Set(STAGE_ORDER));
+  const [mapType, setMapType] = useState<'hybrid' | 'standard'>('hybrid');
 
   // Center the map on the signed-in user's current location (tech or owner).
   useEffect(() => {
@@ -97,8 +88,29 @@ export default function TerritoryMapScreen() {
   });
   const mapLocations = useQuery({
     queryKey: ['mapLocations'],
-    queryFn: () => api<MapLocation[]>('/locations/map'),
+    queryFn: () => api<MapPin[]>('/locations/map'),
+    refetchInterval: 60_000,
   });
+  const visiblePins = useMemo(() => filterPins(mapLocations.data ?? [], stages), [mapLocations.data, stages]);
+
+  const goToMyLocation = async () => {
+    try {
+      const { status } = await Location.requestForegroundPermissionsAsync();
+      if (status !== 'granted') return Alert.alert('Location off', 'Allow location access to jump to where you are.');
+      setLocationGranted(true);
+      const pos = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
+      mapRef.current?.animateToRegion({ latitude: pos.coords.latitude, longitude: pos.coords.longitude, latitudeDelta: 0.05, longitudeDelta: 0.05 }, 500);
+    } catch {
+      Alert.alert('Location unavailable', 'Could not read your current position.');
+    }
+  };
+
+  const toggleStage = (stage: CustomerStage) =>
+    setStages((prev) => {
+      const next = new Set(prev);
+      if (next.has(stage)) next.delete(stage); else next.add(stage);
+      return next;
+    });
   const technicians = useQuery({
     queryKey: ['technicians'],
     queryFn: () => api<Tech[]>('/users/technicians'),
@@ -181,9 +193,10 @@ export default function TerritoryMapScreen() {
         ref={mapRef}
         provider={PROVIDER_DEFAULT}
         style={styles.map}
+        mapType={mapType}
         initialRegion={FALLBACK_REGION}
         showsUserLocation={locationGranted}
-        showsMyLocationButton
+        showsMyLocationButton={false}
         onPress={(e) => onPressMap(e.nativeEvent.coordinate)}
         onLongPress={(e) => void onLongPress(e.nativeEvent.coordinate)}
       >
@@ -207,14 +220,26 @@ export default function TerritoryMapScreen() {
             title={`Point ${idx + 1}`}
           />
         ))}
-        {(mapLocations.data ?? []).map((c) => (
+        {visiblePins.map((c) => (
           <Marker
             key={c.id}
             coordinate={{ latitude: c.latitude, longitude: c.longitude }}
-            title={c.company ?? `${c.firstName} ${c.lastName}`}
-            description={`${c.addressLine1}, ${c.city}`}
-            onCalloutPress={() => router.push(`/customer/${c.customerId}`)}
-          />
+            pinColor={pinColor(c)}
+            tracksViewChanges={false}
+            onCalloutPress={() => { if (c.canOpen) router.push(`/customer/${c.customerId}`); }}
+          >
+            <Callout tooltip={false}>
+              <View style={styles.callout}>
+                <Text style={styles.calloutTitle}>{pinTitle(c)}</Text>
+                <View style={styles.calloutStageRow}>
+                  <View style={[styles.dot, { backgroundColor: pinColor(c) }]} />
+                  <Text style={styles.calloutStage}>{pinSubtitle(c)}</Text>
+                </View>
+                <Text style={styles.calloutAddr}>{c.addressLine1}, {c.city}</Text>
+                <Text style={styles.calloutHint}>{c.canOpen ? 'Tap to open customer' : 'View only'}</Text>
+              </View>
+            </Callout>
+          </Marker>
         ))}
       </MapView>
 
@@ -250,6 +275,19 @@ export default function TerritoryMapScreen() {
           </Text>
         </View>
 
+        <View style={styles.legend}>
+          {STAGE_ORDER.map((stage) => {
+            const on = stages.has(stage);
+            return (
+              <TouchableOpacity key={stage} style={[styles.legendChip, !on && styles.legendChipOff]} onPress={() => toggleStage(stage)}>
+                <View style={[styles.dot, { backgroundColor: STAGE_META[stage].color }]} />
+                <Text style={[styles.legendText, !on && styles.legendTextOff]}>{STAGE_META[stage].label}</Text>
+              </TouchableOpacity>
+            );
+          })}
+          <Text style={styles.legendCount}>{visiblePins.length} pins</Text>
+        </View>
+
         {canManage && drawing && (
           <View style={styles.drawMeta}>
             <TextInput
@@ -269,6 +307,15 @@ export default function TerritoryMapScreen() {
           </View>
         )}
       </View>
+
+      <View style={styles.fabs} pointerEvents="box-none">
+        <TouchableOpacity style={styles.fab} onPress={() => setMapType((t) => (t === 'hybrid' ? 'standard' : 'hybrid'))} accessibilityLabel="Toggle map type">
+          <Ionicons name={mapType === 'hybrid' ? 'map-outline' : 'earth-outline'} size={22} color={colors.text} />
+        </TouchableOpacity>
+        <TouchableOpacity style={[styles.fab, styles.fabPrimary]} onPress={() => void goToMyLocation()} accessibilityLabel="Go to my location">
+          <Ionicons name="locate" size={22} color="#0D0D0D" />
+        </TouchableOpacity>
+      </View>
     </View>
   );
 }
@@ -276,6 +323,21 @@ export default function TerritoryMapScreen() {
 const styles = StyleSheet.create({
   screen: { flex: 1, backgroundColor: colors.bg },
   map: { flex: 1 },
+  legend: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', alignSelf: 'flex-start', backgroundColor: '#FFFFFFEE', borderRadius: 14, padding: 6, gap: 6 },
+  legendChip: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 9, height: 28, borderRadius: 9, borderWidth: 1, borderColor: colors.border, backgroundColor: '#fff' },
+  legendChipOff: { opacity: 0.45 },
+  legendText: { fontSize: 12, fontWeight: '800', color: colors.text },
+  legendTextOff: { textDecorationLine: 'line-through' },
+  legendCount: { fontSize: 12, fontWeight: '700', color: colors.textMuted, marginLeft: 4 },
+  callout: { minWidth: 200, maxWidth: 260, padding: 4 },
+  calloutTitle: { fontWeight: '900', fontSize: 15, color: colors.text },
+  calloutStageRow: { flexDirection: 'row', alignItems: 'center', marginTop: 4 },
+  calloutStage: { fontSize: 12, fontWeight: '700', color: colors.text, flex: 1 },
+  calloutAddr: { fontSize: 12, color: colors.textMuted, marginTop: 4 },
+  calloutHint: { fontSize: 11, color: colors.primaryDark, fontWeight: '800', marginTop: 6 },
+  fabs: { position: 'absolute', right: 14, bottom: 24, gap: 10 },
+  fab: { width: 46, height: 46, borderRadius: 23, backgroundColor: '#fff', alignItems: 'center', justifyContent: 'center', shadowColor: '#0D0D0D', shadowOpacity: 0.2, shadowRadius: 6, shadowOffset: { width: 0, height: 3 }, elevation: 4 },
+  fabPrimary: { backgroundColor: colors.primary },
   overlay: { position: 'absolute', left: 10, right: 10, top: 10, gap: 8 },
   overlayPointerEvents: { pointerEvents: 'box-none' },
   toolbar: {
