@@ -31,7 +31,65 @@ export interface OutboundMessagePayload {
   body: string;
   /** Optional rich version; email providers send both parts. */
   html?: string | null;
+  /** Files to attach (email only). */
+  attachments?: EmailAttachment[] | null;
   templateKey: string;
+}
+
+export interface EmailAttachment {
+  filename: string;
+  contentType: string;
+  content: Buffer;
+}
+
+/** Build an RFC 2822 message with text + html alternatives and attachments (pure, for tests). */
+export function buildRawMimeEmail(input: {
+  from: string;
+  to: string;
+  replyTo?: string | null;
+  subject: string;
+  text: string;
+  html?: string | null;
+  attachments: EmailAttachment[];
+}): Buffer {
+  const boundaryMixed = `mixed-${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
+  const boundaryAlt = `alt-${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
+  const encodeHeader = (value: string) => (/^[\x20-\x7e]*$/.test(value) ? value : `=?UTF-8?B?${Buffer.from(value, 'utf8').toString('base64')}?=`);
+  const wrap76 = (b64: string) => b64.replace(/(.{76})/g, '$1\r\n');
+  const lines: string[] = [
+    `From: ${input.from}`,
+    `To: ${input.to}`,
+    ...(input.replyTo ? [`Reply-To: ${input.replyTo}`] : []),
+    `Subject: ${encodeHeader(input.subject)}`,
+    'MIME-Version: 1.0',
+    `Content-Type: multipart/mixed; boundary="${boundaryMixed}"`,
+    '',
+    `--${boundaryMixed}`,
+    `Content-Type: multipart/alternative; boundary="${boundaryAlt}"`,
+    '',
+    `--${boundaryAlt}`,
+    'Content-Type: text/plain; charset=UTF-8',
+    'Content-Transfer-Encoding: base64',
+    '',
+    wrap76(Buffer.from(input.text, 'utf8').toString('base64')),
+    ...(input.html
+      ? [`--${boundaryAlt}`, 'Content-Type: text/html; charset=UTF-8', 'Content-Transfer-Encoding: base64', '', wrap76(Buffer.from(input.html, 'utf8').toString('base64'))]
+      : []),
+    `--${boundaryAlt}--`,
+  ];
+  for (const file of input.attachments) {
+    const safeName = file.filename.replace(/["\r\n]/g, '_');
+    lines.push(
+      `--${boundaryMixed}`,
+      `Content-Type: ${file.contentType}; name="${safeName}"`,
+      'Content-Transfer-Encoding: base64',
+      `Content-Disposition: attachment; filename="${safeName}"`,
+      '',
+      wrap76(file.content.toString('base64')),
+    );
+  }
+  lines.push(`--${boundaryMixed}--`, '');
+  return Buffer.from(lines.join('\r\n'), 'utf8');
 }
 
 export interface OutboundMessageProvider {
@@ -91,6 +149,7 @@ class MockEmailProvider implements OutboundMessageProvider {
         subject: payload.subject,
         body: payload.body,
         html: payload.html ? `${payload.html.length} chars` : null,
+        attachments: payload.attachments?.map((f) => `${f.filename} (${f.content.length} bytes)`) ?? [],
       },
       'mock email sent',
     );
@@ -118,6 +177,23 @@ class SesEmailProvider implements OutboundMessageProvider {
   async send(payload: OutboundMessagePayload): Promise<void> {
     if (!payload.to) throw new Error('Missing recipient email address for SES send');
     if (!config.email.from) throw new Error('Missing EMAIL_FROM configuration for SES send');
+    if (payload.attachments?.length) {
+      const raw = buildRawMimeEmail({
+        from: config.email.from,
+        to: payload.to,
+        replyTo: config.email.replyTo || null,
+        subject: payload.subject ?? 'Service Update',
+        text: payload.body,
+        html: payload.html ?? null,
+        attachments: payload.attachments,
+      });
+      await this.client.send(new SendEmailCommand({
+        FromEmailAddress: config.email.from,
+        Destination: { ToAddresses: [payload.to] },
+        Content: { Raw: { Data: raw } },
+      }));
+      return;
+    }
     const command = new SendEmailCommand({
       FromEmailAddress: config.email.from,
       ReplyToAddresses: config.email.replyTo ? [config.email.replyTo] : undefined,

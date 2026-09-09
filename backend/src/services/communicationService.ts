@@ -1,6 +1,7 @@
 import { QueryResultRow } from 'pg';
 import { pool } from '../config/db';
-import { getOutboundMessageProvider } from '../integrations/notifications';
+import { EmailAttachment, getOutboundMessageProvider } from '../integrations/notifications';
+import { storage } from '../integrations/storage';
 import { rowsToCamel, toCamel } from './customerService';
 import { logger } from '../utils/logger';
 import { agreementSigningService } from './agreementSigningService';
@@ -9,6 +10,7 @@ import {
   renderServiceNotificationHtml, renderServiceNotificationText,
 } from '../content/serviceNotificationEmail';
 import { getCompanyInfo } from './settingsService';
+import { escapeHtml } from '../content/serviceNotificationEmail';
 
 export type CommunicationChannel = 'sms' | 'email' | 'push';
 export type CommunicationTemplateKey =
@@ -20,7 +22,8 @@ export type CommunicationTemplateKey =
   | 'payment_received'
   | 'payment_failed'
   | 'payment_refunded'
-  | 'agreement_review_sign';
+  | 'agreement_review_sign'
+  | 'agreement_signed_copy';
 
 const COMPANY = {
   name: 'Boxer Solutions Pest Control',
@@ -38,6 +41,7 @@ const DEFAULT_CHANNEL: Record<CommunicationTemplateKey, CommunicationChannel> = 
   payment_failed: 'email',
   payment_refunded: 'email',
   agreement_review_sign: 'email',
+  agreement_signed_copy: 'email',
 };
 
 function fmtDate(value: string | Date) {
@@ -278,6 +282,11 @@ function renderTemplate(templateKey: CommunicationTemplateKey, ctx: QueryResultR
         subject: `Refund processed for invoice ${ctx.invoice_number}`,
         body: `Hi ${firstName(ctx)}, we processed a refund of ${money(extra?.amount as number | string | undefined)} for invoice ${ctx.invoice_number}.`,
       };
+    case 'agreement_signed_copy':
+      return {
+        subject: `Your signed service agreement with ${String(extra?.companyName ?? COMPANY.name)}`,
+        body: `Hi ${firstName(ctx)}, thank you for choosing ${String(extra?.companyName ?? COMPANY.name)}. A copy of the service agreement you signed on ${String(extra?.signedOn ?? 'today')} is attached for your records. Questions? Reply to this email or call ${String(extra?.companyPhone ?? COMPANY.phone)}.`,
+      };
     case 'agreement_review_sign':
       return {
         subject: `Review and sign your service agreement with ${COMPANY.name}`,
@@ -295,6 +304,7 @@ async function insertAndSend(data: {
   subject: string | null;
   body: string;
   html?: string | null;
+  attachments?: EmailAttachment[] | null;
   sentBy?: string | null;
   to?: string | null;
 }) {
@@ -321,6 +331,7 @@ async function insertAndSend(data: {
       subject: data.subject,
       body: data.body,
       html: data.html ?? null,
+      attachments: data.attachments ?? null,
       templateKey: data.templateKey,
     });
     const sent = await pool.query(
@@ -412,6 +423,47 @@ export const communicationService = {
       subject: rendered.subject,
       body,
       html,
+      sentBy,
+      to: ctx.customer_email,
+    });
+  },
+
+  /**
+   * Email the customer a copy of the agreement they just signed (in the rep's
+   * app or through the email link). The signed document file is attached.
+   */
+  async sendSignedAgreementCopy(customerId: string, fileId: string, sentBy?: string | null) {
+    const ctx = await customerContext(customerId);
+    if (!ctx) throw new Error('Customer not found for communication');
+    if (!ctx.customer_email) {
+      logger.info({ customerId }, 'signed agreement copy skipped: customer has no email');
+      return null;
+    }
+    const file = await pool.query(
+      `SELECT file_name, mime_type, storage_object_key, created_at FROM files
+       WHERE id = $1 AND customer_id = $2 AND deleted_at IS NULL AND upload_status = 'uploaded'`,
+      [fileId, customerId],
+    );
+    const row = file.rows[0];
+    if (!row) throw new Error('Signed agreement file not found');
+    const content = await storage.getObject(row.storage_object_key);
+    const mime = String(row.mime_type || 'application/octet-stream');
+    const ext = mime === 'application/pdf' ? 'pdf' : mime === 'image/png' ? 'png' : mime === 'image/jpeg' ? 'jpg' : 'bin';
+    const company = await getCompanyInfo();
+    const signedOn = new Date(row.created_at ?? Date.now()).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' });
+    const templateKey: CommunicationTemplateKey = 'agreement_signed_copy';
+    const rendered = renderTemplate(templateKey, ctx, { companyName: company.name, companyPhone: company.phone, signedOn });
+    const html = `<!DOCTYPE html><html><body style="margin:0;background:#F0FAF8;padding:16px 0;"><table role="presentation" width="100%" cellpadding="0" cellspacing="0"><tr><td align="center"><table role="presentation" width="600" cellpadding="0" cellspacing="0" style="max-width:600px;width:100%;background:#fff;border-radius:10px;"><tr><td style="padding:18px 24px;border-bottom:3px solid #0D0D0D;font:700 16px Helvetica,Arial,sans-serif;color:#0D0D0D;">${escapeHtml(company.name)}</td></tr><tr><td style="padding:14px 24px;background:#0F7B3F;color:#fff;font:700 16px Helvetica,Arial,sans-serif;">Your signed service agreement</td></tr><tr><td style="padding:18px 24px;font:14px/20px Helvetica,Arial,sans-serif;color:#0D0D0D;">Hi ${escapeHtml(firstName(ctx))},<br><br>Thank you for choosing ${escapeHtml(company.name)}. A copy of the service agreement you signed on ${escapeHtml(signedOn)} is attached to this email for your records.<br><br>Questions? Reply to this email or call ${escapeHtml(company.phone)}.</td></tr><tr><td style="padding:0 24px 18px;font:11px Helvetica,Arial,sans-serif;color:#5B6B68;text-align:center;">${escapeHtml(company.name)}${company.addressLines.length ? ` · ${escapeHtml(company.addressLines.join(', '))}` : ''} · ${escapeHtml(company.license)}</td></tr></table></td></tr></table></body></html>`;
+    return insertAndSend({
+      customerId,
+      appointmentId: null,
+      invoiceId: null,
+      channel: 'email',
+      templateKey,
+      subject: rendered.subject,
+      body: rendered.body,
+      html,
+      attachments: [{ filename: `service-agreement-signed.${ext}`, contentType: mime, content }],
       sentBy,
       to: ctx.customer_email,
     });

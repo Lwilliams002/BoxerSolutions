@@ -5,6 +5,7 @@ import { technicianScope, assertAppointmentAccess, assertCustomerAccess } from '
 import { asyncHandler } from '../utils/asyncHandler';
 import { ok, parsePagination } from '../utils/http';
 import { fileService } from '../services/fileService';
+import { communicationService, safelyQueueCommunication } from '../services/communicationService';
 import { pool } from '../config/db';
 import { toCamel, rowsToCamel } from '../services/customerService';
 import { ApiError } from '../utils/errors';
@@ -48,6 +49,10 @@ router.post(
          WHERE NOT EXISTS (SELECT 1 FROM photos WHERE file_id = $1)`,
         [file.id, file.customerId ?? null, file.appointmentId ?? null, req.user!.employeeId],
       );
+    }
+    // A signed agreement captured in the rep's app: email the customer a copy.
+    if (file.fileType === 'document' && file.customerId && /^service-agreement-\d+\.(png|pdf|jpe?g)$/i.test(String(file.fileName ?? ''))) {
+      safelyQueueCommunication(() => communicationService.sendSignedAgreementCopy(file.customerId, file.id, req.user!.id));
     }
     ok(res, file, 'Upload confirmed');
   }),

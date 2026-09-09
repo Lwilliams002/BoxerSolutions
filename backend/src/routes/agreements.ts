@@ -8,6 +8,7 @@ import { authenticate, authorize } from '../middleware/auth';
 import { technicianScope, assertCustomerAccess } from '../middleware/scope';
 import { applyNorthCheckoutPageHeaders } from '../utils/northCheckoutCsp';
 import { agreementSigningService } from '../services/agreementSigningService';
+import { communicationService, safelyQueueCommunication } from '../services/communicationService';
 import { logger } from '../utils/logger';
 
 const router = Router();
@@ -801,6 +802,9 @@ router.post(
       signerTimeZone: z.string().min(1).max(100).optional(),
     }).parse(req.body);
     const result = await agreementSigningService.signFromToken(payload);
+    if (!result.alreadySigned && result.signedFileId) {
+      safelyQueueCommunication(() => communicationService.sendSignedAgreementCopy(result.customerId, result.signedFileId!, null));
+    }
     const title = result.alreadySigned ? 'Agreement Already Signed' : 'Agreement Signed';
     const message = result.alreadySigned
       ? 'This agreement was already signed previously.'

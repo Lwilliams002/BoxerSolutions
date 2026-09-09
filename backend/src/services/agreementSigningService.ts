@@ -851,6 +851,7 @@ export const agreementSigningService = {
     return {
       alreadySigned: false,
       customerId: row.customer_id,
+      signedFileId: row.id,
       initialInvoiceId: initialCharge.invoiceId,
       initialInvoiceCharged: initialCharge.charged,
       initialInvoiceChargeError: initialCharge.reason ?? null,
