@@ -212,20 +212,6 @@ export default function InvoiceScreen() {
     }
   };
 
-  const createNorthInvoiceLink = async () => {
-    setBusy('north-link');
-    try {
-      const { url } = await api<{ url: string }>('/payments/north/invoice-link', {
-        method: 'POST',
-        body: { invoiceId: id },
-      });
-      await Linking.openURL(url);
-    } catch (e) {
-      Alert.alert('Unable to create payment link', (e as Error).message);
-    } finally {
-      setBusy(null);
-    }
-  };
 
   const openNorthEmbeddedCheckout = () => {
     router.push({ pathname: '/payments/fields-checkout', params: { flow: 'pay', invoiceId: id } });
@@ -397,9 +383,6 @@ export default function InvoiceScreen() {
       <Button title={inv.pdfFileId ? 'View PDF' : 'Generate PDF'} variant="outline" onPress={openPdf} loading={busy === 'pdf'} />
       {unpaid && (canCollect || hasPermission('payments:write')) ? (
         <Button title="Pay with Card (Secure Checkout)" variant="success" onPress={openNorthEmbeddedCheckout} />
-      ) : null}
-      {canCollect || hasPermission('payments:write') ? (
-        <Button title="Create North Payment Link" variant="secondary" onPress={createNorthInvoiceLink} loading={busy === 'north-link'} />
       ) : null}
       {unpaid && canCollect ? (
         <Button title={recordOpen ? 'Cancel' : 'Record Outside Payment'} variant="outline" onPress={() => setRecordOpen((v) => !v)} />
