@@ -219,6 +219,12 @@ export const customerService = {
         [id],
       );
       await tx.query("UPDATE subscriptions SET status = 'cancelled', updated_at = now() WHERE customer_id = $1 AND status <> 'cancelled' AND deleted_at IS NULL", [id]);
+      // Unpaid invoices go with the customer; paid ones stay for the books but are hidden with the customer.
+      await tx.query(
+        `UPDATE invoices SET deleted_at = now(), updated_at = now()
+         WHERE customer_id = $1 AND deleted_at IS NULL AND amount_paid <= 0 AND status IN ('draft','open','sent','past_due')`,
+        [id],
+      );
       await recordAudit({ userId, action: 'customer.deleted', entityType: 'customer', entityId: id }, tx);
     });
   },

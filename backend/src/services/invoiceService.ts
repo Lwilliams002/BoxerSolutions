@@ -114,7 +114,7 @@ export const invoiceService = {
     limit: number,
     offset: number,
   ) {
-    const where: string[] = ['i.deleted_at IS NULL'];
+    const where: string[] = ['i.deleted_at IS NULL', 'c.deleted_at IS NULL'];
     const params: unknown[] = [];
     if (filters.customerId) { params.push(filters.customerId); where.push(`i.customer_id = $${params.length}`); }
     if (filters.status) { params.push(filters.status); where.push(`i.status = $${params.length}`); }
@@ -138,7 +138,7 @@ export const invoiceService = {
       )`);
     }
     const whereSql = where.join(' AND ');
-    const count = await pool.query(`SELECT count(*)::int AS total FROM invoices i WHERE ${whereSql}`, params);
+    const count = await pool.query(`SELECT count(*)::int AS total FROM invoices i JOIN customers c ON c.id = i.customer_id WHERE ${whereSql}`, params);
     params.push(limit, offset);
     const { rows } = await pool.query(
       `${INVOICE_SELECT} WHERE ${whereSql} ORDER BY i.invoice_date DESC, i.created_at DESC

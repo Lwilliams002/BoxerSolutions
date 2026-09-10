@@ -47,7 +47,8 @@ router.get(
         `SELECT coalesce(sum(i.total - i.amount_paid) FILTER (WHERE i.status IN ('open','sent','partially_paid','past_due')), 0) AS outstanding,
                 coalesce(sum(i.total - i.amount_paid) FILTER (WHERE i.status IN ('open','sent','partially_paid','past_due') AND i.due_date < CURRENT_DATE), 0) AS past_due,
                 coalesce(sum(i.total) FILTER (WHERE i.invoice_date = CURRENT_DATE), 0) AS invoiced_today
-         FROM invoices i WHERE i.deleted_at IS NULL`,
+         FROM invoices i JOIN customers c ON c.id = i.customer_id
+         WHERE i.deleted_at IS NULL AND c.deleted_at IS NULL`,
       ),
       scope
         ? Promise.resolve({ rows: [] })
