@@ -13,16 +13,18 @@ export function confirmAction(options: {
   confirmText: string;
   destructive?: boolean;
   onConfirm: () => void | Promise<void>;
+  /** Runs when the user declines (Cancel on native, Cancel/Escape on web). */
+  onCancel?: () => void;
 }) {
-  const { title, message, confirmText, destructive, onConfirm } = options;
+  const { title, message, confirmText, destructive, onConfirm, onCancel } = options;
   if (Platform.OS === 'web') {
     // eslint-disable-next-line no-alert
     const ok = typeof window !== 'undefined' && window.confirm(`${title}\n\n${message}`);
-    if (ok) void onConfirm();
+    if (ok) void onConfirm(); else onCancel?.();
     return;
   }
   Alert.alert(title, message, [
-    { text: 'Cancel', style: 'cancel' },
+    { text: 'Cancel', style: 'cancel', onPress: () => onCancel?.() },
     { text: confirmText, style: destructive ? 'destructive' : 'default', onPress: () => void onConfirm() },
   ]);
 }

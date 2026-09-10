@@ -5,15 +5,17 @@ import {
   ScrollView,
   StyleSheet,
   TextInput,
-  Alert,
   TouchableOpacity,
   Image,
   Modal,
+  KeyboardAvoidingView,
+  Platform,
 } from 'react-native';
 import { useLocalSearchParams, useRouter, Stack } from 'expo-router';
 import { useQueryClient } from '@tanstack/react-query';
 import { Ionicons } from '@expo/vector-icons';
 import { api } from '../../src/lib/api';
+import { confirmAction, notify } from '../../src/lib/confirm';
 import { persistLocally, uploadPendingPhoto } from '../../src/lib/photos';
 import { captureView } from '../../src/lib/capture';
 import { SignaturePad, SignaturePadHandle } from '../../src/components/SignaturePad';
@@ -110,6 +112,9 @@ export default function AgreementScreen() {
   const router = useRouter();
   const qc = useQueryClient();
   const docRef = useRef<View>(null);
+  const scrollRef = useRef<ScrollView>(null);
+  // The initials field sits at the bottom of a long page; bring it above the keyboard when focused.
+  const revealInitials = () => setTimeout(() => scrollRef.current?.scrollToEnd({ animated: true }), Platform.OS === 'ios' ? 250 : 100);
   const user = useAuth((state) => state.user);
   const company = useCompanyInfo();
   const existingCustomerId = typeof customerId === 'string' && customerId ? customerId : null;
@@ -325,31 +330,31 @@ export default function AgreementScreen() {
 
   const submit = async () => {
     if (!homeSize) {
-      Alert.alert('Select home size', 'Please choose a home size for the Standard Four Point Service.');
+      notify('Select home size', 'Please choose a home size for the Standard Four Point Service.');
       return;
     }
     if (yardOn && !yardTier) {
-      Alert.alert('Select yard size', 'Please choose a size tier for All Yard Ants.');
+      notify('Select yard size', 'Please choose a size tier for All Yard Ants.');
       return;
     }
     if (webOn && !(parseFloat(webSqft) > 0)) {
-      Alert.alert('Enter square footage', 'Please enter the structure size for Web Removal.');
+      notify('Enter square footage', 'Please enter the structure size for Web Removal.');
       return;
     }
     if (!agreed && !sendForSignature) {
-      Alert.alert('Agreement required', 'Please check the box to accept the terms.');
+      notify('Agreement required', 'Please check the box to accept the terms.');
       return;
     }
     if (!sendForSignature && !initials.trim()) {
-      Alert.alert('Initials required', 'Please enter your initials.');
+      notify('Initials required', 'Please enter your initials.');
       return;
     }
     if (!sendForSignature && !signatureDataUrl) {
-      Alert.alert('Signature required', 'Please sign the agreement before continuing.');
+      notify('Signature required', 'Please sign the agreement before continuing.');
       return;
     }
     if (sendForSignature && !data.email) {
-      Alert.alert('Customer email required', 'Add an email address on the customer details screen to send for review and signature.');
+      notify('Customer email required', 'Add an email address on the customer details screen to send for review and signature.');
       return;
     }
     setBusy(true);
@@ -523,7 +528,7 @@ export default function AgreementScreen() {
       void qc.invalidateQueries({ queryKey: ['customerNotes', targetCustomerId] });
       void qc.invalidateQueries({ queryKey: ['customerComms', targetCustomerId] });
       if (sendForSignature) {
-        Alert.alert(
+        notify(
           signatureRequestSent ? 'Agreement Sent for Signature' : 'Agreement Created',
           signatureRequestSent
             ? (existingCustomerId
@@ -532,41 +537,34 @@ export default function AgreementScreen() {
             : (existingCustomerId
               ? `${name}'s updated agreement was added, but the signature email could not be sent. Use Resend Signature Email in Documents.`
               : `${name} was created and agreement is marked Unsigned, but the signature email could not be sent. Use Resend Signature Email in Documents.`),
-          [{ text: 'OK', onPress: () => router.replace(`/customer/${targetCustomerId}?tab=Documents`) }],
         );
-      } else {
-        Alert.alert(
+        router.replace(`/customer/${targetCustomerId}?tab=Documents`);
+      } else if (existingCustomerId) {
+        notify(
           'Agreement Signed',
-          existingCustomerId
-            ? (isUpdate
-              ? `${name}'s agreement was updated.${initialInvoiceId ? ` ${money(chargeTotal)} for the added services was invoiced${'.'}` : ' No new initial charges.'} Recurring is now ${money(regularTotal)}/service.`
-              : `${name}'s updated signed agreement was saved.`)
-            : `${name} has been added and the signed agreement was saved.\n\nAdd a payment method now to save it on file${initialInvoiceId ? ' and collect the initial service charge' : ''}.`,
-          existingCustomerId
-            ? [{ text: 'OK', onPress: () => router.replace(`/customer/${targetCustomerId}?tab=Documents`) }]
-            : [
-                { text: 'Later', style: 'cancel', onPress: () => router.replace(`/customer/${targetCustomerId}`) },
-                {
-                  text: 'Add Payment Method',
-                  onPress: () =>
-                    router.replace({
-                      pathname: '/customer/[id]',
-                      params: initialInvoiceId
-                        ? {
-                          id: targetCustomerId,
-                          tab: 'Payment Methods',
-                          promptPayment: '1',
-                          promptInitialCharge: '1',
-                          initialInvoiceId,
-                        }
-                        : { id: targetCustomerId, tab: 'Payment Methods', promptPayment: '1' },
-                    }),
-                },
-              ],
+          isUpdate
+            ? `${name}'s agreement was updated.${initialInvoiceId ? ` ${money(chargeTotal)} for the added services was invoiced.` : ' No new initial charges.'} Recurring is now ${money(regularTotal)}/service.`
+            : `${name}'s updated signed agreement was saved.`,
         );
+        router.replace(`/customer/${targetCustomerId}?tab=Documents`);
+      } else {
+        const goToPaymentMethods = () =>
+          router.replace({
+            pathname: '/customer/[id]',
+            params: initialInvoiceId
+              ? { id: targetCustomerId, tab: 'Payment Methods', promptPayment: '1', promptInitialCharge: '1', initialInvoiceId }
+              : { id: targetCustomerId, tab: 'Payment Methods', promptPayment: '1' },
+          });
+        confirmAction({
+          title: 'Agreement Signed',
+          message: `${name} has been added and the signed agreement was saved.\n\nAdd a payment method now to save it on file${initialInvoiceId ? ' and collect the initial service charge' : ''}? (Cancel = later)`,
+          confirmText: 'Add Payment Method',
+          onConfirm: goToPaymentMethods,
+          onCancel: () => router.replace(`/customer/${targetCustomerId}`),
+        });
       }
     } catch (e) {
-      Alert.alert('Error', (e as Error).message);
+      notify('Error', (e as Error).message);
     } finally {
       setBusy(false);
     }
@@ -581,7 +579,8 @@ export default function AgreementScreen() {
             <Text style={styles.updateBannerText}>Only services that are new versus the current agreement are charged now. The recurring amount changes from {money(previousRecurring)} to the new total.</Text>
           </View>
         ) : null}
-      <ScrollView contentContainerStyle={styles.scroll} keyboardShouldPersistTaps="handled">
+      <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : undefined} keyboardVerticalOffset={Platform.OS === 'ios' ? 88 : 0}>
+      <ScrollView ref={scrollRef} contentContainerStyle={styles.scroll} keyboardShouldPersistTaps="handled" automaticallyAdjustKeyboardInsets>
         {/* ---------- Standard Four Point Service ---------- */}
         <Text style={styles.pickHeader}>Standard Four Point Service</Text>
         <Text style={styles.pickSub}>Select home size — sets the initial &amp; recurring rate.</Text>
@@ -941,6 +940,7 @@ export default function AgreementScreen() {
           style={styles.input}
           value={initials}
           onChangeText={(t) => setInitials(t.slice(0, 4))}
+          onFocus={revealInitials}
             autoCapitalize="characters"
             placeholder="e.g. JS"
             placeholderTextColor={colors.textMuted}
@@ -960,6 +960,7 @@ export default function AgreementScreen() {
           </TouchableOpacity>
         </View>
       </ScrollView>
+      </KeyboardAvoidingView>
 
       <View style={styles.bottomBar}>
         <TouchableOpacity style={[styles.submitBtn, busy && { opacity: 0.6 }]} onPress={submit} disabled={busy} activeOpacity={0.85}>
@@ -997,7 +998,7 @@ function SigningOverlay({ onCancel, onDone }: { onCancel: () => void; onDone: (u
 
   const save = async () => {
     if (padRef.current?.isEmpty()) {
-      Alert.alert('Signature required', 'Please sign before saving.');
+      notify('Signature required', 'Please sign before saving.');
       return;
     }
     setSaving(true);
@@ -1005,7 +1006,7 @@ function SigningOverlay({ onCancel, onDone }: { onCancel: () => void; onDone: (u
       const tmp = await padRef.current!.capture();
       onDone(tmp);
     } catch (e) {
-      Alert.alert('Error', (e as Error).message);
+      notify('Error', (e as Error).message);
     } finally {
       setSaving(false);
     }
@@ -1046,7 +1047,7 @@ const styles = StyleSheet.create({
   updateBannerTitle: { fontWeight: '800', color: '#0D0D0D', marginBottom: 4 },
   updateBannerText: { color: '#30433F', fontSize: 13, lineHeight: 18 },
   centered: { flex: 1, alignItems: 'center', justifyContent: 'center' },
-  scroll: { padding: 12, paddingBottom: 24 },
+  scroll: { padding: 12, paddingBottom: 140 },
   pickHeader: { fontSize: 15, fontWeight: '900', color: colors.text, marginTop: 16, marginBottom: 2 },
   pickSub: { fontSize: 12, color: colors.textMuted, marginBottom: 8 },
   tierRow: {
