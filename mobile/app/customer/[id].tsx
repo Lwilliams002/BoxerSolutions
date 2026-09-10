@@ -41,7 +41,27 @@ export default function CustomerScreen() {
     }
   };
   const hasPermission = useAuth((s) => s.hasPermission);
+  const isOwner = !!useAuth((s) => s.user)?.roles?.includes('OWNER');
   const [tab, setTab] = useState<Tab>(TABS.includes(tabParam as Tab) ? (tabParam as Tab) : 'Overview');
+  const deleteCustomer = () =>
+    confirmAction({
+      title: 'Delete customer',
+      message: 'This removes the customer from the app, stops their recurring plan and cancels upcoming visits. Invoices and payment history are kept for the books. Continue?',
+      confirmText: 'Delete',
+      destructive: true,
+      onConfirm: async () => {
+        try {
+          await api(`/customers/${id}`, { method: 'DELETE' });
+          void qc.invalidateQueries({ queryKey: ['customers'] });
+          void qc.invalidateQueries({ queryKey: ['mapLocations'] });
+          void qc.invalidateQueries({ queryKey: ['recurring-charges'] });
+          notify('Customer deleted');
+          router.replace('/(tabs)/customers');
+        } catch (e) {
+          notify('Could not delete customer', (e as Error).message);
+        }
+      },
+    });
   const [noteText, setNoteText] = useState('');
   const [busy, setBusy] = useState(false);
   const [customInvoiceDescription, setCustomInvoiceDescription] = useState('Additional service');
@@ -482,6 +502,12 @@ export default function CustomerScreen() {
             {hasPermission('appointments:write') && (
               <Button title="+ New Appointment" onPress={() => router.push({ pathname: '/appointment/new', params: { customerId: id } })} />
             )}
+            {isOwner ? (
+              <Card>
+                <Text style={styles.metaText}>Owner only. Deleting hides this customer everywhere and stops their recurring plan.</Text>
+                <Button title="Delete Customer" variant="danger" onPress={deleteCustomer} />
+              </Card>
+            ) : null}
           </>
         )}
 

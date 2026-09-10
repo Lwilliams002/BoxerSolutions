@@ -82,6 +82,25 @@ export default function InvoiceScreen() {
   const router = useRouter();
   const qc = useQueryClient();
   const hasPermission = useAuth((s) => s.hasPermission);
+  const isOwner = !!useAuth((s) => s.user)?.roles?.includes('OWNER');
+  const deleteInvoice = () =>
+    confirmAction({
+      title: 'Delete invoice',
+      message: `Delete invoice ${inv?.invoiceNumber ?? ''}? It disappears from the customer and reports. This cannot be undone.`,
+      confirmText: 'Delete',
+      destructive: true,
+      onConfirm: async () => {
+        try {
+          await api(`/invoices/${id}`, { method: 'DELETE' });
+          void qc.invalidateQueries({ queryKey: ['invoices'] });
+          void qc.invalidateQueries({ queryKey: ['dashboard'] });
+          notify('Invoice deleted');
+          router.back();
+        } catch (e) {
+          notify('Could not delete invoice', (e as Error).message);
+        }
+      },
+    });
   const [busy, setBusy] = useState<string | null>(null);
   const [refundAmountByPayment, setRefundAmountByPayment] = useState<Record<string, string>>({});
   // Payment taken outside the app (North Payments Hub virtual terminal, cash, check).
@@ -385,6 +404,11 @@ export default function InvoiceScreen() {
       {unpaid && canCollect ? (
         <Button title={recordOpen ? 'Cancel' : 'Record Outside Payment'} variant="outline" onPress={() => setRecordOpen((v) => !v)} />
       ) : null}
+      {isOwner ? (
+        parseFloat(inv.amountPaid ?? '0') > 0
+          ? <Text style={styles.ownerHint}>Owner: refund the payments on this invoice before it can be deleted.</Text>
+          : <Button title="Delete Invoice" variant="danger" onPress={deleteInvoice} />
+      ) : null}
       {unpaid && canCollect && recordOpen ? (
         <Card>
           <Value style={{ fontWeight: '800' }}>Record a payment taken outside the app</Value>
@@ -516,6 +540,7 @@ export default function InvoiceScreen() {
 }
 
 const styles = StyleSheet.create({
+  ownerHint: { fontSize: 12, color: colors.textMuted, textAlign: 'center', marginVertical: 8 },
   container: { padding: 16, paddingBottom: 60 },
   number: { fontSize: 20, fontWeight: '800', color: colors.text },
   customer: { fontSize: 15, color: colors.textMuted, marginTop: 4 },

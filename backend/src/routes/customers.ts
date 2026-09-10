@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { authenticate, authorize } from '../middleware/auth';
+import { authenticate, authorize, requireRole } from '../middleware/auth';
 import { technicianScope, assertCustomerAccess } from '../middleware/scope';
 import { asyncHandler } from '../utils/asyncHandler';
 import { ok, parsePagination } from '../utils/http';
@@ -73,9 +73,11 @@ router.patch(
   }),
 );
 
+/** Owner only: remove a customer (soft delete; stops their recurring plan and cancels future visits). */
 router.delete(
   '/:id',
   authorize('customers:delete'),
+  requireRole('OWNER'),
   asyncHandler(async (req, res) => {
     await customerService.softDelete(req.params.id, req.user!.id);
     ok(res, null, 'Customer deleted');

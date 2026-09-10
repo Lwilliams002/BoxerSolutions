@@ -205,12 +205,22 @@ export const customerService = {
   },
 
   async softDelete(id: string, userId: string) {
-    const { rowCount } = await pool.query(
-      'UPDATE customers SET deleted_at = now(), updated_at = now() WHERE id = $1 AND deleted_at IS NULL',
-      [id],
-    );
-    if (!rowCount) throw ApiError.notFound('Customer not found');
-    await recordAudit({ userId, action: 'customer.deleted', entityType: 'customer', entityId: id });
+    await withTransaction(async (tx) => {
+      const { rowCount } = await tx.query(
+        'UPDATE customers SET deleted_at = now(), updated_at = now() WHERE id = $1 AND deleted_at IS NULL',
+        [id],
+      );
+      if (!rowCount) throw ApiError.notFound('Customer not found');
+      // Nothing should keep running for a deleted customer.
+      await tx.query('UPDATE recurring_charges SET active = false, updated_at = now() WHERE customer_id = $1 AND active', [id]);
+      await tx.query(
+        `UPDATE appointments SET status = 'cancelled', cancellation_reason = 'Customer deleted', updated_at = now()
+         WHERE customer_id = $1 AND deleted_at IS NULL AND status IN ('scheduled','en_route','arrived') AND scheduled_date >= CURRENT_DATE`,
+        [id],
+      );
+      await tx.query("UPDATE subscriptions SET status = 'cancelled', updated_at = now() WHERE customer_id = $1 AND status <> 'cancelled' AND deleted_at IS NULL", [id]);
+      await recordAudit({ userId, action: 'customer.deleted', entityType: 'customer', entityId: id }, tx);
+    });
   },
 
   async serviceHistory(customerId: string) {

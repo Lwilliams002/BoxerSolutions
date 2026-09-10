@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { z } from 'zod';
-import { authenticate, authorize } from '../middleware/auth';
+import { authenticate, authorize, requireRole } from '../middleware/auth';
 import { technicianScope, assertCustomerAccess, assertInvoiceAccess } from '../middleware/scope';
 import { asyncHandler } from '../utils/asyncHandler';
 import { ok, parsePagination } from '../utils/http';
@@ -96,6 +96,17 @@ router.post(
   authorize('invoices:write'),
   asyncHandler(async (req, res) => {
     ok(res, await invoiceService.send(req.params.id, req.user!.id), 'Invoice sent');
+  }),
+);
+
+/** Owner only: delete an invoice that has no payments (refund first otherwise). */
+router.delete(
+  '/:id',
+  authorize('invoices:write'),
+  requireRole('OWNER'),
+  asyncHandler(async (req, res) => {
+    await invoiceService.softDelete(req.params.id, req.user!.id);
+    ok(res, null, 'Invoice deleted');
   }),
 );
 

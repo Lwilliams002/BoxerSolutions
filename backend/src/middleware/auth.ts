@@ -51,3 +51,13 @@ export function authorize(...requiredPermissions: string[]) {
     next();
   };
 }
+
+/** Restrict a route to specific roles regardless of permissions (e.g. destructive actions for the OWNER only). */
+export function requireRole(...roles: string[]) {
+  return (req: Request, _res: Response, next: NextFunction) => {
+    const user = req.user;
+    if (!user) return next(ApiError.unauthorized('Authentication required'));
+    if (!roles.some((r) => user.roles.includes(r))) return next(ApiError.forbidden(`Only ${roles.join(' or ')} can do this`));
+    return next();
+  };
+}

@@ -402,6 +402,20 @@ export const invoiceService = {
     return toCamel(rows[0]);
   },
 
+  /** Soft delete. Paid invoices must be refunded first so the books stay balanced. */
+  async softDelete(invoiceId: string, userId: string) {
+    const invoice = (await this.getById(invoiceId)) as any;
+    if (Number(invoice.amountPaid) > 0) throw ApiError.badRequest('This invoice has payments. Refund them first, then delete.');
+    return withTransaction(async (tx) => {
+      const { rowCount } = await tx.query('UPDATE invoices SET deleted_at = now(), updated_at = now() WHERE id = $1 AND deleted_at IS NULL', [invoiceId]);
+      if (!rowCount) throw ApiError.notFound('Invoice not found');
+      if (invoice.status !== 'void') {
+        await tx.query('UPDATE customers SET balance = balance - $1, updated_at = now() WHERE id = $2', [invoice.total, invoice.customerId]);
+      }
+      await recordAudit({ userId, action: 'invoice.deleted', entityType: 'invoice', entityId: invoiceId, previousValue: { status: invoice.status, total: invoice.total } }, tx);
+    });
+  },
+
   async voidInvoice(invoiceId: string, userId: string) {
     const invoice = (await this.getById(invoiceId)) as any;
     if (Number(invoice.amountPaid) > 0) throw ApiError.badRequest('Cannot void an invoice with payments');
