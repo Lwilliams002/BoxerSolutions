@@ -9,7 +9,7 @@ import { technicianScope, assertCustomerAccess } from '../middleware/scope';
 import { applyNorthCheckoutPageHeaders } from '../utils/northCheckoutCsp';
 import { agreementSigningService } from '../services/agreementSigningService';
 import { getCompanyInfo } from '../services/settingsService';
-import { computeSurcharge } from '../utils/surcharge';
+import { computeDiscount } from '../utils/surcharge';
 import { communicationService, safelyQueueCommunication } from '../services/communicationService';
 import { logger } from '../utils/logger';
 
@@ -814,7 +814,7 @@ router.post(
 
     const paymentToken = !result.alreadySigned ? (result.initialPaymentToken ?? null) : null;
     const amountDue = !result.alreadySigned ? (result.initialAmountDue ?? null) : null;
-    const surchargePercent = (await getCompanyInfo()).cardSurchargePercent;
+    const discountPercent = (await getCompanyInfo()).cashDiscountPercent;
     const receipt = !result.alreadySigned && result.initialInvoiceCharged
       ? (result.initialReceipt as { receiptNumber?: string; amount?: number; brand?: string | null; last4?: string | null } | null)
       : null;
@@ -838,7 +838,7 @@ router.post(
         <h3 style="margin:0 0 6px 0;color:#0D0D0D;font-size:16px;">Pay Your Initial Service Charge</h3>
         <p style="margin:0 0 10px 0;color:#30433F;font-size:14px;">
           Enter your card or bank account below to pay${amountDue != null ? ` <strong>${money(Number(amountDue))}</strong>` : ''}. Your details are tokenized by our payment processor and never touch our systems; the method is saved on file for your recurring service charges.
-          ${surchargePercent > 0 && amountDue != null ? `<br><span style="color:#8A5A00;font-weight:700;">Paying by credit card adds a ${surchargePercent}% processing surcharge (${money(computeSurcharge(Number(amountDue), surchargePercent))}), for a total of ${money(Number(amountDue) + computeSurcharge(Number(amountDue), surchargePercent))}. Bank payments have no surcharge.</span>` : ''}
+          ${discountPercent > 0 && amountDue != null ? `<br><span style="color:#0F7B3F;font-weight:700;">Pay by bank account and save ${discountPercent}%: ${money(Number(amountDue) - computeDiscount(Number(amountDue), discountPercent))} instead of ${money(Number(amountDue))}. Listed prices include card processing.</span>` : ''}
         </p>
         <input id="payToken" type="hidden" value="${htmlEscape(paymentToken)}" />
         <div id="payBreakdown" style="border:1px solid #E3EEEB;border-radius:10px;padding:10px 12px;margin:0 0 12px 0;font-size:14px;color:#30433F;"></div>

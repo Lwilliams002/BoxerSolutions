@@ -6,11 +6,11 @@ import { api } from '../../src/lib/api';
 import { colors } from '../../src/lib/theme';
 import { Button, Label, Loading } from '../../src/components/ui';
 
-type Settings = { companyName: string; phone: string; email: string; address: string; licenseNumber: string; defaultTaxRate: number; invoiceDueDays: number; chargeRecurringOnCompletion: boolean; cardSurchargePercent: number; appointmentReminderHours: number };
-type Form = Omit<Settings, 'defaultTaxRate' | 'invoiceDueDays' | 'appointmentReminderHours' | 'cardSurchargePercent'> & { defaultTaxRate: string; invoiceDueDays: string; appointmentReminderHours: string; cardSurchargePercent: string };
+type Settings = { companyName: string; phone: string; email: string; address: string; licenseNumber: string; defaultTaxRate: number; invoiceDueDays: number; chargeRecurringOnCompletion: boolean; cashDiscountPercent: number; appointmentReminderHours: number };
+type Form = Omit<Settings, 'defaultTaxRate' | 'invoiceDueDays' | 'appointmentReminderHours' | 'cashDiscountPercent'> & { defaultTaxRate: string; invoiceDueDays: string; appointmentReminderHours: string; cashDiscountPercent: string };
 
-function toForm(s: Settings): Form { return { ...s, defaultTaxRate: String(s.defaultTaxRate * 100), invoiceDueDays: String(s.invoiceDueDays), appointmentReminderHours: String(s.appointmentReminderHours), cardSurchargePercent: String(s.cardSurchargePercent ?? 0) }; }
-function toBody(f: Form): Settings { return { ...f, defaultTaxRate: (Number(f.defaultTaxRate) || 0) / 100, invoiceDueDays: Number(f.invoiceDueDays) || 0, appointmentReminderHours: Number(f.appointmentReminderHours) || 0, cardSurchargePercent: Math.min(4, Math.max(0, Number(f.cardSurchargePercent) || 0)) }; }
+function toForm(s: Settings): Form { return { ...s, defaultTaxRate: String(s.defaultTaxRate * 100), invoiceDueDays: String(s.invoiceDueDays), appointmentReminderHours: String(s.appointmentReminderHours), cashDiscountPercent: String(s.cashDiscountPercent ?? 0) }; }
+function toBody(f: Form): Settings { return { ...f, defaultTaxRate: (Number(f.defaultTaxRate) || 0) / 100, invoiceDueDays: Number(f.invoiceDueDays) || 0, appointmentReminderHours: Number(f.appointmentReminderHours) || 0, cashDiscountPercent: Math.min(10, Math.max(0, Number(f.cashDiscountPercent) || 0)) }; }
 
 export default function AdminSettingsScreen() {
   const qc = useQueryClient();
@@ -31,9 +31,9 @@ export default function AdminSettingsScreen() {
       <Label>License Number</Label><TextInput style={styles.input} value={form.licenseNumber} placeholder="Leave blank to print ---------" placeholderTextColor={colors.textMuted} onChangeText={(licenseNumber) => setForm({ ...form, licenseNumber })} />
       <Label>Default Tax Rate (%)</Label><TextInput style={styles.input} keyboardType="decimal-pad" value={form.defaultTaxRate} onChangeText={(defaultTaxRate) => setForm({ ...form, defaultTaxRate })} />
       <Label>Invoice Due Days</Label><TextInput style={styles.input} keyboardType="number-pad" value={form.invoiceDueDays} onChangeText={(invoiceDueDays) => setForm({ ...form, invoiceDueDays })} />
-      <Label>Card processing surcharge (%)</Label>
-      <TextInput style={styles.input} keyboardType="decimal-pad" value={form.cardSurchargePercent} onChangeText={(cardSurchargePercent) => setForm({ ...form, cardSurchargePercent })} />
-      <Text style={styles.hint}>Added to credit card payments only and shown before the customer pays and on the receipt. Bank, cash and check payments are never surcharged. Card networks cap this at 3% for Visa and 4% for Mastercard; 0 turns it off.</Text>
+      <Label>Cash / bank payment discount (%)</Label>
+      <TextInput style={styles.input} keyboardType="decimal-pad" value={form.cashDiscountPercent} onChangeText={(cashDiscountPercent) => setForm({ ...form, cashDiscountPercent })} />
+      <Text style={styles.hint}>Listed prices include card processing. Customers paying by bank account, cash or check get this much off, itemized on the receipt. Cards pay the listed price with no fee added. 0 turns it off.</Text>
       <View style={styles.switchRow}>
         <View style={{ flex: 1, paddingRight: 12 }}>
           <Label>Charge recurring service on completion</Label>

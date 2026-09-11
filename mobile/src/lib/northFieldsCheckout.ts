@@ -4,7 +4,7 @@ export type FieldsFlow = 'pay' | 'store';
 export type AchAccountType = 'checking' | 'savings';
 export interface FieldsAchTerms { version: string; text: string }
 
-export interface FieldsBreakdown { subtotal: number; tax: number; total: number; previouslyPaid: number; amountDue: number; cardSurchargePercent?: number; cardSurcharge?: number; amountDueWithCard?: number }
+export interface FieldsBreakdown { subtotal: number; tax: number; total: number; previouslyPaid: number; amountDue: number; cashDiscountPercent?: number; bankDiscount?: number; amountDueWithBank?: number }
 
 export interface FieldsPaySession {
   sessionToken: string;
