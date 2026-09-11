@@ -1,7 +1,8 @@
 import React, { useMemo, useState } from 'react';
-import { Alert, Modal, RefreshControl, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
+import {Modal, RefreshControl, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api } from '../../src/lib/api';
+import { notify } from '../../src/lib/confirm';
 import { colors } from '../../src/lib/theme';
 import { Button, Card, EmptyState, Label, Loading, Row, StatusBadge, Value } from '../../src/components/ui';
 
@@ -27,13 +28,13 @@ export default function AdminEmployeesScreen() {
     mutationFn: () => editing
       ? api<User>(`/users/${editing.id}`, { method: 'PATCH', body: { firstName: form.firstName, lastName: form.lastName, phone: form.phone || null, roleCodes: [form.roleCode], ...(form.password ? { password: form.password } : {}) } })
       : api<User>('/users', { method: 'POST', body: { firstName: form.firstName, lastName: form.lastName, email: form.email, phone: form.phone || null, password: form.password, roleCodes: [form.roleCode] } }),
-    onSuccess: async () => { setOpen(false); setEditing(null); await qc.invalidateQueries({ queryKey: ['admin-users'] }); },
-    onError: (e: Error) => Alert.alert('Save failed', e.message),
+    onSuccess: async (_data, _vars) => { const hadPassword = !!form.password; setOpen(false); setEditing(null); await qc.invalidateQueries({ queryKey: ['admin-users'] }); notify(hadPassword ? 'Saved — password updated' : 'Saved', hadPassword ? 'The user can sign in with the new password now.' : undefined); },
+    onError: (e: Error) => notify('Save failed', e.message),
   });
   const toggle = useMutation({
     mutationFn: (u: User) => api<User>(`/users/${u.id}`, { method: 'PATCH', body: { isActive: !u.isActive } }),
     onSuccess: async () => qc.invalidateQueries({ queryKey: ['admin-users'] }),
-    onError: (e: Error) => Alert.alert('Update failed', e.message),
+    onError: (e: Error) => notify('Update failed', e.message),
   });
   if (users.isLoading || roles.isLoading) return <Loading />;
   const startCreate = () => { setEditing(null); setForm(empty); setOpen(true); };
@@ -43,7 +44,7 @@ export default function AdminEmployeesScreen() {
     setForm({ firstName: u.firstName, lastName: u.lastName, email: u.email, phone: u.phone ?? '', password: '', roleCode });
     setOpen(true);
   };
-  const showRole = (code: string) => Alert.alert(roleByCode[code]?.name ?? code, (roleByCode[code]?.permissions ?? []).join('\n') || 'No permissions');
+  const showRole = (code: string) => notify(roleByCode[code]?.name ?? code, (roleByCode[code]?.permissions ?? []).join('\n') || 'No permissions');
   return (
     <ScrollView contentContainerStyle={styles.container} refreshControl={<RefreshControl refreshing={users.isRefetching || roles.isRefetching} onRefresh={() => { void users.refetch(); void roles.refetch(); }} tintColor={colors.primary} />}>
       <Row style={{ marginBottom: 12 }}><Text style={styles.title}>Employees & Users</Text><Button title="New" onPress={startCreate} style={styles.smallButton} /></Row>
