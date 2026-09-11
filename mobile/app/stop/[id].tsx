@@ -239,7 +239,8 @@ export default function StopScreen() {
   if (isLoading || !appt) return <Loading />;
 
   const name = appt.customerCompany ?? `${appt.customerFirstName} ${appt.customerLastName}`;
-  const total = appt.services.reduce((a, s) => a + s.unitPrice * s.quantity, 0);
+  const services = appt.services ?? [];
+  const total = services.reduce((a, s) => a + s.unitPrice * s.quantity, 0) + (appt.recurringChargeId && services.length === 0 ? Number(appt.recurringAmount ?? 0) : 0);
   const active = ['scheduled', 'en_route', 'arrived', 'in_progress'].includes(appt.status);
 
   return (
@@ -260,10 +261,10 @@ export default function StopScreen() {
           {appt.customerPhone ? <Text style={styles.phone}>{appt.customerPhone}</Text> : null}
           {appt.accessNotes ? <Text style={styles.access}>Access: {appt.accessNotes}</Text> : null}
           <View style={{ marginTop: 8 }}>
-            {appt.recurringChargeId && appt.services.length === 0 ? (
+            {appt.recurringChargeId && services.length === 0 ? (
               <Row><Value>Regular recurring service{appt.recurringFrequency ? ` · ${appt.recurringFrequency}` : ''}</Value><Value style={{ fontWeight: '700' }}>{money(appt.recurringAmount ?? 0)}</Value></Row>
             ) : null}
-            {appt.services.map((s, i) => (
+            {services.map((s, i) => (
               <Row key={i} style={{ marginVertical: 2 }}>
                 <Value>{s.name} ×{s.quantity}</Value>
                 <Value style={{ fontWeight: '700' }}>{money(s.unitPrice * s.quantity)}</Value>

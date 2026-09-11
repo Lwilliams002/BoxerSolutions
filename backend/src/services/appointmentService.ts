@@ -27,11 +27,11 @@ const APPOINTMENT_SELECT = `
          sl.address_line1, sl.address_line2, sl.city, sl.state, sl.postal_code,
          sl.latitude, sl.longitude, sl.access_notes,
          tu.first_name || ' ' || tu.last_name AS technician_name,
-         (SELECT json_agg(json_build_object('id', aps.id, 'serviceId', s.id, 'name', s.name,
+         COALESCE((SELECT json_agg(json_build_object('id', aps.id, 'serviceId', s.id, 'name', s.name,
             'quantity', aps.quantity, 'unitPrice', aps.unit_price, 'durationMinutes', s.duration_minutes,
             'taxable', s.taxable))
           FROM appointment_services aps JOIN services s ON s.id = aps.service_id
-          WHERE aps.appointment_id = a.id) AS services,
+          WHERE aps.appointment_id = a.id), '[]'::json) AS services,
          (SELECT i.id FROM invoices i WHERE i.appointment_id = a.id AND i.deleted_at IS NULL LIMIT 1) AS invoice_id,
          rc.frequency AS recurring_frequency, rc.amount AS recurring_amount,
          (SELECT json_agg(json_build_object('id', ap.id, 'productId', ap.product_id, 'name', p.name, 'quantity', ap.quantity,
