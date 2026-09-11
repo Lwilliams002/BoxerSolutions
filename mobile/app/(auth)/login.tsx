@@ -6,7 +6,9 @@ import {
   StyleSheet,
   KeyboardAvoidingView,
   Platform,
-  Image,, TouchableOpacity } from 'react-native';
+  Image,
+  TouchableOpacity,
+} from 'react-native';
 import { useRouter } from 'expo-router';
 import { useAuth } from '../../src/lib/authStore';
 import { Button, ErrorText } from '../../src/components/ui';
