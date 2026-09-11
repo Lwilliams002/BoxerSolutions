@@ -11,7 +11,6 @@ export interface CompanyInfo {
   /** "License #: …" or "License #: ---------" when blank. */
   license: string;
   licenseNumber: string;
-  cashDiscountPercent?: number;
 }
 
 export const FALLBACK_COMPANY_INFO: CompanyInfo = {

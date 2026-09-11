@@ -5,7 +5,6 @@ import { useLocalSearchParams, useRouter } from 'expo-router';
 import { api, newIdempotencyKey } from '../../src/lib/api';
 import { confirmAction, notify } from '../../src/lib/confirm';
 import { useAuth } from '../../src/lib/authStore';
-import { useCompanyInfo } from '../../src/lib/companyInfo';
 import { colors, money, fmtDate } from '../../src/lib/theme';
 import { Card, Button, StatusBadge, Loading, SectionTitle, Row, Value, Label } from '../../src/components/ui';
 
@@ -84,7 +83,6 @@ export default function InvoiceScreen() {
   const qc = useQueryClient();
   const hasPermission = useAuth((s) => s.hasPermission);
   const isOwner = !!useAuth((s) => s.user)?.roles?.includes('OWNER');
-  const companyInfo = useCompanyInfo();
   const deleteInvoice = () =>
     confirmAction({
       title: 'Delete invoice',
@@ -382,15 +380,6 @@ export default function InvoiceScreen() {
         )}
       </Card>
 
-      {unpaid && (companyInfo.cashDiscountPercent ?? 0) > 0 ? (
-        <Card>
-          <Row>
-            <View><Label>Card price</Label><Value style={{ fontWeight: '800' }}>{money(inv.balanceDue)}</Value></View>
-            <View style={{ alignItems: 'flex-end' }}><Label>Bank / cash / check</Label><Value style={{ fontWeight: '800', color: colors.primaryDark }}>{money(Math.round(parseFloat(inv.balanceDue ?? '0') * (100 - (companyInfo.cashDiscountPercent ?? 0))) / 100)}</Value></View>
-          </Row>
-          <Text style={styles.ownerHint}>Listed prices include card processing. Paying by bank, cash or check takes {companyInfo.cashDiscountPercent}% off, shown as a line on the receipt.</Text>
-        </Card>
-      ) : null}
       <Button title={inv.pdfFileId ? 'View PDF' : 'Generate PDF'} variant="outline" onPress={openPdf} loading={busy === 'pdf'} />
       {unpaid && (canCollect || hasPermission('payments:write')) ? (
         <Button title="Pay with Card (Secure Checkout)" variant="success" onPress={openNorthEmbeddedCheckout} />
