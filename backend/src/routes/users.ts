@@ -91,7 +91,9 @@ router.post(
       throw ApiError.badRequest('password is required');
     }
     if (config.cognito.employeeAuthEnabled && config.cognito.autoCreateEmployeeUsers) {
-      await cognitoUsers.ensureEmployeeUser(normalizedEmail);
+      // The password typed by the admin is the one the employee signs in with.
+      if (body.password) await cognitoUsers.setPassword(normalizedEmail, body.password);
+      else await cognitoUsers.ensureEmployeeUser(normalizedEmail);
     }
 
     const result = await withTransaction(async (tx) => {
@@ -135,8 +137,24 @@ router.patch(
       phone: z.string().nullish().optional(),
       isActive: z.boolean().optional(),
       roleCodes: z.array(z.enum(ROLE_CODES)).min(1).optional(),
+      /** Owner/admin sets a new permanent password; the user's sessions are signed out. */
+      password: z.string().min(8).max(128).optional(),
     }).parse(req.body);
     if (!Object.keys(body).length) throw ApiError.badRequest('No fields to update');
+    if (body.password) {
+      const target = await pool.query('SELECT id, email FROM users WHERE id = $1 AND deleted_at IS NULL', [req.params.id]);
+      if (!target.rows[0]) throw ApiError.notFound('User not found');
+      if (config.cognito.employeeAuthEnabled) await cognitoUsers.setPassword(String(target.rows[0].email), body.password);
+      const hash = await bcrypt.hash(body.password, 12);
+      await pool.query('UPDATE users SET password_hash = $1, updated_at = now() WHERE id = $2', [hash, req.params.id]);
+      await pool.query('UPDATE refresh_tokens SET revoked_at = now() WHERE user_id = $1 AND revoked_at IS NULL', [req.params.id]);
+      await recordAudit({ userId: req.user!.id, action: 'user.password_set', entityType: 'user', entityId: req.params.id });
+      delete (body as { password?: string }).password;
+      if (!Object.keys(body).length) {
+        ok(res, { id: req.params.id }, 'Password updated');
+        return;
+      }
+    }
     const result = await withTransaction(async (tx) => {
       const previous = await tx.query(
         `SELECT u.id, u.email, u.first_name, u.last_name, u.phone, u.is_active,

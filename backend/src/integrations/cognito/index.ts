@@ -438,6 +438,26 @@ export const cognitoUsers = {
     }
   },
 
+  /** Set a permanent password for a staff user (owner/admin action). Creates the Cognito user if needed. */
+  async setPassword(email: string, password: string) {
+    assertAdminConfigured();
+    const username = email.trim().toLowerCase();
+    await this.ensureUser(username);
+    try {
+      await adminClient.send(
+        new AdminSetUserPasswordCommand({
+          UserPoolId: config.cognito.userPoolId,
+          Username: username,
+          Password: password,
+          Permanent: true,
+        }),
+      );
+    } catch (err: any) {
+      if (err?.name === 'InvalidPasswordException') throw ApiError.badRequest(`Password rejected: ${err.message ?? 'does not meet the password policy'}`);
+      throw new ApiError(502, `Failed to set password for ${username}`);
+    }
+  },
+
   async ensureCustomerUser(email: string) {
     return this.ensureUser(email);
   },

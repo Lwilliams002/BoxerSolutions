@@ -25,7 +25,7 @@ export default function AdminEmployeesScreen() {
   );
   const save = useMutation({
     mutationFn: () => editing
-      ? api<User>(`/users/${editing.id}`, { method: 'PATCH', body: { firstName: form.firstName, lastName: form.lastName, phone: form.phone || null, roleCodes: [form.roleCode] } })
+      ? api<User>(`/users/${editing.id}`, { method: 'PATCH', body: { firstName: form.firstName, lastName: form.lastName, phone: form.phone || null, roleCodes: [form.roleCode], ...(form.password ? { password: form.password } : {}) } })
       : api<User>('/users', { method: 'POST', body: { firstName: form.firstName, lastName: form.lastName, email: form.email, phone: form.phone || null, password: form.password, roleCodes: [form.roleCode] } }),
     onSuccess: async () => { setOpen(false); setEditing(null); await qc.invalidateQueries({ queryKey: ['admin-users'] }); },
     onError: (e: Error) => Alert.alert('Save failed', e.message),
@@ -64,7 +64,9 @@ export default function AdminEmployeesScreen() {
           <Label>Last Name</Label><TextInput style={styles.input} value={form.lastName} onChangeText={(lastName) => setForm({ ...form, lastName })} />
           <Label>Email</Label><TextInput style={styles.input} value={form.email} editable={!editing} autoCapitalize="none" keyboardType="email-address" onChangeText={(email) => setForm({ ...form, email })} />
           <Label>Phone</Label><TextInput style={styles.input} value={form.phone} keyboardType="phone-pad" onChangeText={(phone) => setForm({ ...form, phone })} />
-          {!editing && <><Label>Temp Password</Label><TextInput style={styles.input} value={form.password} secureTextEntry onChangeText={(password) => setForm({ ...form, password })} /></>}
+          <Label>{editing ? 'Set new password (optional)' : 'Password'}</Label>
+          <TextInput style={styles.input} value={form.password} secureTextEntry autoCapitalize="none" placeholder={editing ? 'Leave blank to keep the current password' : 'At least 8 characters'} placeholderTextColor={colors.textMuted} onChangeText={(password) => setForm({ ...form, password })} />
+          {editing ? <Text style={styles.hint}>Setting a password signs the user out everywhere; they sign in with the new one right away.</Text> : null}
           <Label>Role</Label>
           <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.chips}>
             {visibleRoles.map((r) => (
@@ -73,7 +75,7 @@ export default function AdminEmployeesScreen() {
               </TouchableOpacity>
             ))}
           </ScrollView>
-          <Button title="Save User" onPress={() => save.mutate()} loading={save.isPending} disabled={!form.firstName || !form.lastName || !form.email || (!editing && form.password.length < 8)} />
+          <Button title="Save User" onPress={() => save.mutate()} loading={save.isPending} disabled={!form.firstName || !form.lastName || !form.email || (!editing && form.password.length < 8) || (!!editing && form.password.length > 0 && form.password.length < 8)} />
           <Button title="Cancel" variant="outline" onPress={() => setOpen(false)} />
         </ScrollView>
       </Modal>
@@ -82,5 +84,6 @@ export default function AdminEmployeesScreen() {
 }
 
 const styles = StyleSheet.create({
+  hint: { fontSize: 12, color: colors.textMuted, marginTop: -6, marginBottom: 10 },
   container: { padding: 16, paddingBottom: 40 }, modal: { padding: 16, paddingBottom: 40, backgroundColor: colors.bg }, title: { fontSize: 24, fontWeight: '900', color: colors.text }, smallButton: { paddingVertical: 10, paddingHorizontal: 16 }, name: { fontWeight: '900', flex: 1, marginRight: 8 }, meta: { color: colors.textMuted, marginTop: 8 }, badges: { flexDirection: 'row', gap: 8, marginTop: 10, marginBottom: 4, flexWrap: 'wrap' }, input: { backgroundColor: colors.card, borderColor: colors.border, borderWidth: 1, borderRadius: 12, padding: 12, marginBottom: 12, color: colors.text }, chips: { minHeight: 48, marginBottom: 12 }, chip: { paddingHorizontal: 14, paddingVertical: 10, borderRadius: 20, borderWidth: 1, borderColor: colors.border, marginRight: 8, height: 40 }, chipActive: { backgroundColor: colors.primary, borderColor: colors.primary }, chipText: { color: colors.textMuted, fontWeight: '700' }, chipTextActive: { color: colors.text },
 });
