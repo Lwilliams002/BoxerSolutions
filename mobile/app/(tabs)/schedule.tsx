@@ -242,7 +242,7 @@ export default function ScheduleScreen() {
     <View style={styles.screen}>
       <View style={[styles.header, { paddingTop: insets.top + 8 }]}>
         <View style={{ flex: 1, marginRight: 10 }}>
-          <View style={styles.headerToggleRow}>
+          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.headerToggleRow}>
             {((canWrite ? ['dispatch', 'day', 'week'] : ['day', 'week']) as ViewMode[]).map((m) => (
               <TouchableOpacity key={m} style={[styles.modeBtn, mode === m && styles.modeActive]} onPress={() => setMode(m)}>
                 <Text style={[styles.modeText, mode === m && styles.modeTextActive]}>
@@ -250,12 +250,11 @@ export default function ScheduleScreen() {
                 </Text>
               </TouchableOpacity>
             ))}
-          </View>
+          </ScrollView>
         </View>
         {canWrite ? (
-          <TouchableOpacity style={styles.createBtn} onPress={() => router.push('/appointment/new')}>
-            <Ionicons name="add" size={18} color={colors.text} />
-            <Text style={styles.createBtnText}>New Appointment</Text>
+          <TouchableOpacity style={styles.createBtn} onPress={() => router.push('/appointment/new')} accessibilityLabel="New appointment">
+            <Ionicons name="add" size={22} color={colors.text} />
           </TouchableOpacity>
         ) : null}
       </View>
@@ -867,9 +866,8 @@ const styles = StyleSheet.create({
   recurringTagText: { fontSize: 12, fontWeight: '800', color: colors.primaryDark },
   screen: { flex: 1, backgroundColor: colors.bg },
   header: { backgroundColor: colors.text, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 18, paddingBottom: 14 },
-  headerToggleRow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 4 },
-  createBtn: { flexDirection: 'row', alignItems: 'center', backgroundColor: colors.primary, borderRadius: 22, paddingVertical: 8, paddingHorizontal: 12, maxWidth: 144 },
-  createBtnText: { color: colors.text, fontWeight: '900', fontSize: 11, marginLeft: 4 },
+  headerToggleRow: { flexDirection: 'row', alignItems: 'center', gap: 8, paddingRight: 8 },
+  createBtn: { width: 42, height: 42, borderRadius: 21, backgroundColor: colors.primary, alignItems: 'center', justifyContent: 'center', flex: 0 },
   modeBtn: { height: 32, paddingHorizontal: 10, borderRadius: 16, justifyContent: 'center', marginRight: 0, backgroundColor: '#1D1D1D' },
   modeActive: { backgroundColor: colors.primary },
   modeText: { color: '#fff', fontWeight: '800', fontSize: 11, lineHeight: 14 },
