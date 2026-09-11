@@ -10,6 +10,7 @@ import {
 
 import { todayIso, toIsoDate } from '../utils/dates';
 import { buildTermVisits, cancelFutureVisits } from '../jobs/recurringVisits';
+import { dispatchService } from './dispatchService';
 
 export interface RecurringChargeUpsertOptions {
   frequency?: ServiceFrequency | null;
@@ -103,7 +104,19 @@ export const recurringChargeService = {
       try {
         const cadenceChanged = !!current && parseServiceFrequency(current.frequency) !== frequency;
         if (!options.isUpdate || cadenceChanged) await cancelFutureVisits(row.id);
-        await buildTermVisits(row.id, options.createdBy ?? (await ownerUserId()), 12);
+        const built = await buildTermVisits(row.id, options.createdBy ?? (await ownerUserId()), 12);
+        if (built.created) {
+          const unassigned = await pool.query('SELECT count(*)::int AS n FROM appointments WHERE recurring_charge_id = $1 AND technician_id IS NULL AND status = $2 AND deleted_at IS NULL', [row.id, 'scheduled']);
+          if (unassigned.rows[0].n > 0) {
+            const cust = await pool.query('SELECT company, first_name, last_name FROM customers WHERE id = $1', [customerId]);
+            const name = cust.rows[0]?.company || `${cust.rows[0]?.first_name ?? ''} ${cust.rows[0]?.last_name ?? ''}`.trim();
+            await dispatchService.notifyOffice(
+              `${name}: ${unassigned.rows[0].n} visit${unassigned.rows[0].n === 1 ? '' : 's'} need a technician`,
+              `The agreement was signed and the ${SERVICE_FREQUENCY_LABELS[frequency].toLowerCase()} visits are on the calendar starting ${built.dates[0]}, but the customer has no technician. Assign one under Schedule → Dispatch.`,
+              { screen: 'schedule', customerId },
+            ).catch(() => undefined);
+          }
+        }
       } catch (err) {
         logger.warn({ err, recurringChargeId: row.id }, 'could not build the agreement visit schedule');
       }

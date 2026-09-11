@@ -5,6 +5,7 @@ import { notifyDueRecurringServices } from './recurringDue';
 import { geocodePendingLocations } from '../services/geocodingService';
 import { scheduleRecurringVisits } from './recurringVisits';
 import { routeService } from '../services/routeService';
+import { dispatchService } from '../services/dispatchService';
 import { todayIso } from '../utils/dates';
 import { pool } from '../config/db';
 
@@ -34,7 +35,8 @@ export function startJobScheduler() {
       const routeBuild = new Date().getHours() >= 5
         ? await routeService.buildForDate(todayIso(), null, systemUserId).catch((err) => { logger.warn({ err }, 'route build failed'); return null; })
         : null;
-      logger.info({ pastDue, reminders, recurring, autopay, dueServices, geocoding, recurringVisits, routeBuild }, 'background jobs cycle complete');
+      const digest = await dispatchService.dailyDigest().catch((err) => { logger.warn({ err }, 'dispatch digest failed'); return null; });
+      logger.info({ pastDue, reminders, recurring, autopay, dueServices, geocoding, recurringVisits, routeBuild, digest }, 'background jobs cycle complete');
     } catch (err) {
       logger.error(err, 'background job cycle failed');
     }

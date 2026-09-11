@@ -1,4 +1,5 @@
 import { Router } from 'express';
+import { dispatchService } from '../services/dispatchService';
 import { ApiError } from '../utils/errors';
 import { rowsToCamel } from '../services/customerService';
 import { pool } from '../config/db';
@@ -123,6 +124,17 @@ router.get(
     const byDate: Record<string, number> = {};
     for (const r of items as Array<{ scheduledDate: string }>) byDate[String(r.scheduledDate).slice(0, 10)] = (byDate[String(r.scheduledDate).slice(0, 10)] ?? 0) + 1;
     ok(res, { items, byDate, total: items.length });
+  }),
+);
+
+/** Give every unassigned visit in a date range to the best available technician. */
+router.post(
+  '/auto-assign',
+  authorize('appointments:write'),
+  asyncHandler(async (req, res) => {
+    const body = z.object({ from: z.string().regex(/^\d{4}-\d{2}-\d{2}$/), to: z.string().regex(/^\d{4}-\d{2}-\d{2}$/) }).parse(req.body ?? {});
+    const result = await dispatchService.autoAssign(body.from, body.to, req.user!.id);
+    ok(res, result, result.assigned.length ? `${result.assigned.length} visit(s) assigned` : 'Nothing to assign');
   }),
 );
 

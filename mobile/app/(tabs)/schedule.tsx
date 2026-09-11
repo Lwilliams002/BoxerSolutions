@@ -8,11 +8,11 @@ import { api, ApiRequestError } from '../../src/lib/api';
 import { confirmAction, notify } from '../../src/lib/confirm';
 import { useAuth } from '../../src/lib/authStore';
 import { colors, fmtDate, fmtTime, statusColors, todayISO } from '../../src/lib/theme';
-import { EmptyState, Loading, StatusBadge } from '../../src/components/ui';
+import { Card, EmptyState, Loading, StatusBadge } from '../../src/components/ui';
 import { SyncBanner } from '../../src/components/SyncBanner';
 import { MonthWeekPicker } from '../../src/components/MonthWeekPicker';
 
-type ViewMode = 'day' | 'week';
+type ViewMode = 'dispatch' | 'day' | 'week';
 type EditorMode = 'actions' | 'reschedule' | 'reassign';
 
 interface Technician {
@@ -110,7 +110,8 @@ export default function ScheduleScreen() {
   const hasPermission = useAuth((s) => s.hasPermission);
   const canWrite = hasPermission('appointments:write');
   const [selectedDate, setSelectedDate] = useState(todayISO());
-  const [mode, setMode] = useState<ViewMode>('week');
+  const [mode, setMode] = useState<ViewMode>(canWrite ? 'dispatch' : 'week');
+  const [queued, setQueued] = useState<Appointment | null>(null);
   const [selected, setSelected] = useState<Appointment | null>(null);
   const [editorMode, setEditorMode] = useState<EditorMode>('actions');
   const [editDate, setEditDate] = useState(selectedDate);
@@ -153,7 +154,10 @@ export default function ScheduleScreen() {
     mutationFn: ({ id, body }: { id: string; body: RescheduleBody }) => api<Appointment>(`/appointments/${id}/reschedule`, { method: 'POST', body }),
     onSuccess: async () => {
       setSelected(null);
+      setQueued(null);
       await Promise.all([
+        qc.invalidateQueries({ queryKey: ['needs-scheduling'] }),
+        qc.invalidateQueries({ queryKey: ['dashboard'] }),
         qc.invalidateQueries({ queryKey: ['schedule'] }),
         qc.invalidateQueries({ queryKey: ['schedule-week'] }),
         qc.invalidateQueries({ queryKey: ['appointment'] }),
@@ -204,6 +208,24 @@ export default function ScheduleScreen() {
     });
   };
 
+  const queueCount = (needsQuery.data?.unassigned.length ?? 0) + (needsQuery.data?.duePlans.length ?? 0);
+  const autoAssign = useMutation({
+    mutationFn: () => api<{ assigned: { customerName: string; technicianName: string; date: string; reason: string }[]; skipped: { customerName: string; date: string; reason: string }[] }>('/appointments/auto-assign', { method: 'POST', body: { from: todayISO(), to: addDays(todayISO(), 13) } }),
+    onSuccess: (r) => {
+      const lines = [
+        ...r.assigned.map((a) => `✓ ${a.customerName} · ${fmtDate(a.date)} → ${a.technicianName} (${a.reason})`),
+        ...r.skipped.map((s) => `✕ ${s.customerName} · ${fmtDate(s.date)}: ${s.reason}`),
+      ];
+      notify(r.assigned.length ? `${r.assigned.length} visit${r.assigned.length === 1 ? '' : 's'} assigned` : 'Nothing assigned', lines.join('\n') || 'No unassigned visits in the next two weeks.');
+      setQueued(null);
+      void qc.invalidateQueries({ queryKey: ['needs-scheduling'] });
+      void qc.invalidateQueries({ queryKey: ['schedule'] });
+      void qc.invalidateQueries({ queryKey: ['schedule-week'] });
+      void qc.invalidateQueries({ queryKey: ['dashboard'] });
+    },
+    onError: (e) => notify('Auto-assign failed', (e as Error).message),
+  });
+
   const refresh = () => {
     void needsQuery.refetch();
     void appointmentsQuery.refetch();
@@ -221,9 +243,11 @@ export default function ScheduleScreen() {
       <View style={[styles.header, { paddingTop: insets.top + 8 }]}>
         <View style={{ flex: 1, marginRight: 10 }}>
           <View style={styles.headerToggleRow}>
-            {(['day', 'week'] as ViewMode[]).map((m) => (
+            {((canWrite ? ['dispatch', 'day', 'week'] : ['day', 'week']) as ViewMode[]).map((m) => (
               <TouchableOpacity key={m} style={[styles.modeBtn, mode === m && styles.modeActive]} onPress={() => setMode(m)}>
-                <Text style={[styles.modeText, mode === m && styles.modeTextActive]}>{m === 'day' ? 'Day Board' : 'Week View'}</Text>
+                <Text style={[styles.modeText, mode === m && styles.modeTextActive]}>
+                  {m === 'dispatch' ? `Dispatch${queueCount ? ` · ${queueCount}` : ''}` : m === 'day' ? 'Day Board' : 'Week View'}
+                </Text>
               </TouchableOpacity>
             ))}
           </View>
@@ -240,7 +264,7 @@ export default function ScheduleScreen() {
 
       <SyncBanner />
 
-      {canWrite && needsQuery.data && (needsQuery.data.unassigned.length || needsQuery.data.duePlans.length) ? (
+      {canWrite && mode !== 'dispatch' && needsQuery.data && (needsQuery.data.unassigned.length || needsQuery.data.duePlans.length) ? (
         <View style={styles.needsWrap}>
           <Text style={styles.needsTitle}>Needs scheduling · {needsQuery.data.unassigned.length + needsQuery.data.duePlans.length}</Text>
           <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.needsRow} contentContainerStyle={{ paddingHorizontal: 12, alignItems: 'center', gap: 8 }}>
@@ -276,7 +300,32 @@ export default function ScheduleScreen() {
         </View>
       ) : null}
 
-      {appointmentsQuery.isLoading || techQuery.isLoading ? <Loading /> : mode === 'week' ? (
+      {appointmentsQuery.isLoading || techQuery.isLoading ? <Loading /> : mode === 'dispatch' ? (
+        <DispatchView
+          selectedDate={selectedDate}
+          technicians={technicians}
+          dayAppointments={appointments}
+          queue={needsQuery.data?.unassigned ?? []}
+          duePlans={needsQuery.data?.duePlans ?? []}
+          queued={queued}
+          onPickQueued={async (u) => {
+            try {
+              const appt = await api<Appointment>(`/appointments/${u.id}`);
+              setQueued(appt);
+              setSelectedDate(String(appt.scheduledDate).slice(0, 10));
+            } catch (e) { notify('Unable to open visit', (e as Error).message); }
+          }}
+          onClearQueued={() => setQueued(null)}
+          onAssign={(appt, techId) => reschedule.mutate({ id: appt.id, body: { scheduledDate: String(appt.scheduledDate).slice(0, 10), windowStart: appt.windowStart.slice(0, 5), windowEnd: appt.windowEnd.slice(0, 5), technicianId: techId } })}
+          onSchedulePlan={(customerId) => router.push({ pathname: '/appointment/new', params: { customerId } })}
+          onAutoAssign={() => confirmAction({ title: 'Auto-assign', message: 'Give every unassigned visit in the next two weeks to the best available technician? You can change any of them afterwards.', confirmText: 'Assign', onConfirm: () => autoAssign.mutate() })}
+          autoAssigning={autoAssign.isPending}
+          assigning={reschedule.isPending}
+          refreshing={needsQuery.isRefetching || appointmentsQuery.isRefetching}
+          onRefresh={refresh}
+          onOpenDay={(d) => { setSelectedDate(d); setMode('day'); }}
+        />
+      ) : mode === 'week' ? (
         <WeekView
           days={weekDays}
           appointments={weekQuery.data?.items ?? []}
@@ -439,6 +488,123 @@ interface DropChange { windowStart: string; windowEnd: string; technicianId: str
 function minutesToHHMM(total: number) {
   const clamped = Math.max(START_HOUR * 60, Math.min(END_HOUR * 60, total));
   return `${String(Math.floor(clamped / 60)).padStart(2, '0')}:${String(clamped % 60).padStart(2, '0')}`;
+}
+
+const DAY_START = 7 * 60;
+const DAY_END = 19 * 60;
+function mins(t?: string | null) { return minutesOf(t); }
+
+function DispatchView({ selectedDate, technicians, dayAppointments, queue, duePlans, queued, onPickQueued, onClearQueued, onAssign, onSchedulePlan, onAutoAssign, autoAssigning, assigning, refreshing, onRefresh, onOpenDay }: {
+  selectedDate: string;
+  technicians: Technician[];
+  dayAppointments: Appointment[];
+  queue: NeedsScheduling['unassigned'];
+  duePlans: NeedsScheduling['duePlans'];
+  queued: Appointment | null;
+  onPickQueued: (u: NeedsScheduling['unassigned'][number]) => void;
+  onClearQueued: () => void;
+  onAssign: (appt: Appointment, techId: string) => void;
+  onSchedulePlan: (customerId: string) => void;
+  onAutoAssign: () => void;
+  autoAssigning: boolean;
+  assigning: boolean;
+  refreshing: boolean;
+  onRefresh: () => void;
+  onOpenDay: (d: string) => void;
+}) {
+  const dayLabel = new Date(`${selectedDate}T12:00:00`).toLocaleDateString(undefined, { weekday: 'long', month: 'short', day: 'numeric' });
+  const rows = technicians.map((t) => {
+    const mine = dayAppointments.filter((a) => a.technicianId === t.employeeId && !['cancelled', 'no_access'].includes(a.status)).sort((a, b) => a.windowStart.localeCompare(b.windowStart));
+    const ws = (t.workStartTime ?? '08:00').slice(0, 5); const we = (t.workEndTime ?? '17:00').slice(0, 5);
+    const booked = mine.reduce((s, a) => s + Math.max(0, mins(a.windowEnd) - mins(a.windowStart)), 0);
+    const workMin = Math.max(60, mins(we) - mins(ws));
+    // free gaps of 30+ minutes inside working hours
+    let cursor = mins(ws); const gaps: [number, number][] = [];
+    for (const a of mine) { const s = mins(a.windowStart), e = mins(a.windowEnd); if (s - cursor >= 30) gaps.push([cursor, Math.min(s, mins(we))]); cursor = Math.max(cursor, e); }
+    if (mins(we) - cursor >= 30) gaps.push([cursor, mins(we)]);
+    let fit: { ok: boolean; text: string } | null = null;
+    if (queued) {
+      const qs = mins(queued.windowStart), qe = mins(queued.windowEnd);
+      const conflict = mine.find((a) => mins(a.windowStart) < qe && mins(a.windowEnd) > qs);
+      if (qs < mins(ws) || qe > mins(we)) fit = { ok: false, text: `Off hours (${fmtTime(ws)}–${fmtTime(we)})` };
+      else if (conflict) fit = { ok: false, text: `Conflict: ${customerName(conflict)} ${fmtTime(conflict.windowStart)}` };
+      else fit = { ok: true, text: `Free at ${fmtTime(queued.windowStart)}` };
+    }
+    return { t, mine, ws, we, booked, workMin, gaps, fit };
+  });
+  const sortedRows = queued ? [...rows].sort((a, b) => Number(b.fit?.ok) - Number(a.fit?.ok) || a.mine.length - b.mine.length) : rows;
+
+  return (
+    <ScrollView refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={colors.primary} />} contentContainerStyle={{ paddingBottom: 40 }}>
+      <View style={styles.dispatchHead}>
+        <View style={{ flex: 1 }}>
+          <Text style={styles.dispatchTitle}>{queue.length ? `${queue.length} visit${queue.length === 1 ? '' : 's'} need a technician` : 'Every visit has a technician'}</Text>
+          <Text style={styles.dispatchSub}>{duePlans.length ? `${duePlans.length} customer${duePlans.length === 1 ? ' is' : 's are'} due with no visit on the calendar` : 'Next two weeks · overdue visits included'}</Text>
+        </View>
+        {queue.length ? (
+          <TouchableOpacity style={styles.autoBtn} onPress={onAutoAssign} disabled={autoAssigning}><Ionicons name="flash" size={15} color="#0D0D0D" /><Text style={styles.autoBtnText}>{autoAssigning ? 'Assigning…' : 'Auto-assign'}</Text></TouchableOpacity>
+        ) : null}
+      </View>
+
+      {queued ? (
+        <View style={styles.queuedBar}>
+          <View style={{ flex: 1 }}>
+            <Text style={styles.queuedTitle}>Assigning: {customerName(queued)}</Text>
+            <Text style={styles.queuedMeta}>{fmtDate(queued.scheduledDate)} · {fmtTime(queued.windowStart)} – {fmtTime(queued.windowEnd)} · {queued.addressLine1}, {queued.city}</Text>
+          </View>
+          <TouchableOpacity onPress={onClearQueued}><Text style={styles.link}>Cancel</Text></TouchableOpacity>
+        </View>
+      ) : null}
+
+      <Text style={styles.dispatchSection}>Technicians · {dayLabel}</Text>
+      {sortedRows.length === 0 ? <Card><Text style={styles.metaText}>No active technicians. Add them under More → Employees.</Text></Card> : sortedRows.map(({ t, mine, ws, we, booked, workMin, gaps, fit }) => (
+        <TouchableOpacity key={t.employeeId} style={[styles.techCard, fit && (fit.ok ? styles.techCardOk : styles.techCardBad)]} onPress={() => (queued && fit?.ok && !assigning ? onAssign(queued, t.employeeId) : onOpenDay(selectedDate))} activeOpacity={0.85}>
+          <View style={styles.techTop}>
+            <View style={[styles.techDot, { backgroundColor: t.color ?? colors.primary }]} />
+            <Text style={styles.techName}>{t.firstName} {t.lastName}</Text>
+            <Text style={styles.techLoad}>{mine.length} stop{mine.length === 1 ? '' : 's'} · {Math.round(booked / 60 * 10) / 10}h of {Math.round(workMin / 60)}h</Text>
+          </View>
+          <View style={styles.timeline}>
+            <View style={[styles.timelineWork, { left: `${Math.max(0, (mins(ws) - DAY_START) / (DAY_END - DAY_START) * 100)}%`, width: `${Math.min(100, (mins(we) - mins(ws)) / (DAY_END - DAY_START) * 100)}%` }]} />
+            {mine.map((a) => (
+              <View key={a.id} style={[styles.timelineBlock, { left: `${Math.max(0, (mins(a.windowStart) - DAY_START) / (DAY_END - DAY_START) * 100)}%`, width: `${Math.max(2, (mins(a.windowEnd) - mins(a.windowStart)) / (DAY_END - DAY_START) * 100)}%`, backgroundColor: statusColors[a.status] ?? colors.info }]} />
+            ))}
+            {queued ? <View style={[styles.timelineGhost, { left: `${Math.max(0, (mins(queued.windowStart) - DAY_START) / (DAY_END - DAY_START) * 100)}%`, width: `${Math.max(2, (mins(queued.windowEnd) - mins(queued.windowStart)) / (DAY_END - DAY_START) * 100)}%` }]} /> : null}
+          </View>
+          <View style={styles.techBottom}>
+            <Text style={styles.techFree} numberOfLines={1}>{gaps.length ? `Free ${gaps.slice(0, 3).map(([s, e]) => `${fmtTime(minutesToHHMM(s))}–${fmtTime(minutesToHHMM(e))}`).join(', ')}` : 'Fully booked'}</Text>
+            {fit ? <Text style={[styles.fitText, { color: fit.ok ? colors.primaryDark : colors.danger }]}>{fit.ok ? `${fit.text} · Tap to assign` : fit.text}</Text> : null}
+          </View>
+        </TouchableOpacity>
+      ))}
+
+      <Text style={styles.dispatchSection}>Needs a technician</Text>
+      {queue.length === 0 ? <Card><Text style={styles.metaText}>Nothing waiting. New agreements add their visits here when the customer has no technician.</Text></Card> : queue.map((u) => (
+        <TouchableOpacity key={u.id} style={[styles.queueCard, queued?.id === u.id && styles.queueCardActive]} onPress={() => onPickQueued(u)} activeOpacity={0.85}>
+          <View style={{ flex: 1 }}>
+            <Text style={styles.queueName}>{u.company ?? `${u.firstName} ${u.lastName}`}</Text>
+            <Text style={styles.queueMeta}>{fmtDate(u.scheduledDate)} · {fmtTime(u.windowStart)} · {u.addressLine1}, {u.city}</Text>
+          </View>
+          <Text style={styles.link}>{queued?.id === u.id ? 'Pick a tech ↑' : 'Assign'}</Text>
+        </TouchableOpacity>
+      ))}
+
+      {duePlans.length ? (
+        <>
+          <Text style={styles.dispatchSection}>Due, no visit on the calendar</Text>
+          {duePlans.map((p) => (
+            <View key={p.recurringChargeId} style={styles.queueCard}>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.queueName}>{p.company ?? `${p.firstName} ${p.lastName}`}</Text>
+                <Text style={styles.queueMeta}>Due {fmtDate(p.nextDueDate)} · {FREQUENCY_LABEL[p.frequency] ?? p.frequency} · {p.reason}</Text>
+              </View>
+              <TouchableOpacity onPress={() => onSchedulePlan(p.customerId)}><Text style={styles.link}>Schedule</Text></TouchableOpacity>
+            </View>
+          ))}
+        </>
+      ) : null}
+    </ScrollView>
+  );
 }
 
 function DayBoard({ appointments, lanes, refreshing, onRefresh, onAppointmentPress, canDrag, onDrop }: {
@@ -661,6 +827,34 @@ function WeekView({ days, appointments, loading, refreshing, onRefresh, onDayPre
 }
 
 const styles = StyleSheet.create({
+  dispatchHead: { flexDirection: 'row', alignItems: 'center', gap: 12, padding: 14, paddingBottom: 6 },
+  dispatchTitle: { fontSize: 18, fontWeight: '900', color: colors.text },
+  dispatchSub: { fontSize: 13, color: colors.textMuted, marginTop: 2 },
+  autoBtn: { flexDirection: 'row', alignItems: 'center', gap: 6, backgroundColor: colors.primary, borderRadius: 12, paddingVertical: 9, paddingHorizontal: 12 },
+  autoBtnText: { fontWeight: '800', color: '#0D0D0D', fontSize: 13 },
+  queuedBar: { flexDirection: 'row', alignItems: 'center', gap: 10, marginHorizontal: 14, marginTop: 8, backgroundColor: '#E8F6F2', borderWidth: 1.5, borderColor: colors.primary, borderRadius: 12, padding: 12 },
+  queuedTitle: { fontWeight: '900', color: colors.text, fontSize: 14 },
+  queuedMeta: { fontSize: 12, color: colors.textMuted, marginTop: 2 },
+  dispatchSection: { fontSize: 12, fontWeight: '800', color: colors.textMuted, textTransform: 'uppercase', letterSpacing: 0.5, marginHorizontal: 14, marginTop: 16, marginBottom: 8 },
+  techCard: { backgroundColor: '#fff', borderRadius: 14, borderWidth: 1.5, borderColor: colors.border, marginHorizontal: 14, marginBottom: 10, padding: 12 },
+  techCardOk: { borderColor: colors.primary },
+  techCardBad: { opacity: 0.6 },
+  techTop: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  techName: { fontWeight: '900', color: colors.text, fontSize: 15, flex: 1 },
+  techLoad: { fontSize: 12, fontWeight: '700', color: colors.textMuted },
+  timeline: { height: 14, borderRadius: 7, backgroundColor: '#EEF3F2', marginTop: 10, overflow: 'hidden' },
+  timelineWork: { position: 'absolute', top: 0, bottom: 0, backgroundColor: '#E1F2EE' },
+  timelineBlock: { position: 'absolute', top: 2, bottom: 2, borderRadius: 4 },
+  timelineGhost: { position: 'absolute', top: 0, bottom: 0, borderWidth: 2, borderColor: colors.text, borderStyle: 'dashed', borderRadius: 4 },
+  techBottom: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: 8, gap: 8 },
+  techFree: { fontSize: 12, color: colors.textMuted, flex: 1 },
+  fitText: { fontSize: 12, fontWeight: '800' },
+  queueCard: { flexDirection: 'row', alignItems: 'center', gap: 10, backgroundColor: '#FFF7E6', borderWidth: 1.5, borderColor: '#F5D9A6', borderRadius: 14, marginHorizontal: 14, marginBottom: 10, padding: 12 },
+  queueCardActive: { borderColor: colors.text, backgroundColor: '#fff' },
+  queueName: { fontWeight: '900', color: colors.text, fontSize: 14 },
+  queueMeta: { fontSize: 12, color: colors.textMuted, marginTop: 2 },
+  link: { color: colors.primaryDark, fontWeight: '800', fontSize: 13 },
+  metaText: { fontSize: 13, color: colors.textMuted },
   needsWrap: { backgroundColor: '#FFF7E6', borderBottomWidth: 1, borderBottomColor: '#F5D9A6', paddingVertical: 8 },
   needsTitle: { fontSize: 12, fontWeight: '900', color: '#8A5A00', textTransform: 'uppercase', letterSpacing: 0.5, paddingHorizontal: 12, marginBottom: 6 },
   needsRow: { flexGrow: 0, flexShrink: 0, height: 78 },
