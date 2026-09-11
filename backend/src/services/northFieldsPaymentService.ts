@@ -7,7 +7,7 @@ import { logger } from '../utils/logger';
 import { northGatewayService } from './northGatewayService';
 import { paymentService } from './paymentService';
 import { getCompanySettings } from './settingsService';
-import { computeDiscount } from '../utils/surcharge';
+import { computeSurcharge } from '../utils/surcharge';
 import { waitForNorthSession } from '../utils/northEmbedded';
 import type { NorthMethodType } from '../utils/northSessionResult';
 import { ACH_TERMS_TEXT, ACH_TERMS_VERSION } from '../content/achAuthorizationTerms';
@@ -32,7 +32,7 @@ import { ACH_TERMS_TEXT, ACH_TERMS_VERSION } from '../content/achAuthorizationTe
 export type FieldsPayMode = 'card' | 'bank';
 export type AchAccountType = 'checking' | 'savings';
 
-export interface FieldsBreakdown { subtotal: number; tax: number; total: number; previouslyPaid: number; amountDue: number; cashDiscountPercent?: number; bankDiscount?: number; amountDueWithBank?: number }
+export interface FieldsBreakdown { subtotal: number; tax: number; total: number; previouslyPaid: number; amountDue: number; cardSurchargePercent?: number; cardSurcharge?: number; amountDueWithCard?: number }
 
 export interface FieldsAchTerms { version: string; text: string }
 
@@ -108,20 +108,20 @@ async function loadInvoice(invoiceId: string): Promise<InvoiceRow> {
   return invoice;
 }
 
-function breakdownFor(invoice: InvoiceRow, discountPercent = 0): FieldsBreakdown {
+function breakdownFor(invoice: InvoiceRow, surchargePercent = 0): FieldsBreakdown {
   const total = money(invoice.total);
   const previouslyPaid = money(invoice.amount_paid);
   const amountDue = money(Math.max(0, total - previouslyPaid));
-  const bankDiscount = computeDiscount(amountDue, discountPercent);
+  const cardSurcharge = computeSurcharge(amountDue, surchargePercent);
   return {
     subtotal: money(Number(invoice.subtotal) - Number(invoice.discount_amount ?? 0)),
     tax: money(invoice.tax_amount),
     total,
     previouslyPaid,
     amountDue,
-    cashDiscountPercent: discountPercent,
-    bankDiscount,
-    amountDueWithBank: money(amountDue - bankDiscount),
+    cardSurchargePercent: surchargePercent,
+    cardSurcharge,
+    amountDueWithCard: money(amountDue + cardSurcharge),
   };
 }
 
@@ -313,7 +313,7 @@ async function runConfirmStorage(input: {
 export const northFieldsPaymentService = {
   async createPaySession(input: { invoiceId: string }): Promise<FieldsPaySession> {
     const invoice = await loadInvoice(input.invoiceId);
-    const breakdown = breakdownFor(invoice, (await getCompanySettings()).cashDiscountPercent);
+    const breakdown = breakdownFor(invoice, (await getCompanySettings()).cardSurchargePercent);
     if (breakdown.amountDue <= 0) throw ApiError.badRequest('Invoice has no outstanding balance.');
     const customer = await paymentService.loadCustomerBillingInfo(invoice.customer_id);
     const { sessionToken } = await northGatewayService.createEmbeddedSession({

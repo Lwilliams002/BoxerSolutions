@@ -60,8 +60,8 @@ export function FieldsCheckoutLayout(p: Props) {
           ))}
           {b.previouslyPaid > 0 ? <View style={styles.row}><Text style={styles.muted}>Previously paid</Text><Text>-{money(b.previouslyPaid)}</Text></View> : null}
           <View style={styles.row}><Value style={styles.due}>Amount due today</Value><Value style={styles.due}>{money(b.amountDue)}</Value></View>
-          {b.cashDiscountPercent && b.bankDiscount ? (
-            <Text style={styles.surchargeNote}>Pay by bank account and save {b.cashDiscountPercent}%: {money(b.amountDueWithBank ?? b.amountDue - b.bankDiscount)} instead of {money(b.amountDue)}. Cards pay the listed price.</Text>
+          {b.cardSurchargePercent && b.cardSurcharge ? (
+            <Text style={styles.surchargeNote}>Paying by credit card adds a {b.cardSurchargePercent}% processing surcharge ({money(b.cardSurcharge)}), total {money(b.amountDueWithCard ?? b.amountDue + b.cardSurcharge)}. Bank (ACH) payments have no surcharge.</Text>
           ) : null}
         </Card>
       ) : null}
@@ -169,7 +169,7 @@ const styles = StyleSheet.create({
   success: { borderWidth: 1, borderColor: colors.primary, alignItems: 'center', gap: 4, paddingVertical: 24 },
   successTitle: { fontSize: 16, fontWeight: '800', color: colors.primary },
   amount: { fontSize: 30, fontWeight: '800', marginVertical: 6 },
-  surchargeNote: { fontSize: 12, color: '#0F7B3F', marginTop: 8, lineHeight: 16, fontWeight: '700' },
+  surchargeNote: { fontSize: 12, color: '#8A5A00', marginTop: 8, lineHeight: 16, fontWeight: '600' },
   errorCard: { borderWidth: 1, borderColor: colors.danger },
   errorTitle: { fontWeight: '800', color: colors.danger, marginBottom: 4 },
   footer: { flexDirection: 'row', gap: 10 },

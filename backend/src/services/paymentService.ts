@@ -9,7 +9,7 @@ import { resolveProviderName } from '../integrations/payments/resolveProvider';
 import type { EpxCustomer, EpxPaymentMethod } from './epx/epxPayloads';
 import { config } from '../config';
 import { getCompanySettings } from './settingsService';
-import { computeDiscount, discountLabel } from '../utils/surcharge';
+import { computeSurcharge, surchargeLabel } from '../utils/surcharge';
 import { communicationService, safelyQueueCommunication } from './communicationService';
 import { storage } from '../integrations/storage';
 import { fileService } from './fileService';
@@ -312,10 +312,10 @@ export const paymentService = {
     const provider = providerFor(resolveProviderName(methodRow.payment_provider, config.payments.provider));
     const customer = await paymentService.loadCustomerBillingInfo(invoice.customer_id);
     const paymentMethod: EpxPaymentMethod = methodRow.method_type === 'bank_account' ? 'ach' : 'credit';
-    // Listed prices include card processing; bank (ACH) payments get the cash/ACH discount from Company Settings.
-    const discountPercent = paymentMethod === 'ach' ? (await getCompanySettings()).cashDiscountPercent : 0;
-    const discount = computeDiscount(chargeAmount, discountPercent);
-    const totalCharge = Number((chargeAmount - discount).toFixed(2));
+    // Card payments carry the processing surcharge from Company Settings; bank payments never do.
+    const surchargePercent = paymentMethod === 'credit' ? (await getCompanySettings()).cardSurchargePercent : 0;
+    const surcharge = computeSurcharge(chargeAmount, surchargePercent);
+    const totalCharge = Number((chargeAmount + surcharge).toFixed(2));
     const result = await provider.charge(
       methodRow.provider_payment_method_id,
       Math.round(totalCharge * 100),
@@ -345,16 +345,16 @@ export const paymentService = {
       const receiptRes = await tx.query("SELECT 'RCPT-' || nextval('receipt_number_seq') AS num");
       const receiptNumber = receiptRes.rows[0].num;
 
-      // The discount becomes a negative line on the invoice so receipts, emails and reports show it.
+      // The surcharge becomes a line on the invoice so receipts, emails and reports show it.
       let invoiceTotal = Number(invoice.total);
-      if (discount > 0) {
+      if (surcharge > 0) {
         await tx.query(
           `INSERT INTO invoice_items (invoice_id, description, quantity, unit_price, discount, taxable, line_total)
            VALUES ($1, $2, 1, $3, 0, false, $3)`,
-          [invoiceId, discountLabel(discountPercent, 'bank'), -discount],
+          [invoiceId, surchargeLabel(surchargePercent), surcharge],
         );
-        await tx.query('UPDATE invoices SET subtotal = subtotal - $1, total = total - $1, updated_at = now() WHERE id = $2', [discount, invoiceId]);
-        invoiceTotal -= discount;
+        await tx.query('UPDATE invoices SET subtotal = subtotal + $1, total = total + $1, updated_at = now() WHERE id = $2', [surcharge, invoiceId]);
+        invoiceTotal += surcharge;
       }
 
       const payRes = await tx.query(
@@ -373,7 +373,7 @@ export const paymentService = {
          WHERE id = $4`,
         [newPaid, fullyPaid ? 'paid' : 'partially_paid', fullyPaid, invoiceId, attemptDate],
       );
-      // Customer balance: the discount reduced the invoice and the payment covered the rest, so the full original amount clears.
+      // Customer balance: the surcharge was added to the invoice and paid in the same step, so only the original amount moves.
       await tx.query('UPDATE customers SET balance = balance - $1, updated_at = now() WHERE id = $2', [chargeAmount, invoice.customer_id]);
       await tx.query('UPDATE autopay_settings SET failure_count = 0, last_failure_at = NULL, updated_at = now() WHERE customer_id = $1', [invoice.customer_id]);
 
@@ -382,7 +382,7 @@ export const paymentService = {
 
       await recordAudit({
         userId, action: 'payment.succeeded', entityType: 'payment', entityId: payRes.rows[0].id,
-        newValue: { invoiceId, amount: totalCharge, discount, transactionId: result.transactionId, receiptNumber, source },
+        newValue: { invoiceId, amount: totalCharge, surcharge, transactionId: result.transactionId, receiptNumber, source },
       }, tx);
 
       return {
@@ -390,7 +390,7 @@ export const paymentService = {
         receipt: {
           receiptNumber,
           amount: totalCharge,
-          discount,
+          surcharge,
           transactionId: result.transactionId,
           invoiceNumber: invoice.invoice_number,
           brand: methodRow.brand,
@@ -425,12 +425,8 @@ export const paymentService = {
     if (!invoice) throw ApiError.notFound('Invoice not found');
     if (['paid', 'void'].includes(invoice.status)) throw ApiError.badRequest(`Invoice is already ${invoice.status}`);
 
-    // Cash / check payments get the cash discount when they settle the full balance.
-    const method = providerName.replace(/^external_/, '');
-    const discountPercent = method === 'cash' || method === 'check' ? (await getCompanySettings()).cashDiscountPercent : 0;
+    const chargeAmount = Number(amount.toFixed(2));
     const balanceDue = Number(invoice.total) - Number(invoice.amount_paid);
-    const discount = discountPercent > 0 && Math.abs(amount - balanceDue) < 0.005 ? computeDiscount(balanceDue, discountPercent) : 0;
-    const chargeAmount = Number((amount - discount).toFixed(2));
     if (!Number.isFinite(chargeAmount) || chargeAmount <= 0 || chargeAmount > balanceDue + 0.001) {
       throw ApiError.badRequest(`Payment amount must be between $0.01 and $${balanceDue.toFixed(2)}`);
     }
@@ -456,16 +452,6 @@ export const paymentService = {
     const resultData = await withTransaction(async (tx) => {
       const receiptRes = await tx.query("SELECT 'RCPT-' || nextval('receipt_number_seq') AS num");
       const receiptNumber = receiptRes.rows[0].num;
-      let invoiceTotal = Number(invoice.total);
-      if (discount > 0) {
-        await tx.query(
-          `INSERT INTO invoice_items (invoice_id, description, quantity, unit_price, discount, taxable, line_total)
-           VALUES ($1, $2, 1, $3, 0, false, $3)`,
-          [invoiceId, discountLabel(discountPercent, method === 'check' ? 'check' : 'cash'), -discount],
-        );
-        await tx.query('UPDATE invoices SET subtotal = subtotal - $1, total = total - $1, updated_at = now() WHERE id = $2', [discount, invoiceId]);
-        invoiceTotal -= discount;
-      }
       const payRes = await tx.query(
         `INSERT INTO payments (
            customer_id, invoice_id, payment_method_id, amount, status, payment_provider,
@@ -477,7 +463,7 @@ export const paymentService = {
       );
 
       const newPaid = Number(invoice.amount_paid) + chargeAmount;
-      const fullyPaid = newPaid >= invoiceTotal - 0.001;
+      const fullyPaid = newPaid >= Number(invoice.total) - 0.001;
       await tx.query(
         `UPDATE invoices
          SET amount_paid = $1,
@@ -489,7 +475,7 @@ export const paymentService = {
       );
       await tx.query(
         'UPDATE customers SET balance = balance - $1, updated_at = now() WHERE id = $2',
-        [chargeAmount + discount, invoice.customer_id],
+        [chargeAmount, invoice.customer_id],
       );
       await tx.query(
         'UPDATE autopay_settings SET failure_count = 0, last_failure_at = NULL, updated_at = now() WHERE customer_id = $1',
