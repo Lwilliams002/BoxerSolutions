@@ -182,6 +182,11 @@ export default function LoginScreen() {
           onPress={() => router.push('/(auth)/customer-portal')}
         />
         <Button
+          title="New customer? Request service"
+          variant="secondary"
+          onPress={() => router.push('/(auth)/request-service-public')}
+        />
+        <Button
           title="Privacy Policy"
           variant="secondary"
           onPress={() => router.push('/(auth)/privacy-policy')}

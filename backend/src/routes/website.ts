@@ -4,7 +4,7 @@ import { config } from '../config';
 import { asyncHandler } from '../utils/asyncHandler';
 import { getCompanyInfo } from '../services/settingsService';
 import { SITE_PAGES, SiteContext, renderSitemap } from '../content/website/pages';
-import { getOutboundMessageProvider, notifications } from '../integrations/notifications';
+import { submitPublicRequest } from '../services/publicRequestService';
 import { logger } from '../utils/logger';
 
 /**
@@ -53,25 +53,10 @@ export function createWebsiteRouter(): Router {
     if (!form.name || !form.phone) return render({ kind: 'error', text: 'Please enter your name and a phone number so we can reach you.' }, true);
     if (form.email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(form.email)) return render({ kind: 'error', text: 'That email address does not look right.' }, true);
 
-    const subject = `Estimate request — ${form.name}${form.pest ? ` (${form.pest})` : ''}`;
-    const text = [
-      'New free-estimate request from the website',
-      '',
-      `Name: ${form.name}`,
-      `Phone: ${form.phone}`,
-      `Email: ${form.email || 'not provided'}`,
-      `Service address: ${form.address || 'not provided'}`,
-      `Pest: ${form.pest || 'not specified'}`,
-      '',
-      form.message || '(no additional details)',
-      '',
-      `Submitted ${new Date().toLocaleString('en-US', { timeZone: config.timezone })}`,
-    ].join('\n');
     try {
-      await getOutboundMessageProvider('email').send({ communicationId: 'website-estimate', channel: 'email', to: company.email, subject, body: text, templateKey: 'website_estimate' });
-      await notifications.send({ userId: null, channel: 'push', type: 'website_estimate', title: `Estimate request: ${form.name}`, body: `${form.phone}${form.pest ? ` · ${form.pest}` : ''}${form.address ? ` · ${form.address}` : ''}`, data: { phone: form.phone, email: form.email, pest: form.pest, address: form.address } });
+      await submitPublicRequest({ name: form.name, phone: form.phone, email: form.email || null, address: form.address || null, pest: form.pest || null, message: form.message || null, source: 'website' });
     } catch (err) {
-      logger.error({ err }, 'website estimate request could not be delivered');
+      logger.error({ err }, 'website estimate request could not be recorded');
       return render({ kind: 'error', text: `Something went wrong sending your request. Please call ${company.phone}.` }, true);
     }
     return render({ kind: 'ok', text: `Thanks, ${form.name}! We received your request and will call ${form.phone} shortly.` }, false);

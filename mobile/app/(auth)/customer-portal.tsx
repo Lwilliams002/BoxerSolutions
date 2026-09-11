@@ -121,6 +121,10 @@ export default function CustomerPortalScreen() {
           loading={busyTest}
         />
         <Button
+          title="New customer? Request service"
+          onPress={() => router.push('/(auth)/request-service-public')}
+        />
+        <Button
           title="Back to Staff Login"
           variant="outline"
           onPress={() => router.replace('/(auth)/login')}
@@ -130,7 +134,6 @@ export default function CustomerPortalScreen() {
           variant="secondary"
           onPress={() => router.push('/(auth)/privacy-policy')}
         />
-        <Text style={styles.helper}>Test account: portal.test@antserve.dev</Text>
       </View>
     </KeyboardAvoidingView>
   );

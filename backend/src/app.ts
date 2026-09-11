@@ -35,6 +35,7 @@ import agreementRoutes from './routes/agreements';
 import recurringChargeRoutes from './routes/recurringCharges';
 import { createWebsiteRouter, websiteVhost } from './routes/website';
 import productRoutes from './routes/products';
+import publicRoutes from './routes/public';
 
 export function createApp() {
   const app = express();
@@ -110,6 +111,7 @@ export function createApp() {
   v1.use('/agreements', agreementRoutes);
   v1.use('/recurring-charges', recurringChargeRoutes);
   v1.use('/products', productRoutes);
+  v1.use('/public', publicRoutes);
   app.use('/api/v1', v1);
 
   app.use(notFoundHandler);

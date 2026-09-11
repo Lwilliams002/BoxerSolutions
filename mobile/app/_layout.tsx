@@ -69,6 +69,7 @@ export default function RootLayout() {
             <Stack.Screen name="(auth)/customer-portal-invoices" options={{ title: 'Invoices' }} />
             <Stack.Screen name="(auth)/customer-portal-profile" options={{ title: 'Profile' }} />
             <Stack.Screen name="(auth)/customer-portal-request-service" options={{ title: 'Request Service' }} />
+            <Stack.Screen name="(auth)/request-service-public" options={{ title: 'Request Service' }} />
             <Stack.Screen name="(auth)/privacy-policy" options={{ title: 'Privacy Policy' }} />
             <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
             <Stack.Screen name="customer/[id]" options={{ title: 'Customer' }} />
