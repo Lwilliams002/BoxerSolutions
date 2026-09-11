@@ -60,7 +60,11 @@ router.post(
   authorize('customers:write'),
   asyncHandler(async (req, res) => {
     const body = createCustomerSchema.parse(req.body);
-    ok(res, await customerService.create(body, req.user!.id), 'Customer created', 201);
+    // A technician who creates a customer is that customer's technician unless
+    // the form says otherwise, so scoped permissions keep working for them.
+    const scope = technicianScope(req, 'customers:read');
+    const payload = scope && !body.assignedTechnicianId ? { ...body, assignedTechnicianId: scope } : body;
+    ok(res, await customerService.create(payload, req.user!.id), 'Customer created', 201);
   }),
 );
 
