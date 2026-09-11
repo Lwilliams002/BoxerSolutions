@@ -237,3 +237,15 @@ cd mobile && npx eas-cli build --profile preview --platform ios
 ```
 
 Verify on the phone: sign in, allow notifications, open More → Notifications → **Send a test push to this phone**, then close the app. The banner should arrive within a few seconds. Optional hardening: set `EXPO_ACCESS_TOKEN` in the backend `.env` and enable "Enhanced push security" in the Expo dashboard.
+
+## Web app (boxersolutionspestcontrol.com/app)
+
+The Expo web build is a static export served by nginx from `/var/www/boxer-app` under `/app` on the
+marketing domain (no separate DNS). Publish a new build after mobile changes:
+
+```bash
+./scripts/deploy-web.sh
+```
+
+It runs `expo export --platform web` with the production API URL, syncs `mobile/dist-web/` to EC2, and
+reloads nginx. Routes: `/app/login` (staff), `/app/customer-portal`, `/app/request-service-public`.
