@@ -8,6 +8,8 @@ import { paymentProvider, providerFor } from '../integrations/payments';
 import { resolveProviderName } from '../integrations/payments/resolveProvider';
 import type { EpxCustomer, EpxPaymentMethod } from './epx/epxPayloads';
 import { config } from '../config';
+import { getCompanySettings } from './settingsService';
+import { computeSurcharge, surchargeLabel } from '../utils/surcharge';
 import { communicationService, safelyQueueCommunication } from './communicationService';
 import { storage } from '../integrations/storage';
 import { fileService } from './fileService';
@@ -310,9 +312,13 @@ export const paymentService = {
     const provider = providerFor(resolveProviderName(methodRow.payment_provider, config.payments.provider));
     const customer = await paymentService.loadCustomerBillingInfo(invoice.customer_id);
     const paymentMethod: EpxPaymentMethod = methodRow.method_type === 'bank_account' ? 'ach' : 'credit';
+    // Card payments carry the processing surcharge from Company Settings; bank payments never do.
+    const surchargePercent = paymentMethod === 'credit' ? (await getCompanySettings()).cardSurchargePercent : 0;
+    const surcharge = computeSurcharge(chargeAmount, surchargePercent);
+    const totalCharge = Number((chargeAmount + surcharge).toFixed(2));
     const result = await provider.charge(
       methodRow.provider_payment_method_id,
-      Math.round(chargeAmount * 100),
+      Math.round(totalCharge * 100),
       'usd',
       `Invoice ${invoice.invoice_number}`,
       { mit, paymentMethod, accountType: methodRow.bank_account_type ?? null, customer, invoiceNumber: invoice.invoice_number },
@@ -323,12 +329,12 @@ export const paymentService = {
         `INSERT INTO payments (customer_id, invoice_id, payment_method_id, amount, status, payment_provider, failure_reason,
            collected_by, processed_at, payment_source, autopay_attempt_date)
          VALUES ($1,$2,$3,$4,'failed',$5,$6,$7,now(),$8,$9)`,
-        [invoice.customer_id, invoiceId, methodRow.id, chargeAmount, provider.name, result.failureReason, employeeId, source, attemptDate],
+        [invoice.customer_id, invoiceId, methodRow.id, totalCharge, provider.name, result.failureReason, employeeId, source, attemptDate],
       );
-      await recordAudit({ userId, action: 'payment.failed', entityType: 'invoice', entityId: invoiceId, newValue: { amount: chargeAmount, reason: result.failureReason, source } });
+      await recordAudit({ userId, action: 'payment.failed', entityType: 'invoice', entityId: invoiceId, newValue: { amount: totalCharge, reason: result.failureReason, source } });
       if (options.sendFailureCommunication !== false) {
         safelyQueueCommunication(() => communicationService.sendInvoiceTemplate(invoiceId, 'payment_failed', null, {
-          amount: chargeAmount,
+          amount: totalCharge,
           reason: result.failureReason,
         }));
       }
@@ -339,22 +345,35 @@ export const paymentService = {
       const receiptRes = await tx.query("SELECT 'RCPT-' || nextval('receipt_number_seq') AS num");
       const receiptNumber = receiptRes.rows[0].num;
 
+      // The surcharge becomes a line on the invoice so receipts, emails and reports show it.
+      let invoiceTotal = Number(invoice.total);
+      if (surcharge > 0) {
+        await tx.query(
+          `INSERT INTO invoice_items (invoice_id, description, quantity, unit_price, discount, taxable, line_total)
+           VALUES ($1, $2, 1, $3, 0, false, $3)`,
+          [invoiceId, surchargeLabel(surchargePercent), surcharge],
+        );
+        await tx.query('UPDATE invoices SET subtotal = subtotal + $1, total = total + $1, updated_at = now() WHERE id = $2', [surcharge, invoiceId]);
+        invoiceTotal += surcharge;
+      }
+
       const payRes = await tx.query(
         `INSERT INTO payments (customer_id, invoice_id, payment_method_id, amount, status, payment_provider,
            provider_transaction_id, collected_by, receipt_number, processed_at, payment_source, autopay_attempt_date)
          VALUES ($1,$2,$3,$4,'succeeded',$5,$6,$7,$8,now(),$9,$10) RETURNING *`,
-        [invoice.customer_id, invoiceId, methodRow.id, chargeAmount, provider.name,
+        [invoice.customer_id, invoiceId, methodRow.id, totalCharge, provider.name,
          result.transactionId, employeeId, receiptNumber, source, attemptDate],
       );
 
-      const newPaid = Number(invoice.amount_paid) + chargeAmount;
-      const fullyPaid = newPaid >= Number(invoice.total) - 0.001;
+      const newPaid = Number(invoice.amount_paid) + totalCharge;
+      const fullyPaid = newPaid >= invoiceTotal - 0.001;
       await tx.query(
         `UPDATE invoices SET amount_paid = $1, status = $2, paid_at = CASE WHEN $3 THEN now() ELSE paid_at END,
            autopay_retry_count = 0, next_autopay_retry_date = NULL, last_autopay_attempt_date = COALESCE($5, last_autopay_attempt_date), updated_at = now()
          WHERE id = $4`,
         [newPaid, fullyPaid ? 'paid' : 'partially_paid', fullyPaid, invoiceId, attemptDate],
       );
+      // Customer balance: the surcharge was added to the invoice and paid in the same step, so only the original amount moves.
       await tx.query('UPDATE customers SET balance = balance - $1, updated_at = now() WHERE id = $2', [chargeAmount, invoice.customer_id]);
       await tx.query('UPDATE autopay_settings SET failure_count = 0, last_failure_at = NULL, updated_at = now() WHERE customer_id = $1', [invoice.customer_id]);
 
@@ -363,14 +382,15 @@ export const paymentService = {
 
       await recordAudit({
         userId, action: 'payment.succeeded', entityType: 'payment', entityId: payRes.rows[0].id,
-        newValue: { invoiceId, amount: chargeAmount, transactionId: result.transactionId, receiptNumber, source },
+        newValue: { invoiceId, amount: totalCharge, surcharge, transactionId: result.transactionId, receiptNumber, source },
       }, tx);
 
       return {
         payment: toCamel(finalPayment.rows[0]),
         receipt: {
           receiptNumber,
-          amount: chargeAmount,
+          amount: totalCharge,
+          surcharge,
           transactionId: result.transactionId,
           invoiceNumber: invoice.invoice_number,
           brand: methodRow.brand,
@@ -380,7 +400,7 @@ export const paymentService = {
         },
       };
     });
-    safelyQueueCommunication(() => communicationService.sendInvoiceTemplate(invoiceId, 'payment_received', null, { amount: chargeAmount }));
+    safelyQueueCommunication(() => communicationService.sendInvoiceTemplate(invoiceId, 'payment_received', null, { amount: totalCharge }));
     return resultData;
   },
 

@@ -10,6 +10,8 @@ export interface CompanySettings {
   invoiceDueDays: number;
   /** Charge the saved payment method when a recurring visit is completed (owner default: off). */
   chargeRecurringOnCompletion: boolean;
+  /** Percentage added to card payments to offset processing fees (0 disables). Never applied to bank/cash/check. */
+  cardSurchargePercent: number;
   appointmentReminderHours: number;
 }
 
@@ -22,6 +24,7 @@ export const DEFAULT_SETTINGS: CompanySettings = {
   defaultTaxRate: 0.0825,
   invoiceDueDays: 15,
   chargeRecurringOnCompletion: false,
+  cardSurchargePercent: 4,
   appointmentReminderHours: 24,
 };
 
@@ -45,6 +48,7 @@ export async function getCompanySettings(db: Queryable = pool): Promise<CompanyS
     defaultTaxRate: readNumber(company.defaultTaxRate ?? company.taxRate ?? invoicing.defaultTaxRate, DEFAULT_SETTINGS.defaultTaxRate),
     invoiceDueDays: readNumber(invoicing.invoiceDueDays ?? invoicing.defaultDueDays, DEFAULT_SETTINGS.invoiceDueDays),
     chargeRecurringOnCompletion: invoicing.chargeRecurringOnCompletion === true,
+    cardSurchargePercent: readNumber(invoicing.cardSurchargePercent, DEFAULT_SETTINGS.cardSurchargePercent),
     appointmentReminderHours: readNumber(appointments.appointmentReminderHours ?? appointments.reminderHours, DEFAULT_SETTINGS.appointmentReminderHours),
   };
 }
@@ -61,6 +65,7 @@ export interface CompanyInfo {
   /** "License #: …" or the placeholder dashes when blank. */
   license: string;
   licenseNumber: string;
+  cardSurchargePercent: number;
 }
 
 export function formatPhone(raw: string) {
@@ -80,7 +85,7 @@ export function splitAddressLines(address: string): string[] {
   return [trimmed.slice(0, comma).trim(), trimmed.slice(comma + 1).trim()].filter(Boolean);
 }
 
-export function toCompanyInfo(settings: Pick<CompanySettings, 'companyName' | 'phone' | 'email' | 'address' | 'licenseNumber'>): CompanyInfo {
+export function toCompanyInfo(settings: Pick<CompanySettings, 'companyName' | 'phone' | 'email' | 'address' | 'licenseNumber'> & { cardSurchargePercent?: number }): CompanyInfo {
   const licenseNumber = settings.licenseNumber.trim();
   return {
     name: settings.companyName.trim() || DEFAULT_SETTINGS.companyName,
@@ -89,6 +94,7 @@ export function toCompanyInfo(settings: Pick<CompanySettings, 'companyName' | 'p
     addressLines: splitAddressLines(settings.address),
     license: `License #: ${licenseNumber || LICENSE_PLACEHOLDER}`,
     licenseNumber,
+    cardSurchargePercent: Number(settings.cardSurchargePercent ?? 0) || 0,
   };
 }
 

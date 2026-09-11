@@ -266,6 +266,8 @@ function terms(ctx: SiteContext) {
   <p>Prices are stated on your agreement and on our published price sheet. The initial service is due upon completion of the initial treatment. Regular service is due at each scheduled treatment. Invoices are payable by card or bank (ACH) in our app, by emailed payment link, or by check. By saving a payment method or signing an ACH authorization you authorize us to charge the amounts due under your agreement.</p>
   <h2>Recurring billing</h2>
   <p>Regular service under an agreement is billed per treatment at the frequency you chose. The full terms, including amounts, timing, authorization and how to cancel, are in our <a href="${ctx.base}/recurring-billing">Recurring Billing Terms</a>.</p>
+  <h2>Card processing surcharge</h2>
+  <p>${c.cardSurchargePercent > 0 ? `A ${e(String(c.cardSurchargePercent))}% surcharge is added to payments made by credit card to offset processing costs. It is shown before you pay and on your receipt. There is no surcharge for bank (ACH), cash or check payments.` : 'We do not add a surcharge to card payments.'}</p>
   <h2>Re-treatment guarantee</h2>
   <p>If covered pest activity persists between scheduled visits, we will re-treat at no additional charge. Call ${e(c.phone)} to schedule.</p>
   <h2>Access and safety</h2>
@@ -309,6 +311,8 @@ function recurringBilling(ctx: SiteContext) {
   <p>Your service agreement lists two prices: a one-time <b>initial service</b> charge, and a <b>regular service</b> charge billed each time we perform a scheduled treatment. Both amounts, and the service frequency you selected (weekly, every two weeks, monthly, or every two months), are printed on the agreement together with a schedule of the charges across the ${TERM_MONTHS}-month term. Published starting prices are on our <a href="${ctx.base}/#pricing">price sheet</a>.</p>
   <h2>When you are charged</h2>
   <p>The initial service charge is due when the initial treatment is completed. Each regular service charge is due when that treatment is completed; it is never charged in advance. If a visit is skipped or cancelled, you are not charged for it. Prices do not change during the term of your agreement.</p>
+  <h2>Card surcharge</h2>
+  <p>${c.cardSurchargePercent > 0 ? `Payments made by credit card carry a ${e(String(c.cardSurchargePercent))}% processing surcharge, itemized on each receipt. Paying by bank account (ACH) avoids the surcharge.` : 'No surcharge applies to card payments.'}</p>
   <h2>How you authorize recurring charges</h2>
   <p>By signing the agreement and saving a card or bank account through our secure payment form, or by signing the ACH authorization, you authorize ${e(c.name)} to charge that payment method for the amounts due under your agreement after each completed service. You will receive an itemized service notification and receipt by email for every charge. Card and bank details are entered only in our payment processor's secure form and are never stored on our systems.</p>
   <h2>How to cancel</h2>
