@@ -35,9 +35,11 @@ const CSS = `
 :root{--teal:#2DC4A2;--teal-dark:#1E9C81;--ink:#0D0D0D;--muted:#5B6B68;--bg:#F0FAF8;--card:#fff;--line:#D9E6E2}
 *{box-sizing:border-box}html,body{overflow-x:hidden}img{max-width:100%}.grid>*{min-width:0}body{margin:0;font:16px/1.55 -apple-system,BlinkMacSystemFont,"Segoe UI",Helvetica,Arial,sans-serif;color:var(--ink);background:var(--bg)}
 a{color:var(--teal-dark)}.wrap{max-width:1040px;margin:0 auto;padding:0 20px}
-header{background:var(--ink);color:#fff}header .wrap{display:flex;align-items:center;justify-content:space-between;gap:12px 16px;padding-top:12px;padding-bottom:12px;flex-wrap:wrap}
-.brand{display:flex;align-items:center;gap:12px;color:#fff;text-decoration:none;font-weight:800;font-size:18px}.brand img{width:40px;height:40px;flex:none}
-nav{display:flex;flex-wrap:wrap;align-items:center;gap:6px 18px}nav a{color:#fff;text-decoration:none;font-weight:600;font-size:15px;white-space:nowrap;padding:4px 0}nav a.cta{background:var(--teal);color:var(--ink);padding:8px 14px;border-radius:999px}nav a.staff{border:2px solid #2DC4A2;color:#2DC4A2;padding:6px 14px;border-radius:999px}
+header{background:var(--ink);color:#fff}header .wrap{display:flex;align-items:center;justify-content:space-between;gap:12px 16px;padding-top:14px;padding-bottom:14px;flex-wrap:wrap;max-width:1200px}
+.brand{display:flex;align-items:center;gap:12px;color:#fff;text-decoration:none;font-weight:800;font-size:18px;flex:none}.brand img{width:40px;height:40px;flex:none}
+nav{display:flex;flex-wrap:wrap;align-items:center;gap:6px 16px;margin-left:auto}nav a{color:#fff;text-decoration:none;font-weight:600;font-size:15px;white-space:nowrap;padding:4px 0}
+nav .actions{display:flex;align-items:center;gap:10px;margin-left:8px}nav a.cta,nav a.staff{display:inline-flex;align-items:center;height:38px;padding:0 16px;border-radius:999px;font-weight:800;font-size:14px;line-height:1}nav a.cta{background:var(--teal);color:var(--ink);border:2px solid var(--teal)}nav a.staff{border:2px solid #2DC4A2;color:#2DC4A2}
+@media(min-width:1100px){header .wrap{flex-wrap:nowrap}nav{flex-wrap:nowrap}}
 .hero{position:relative;background:#0D0D0D center/cover no-repeat;color:#fff;padding:96px 0 72px;isolation:isolate}.hero:before{content:"";position:absolute;inset:0;background:linear-gradient(180deg,rgba(13,13,13,.35) 0%,rgba(13,13,13,.78) 70%,#0D0D0D 100%);z-index:-1}.hero .kicker{text-transform:uppercase;letter-spacing:.35em;font-size:12px;font-weight:700;color:var(--teal);margin:0 0 10px}.hero h1{font-size:40px;line-height:1.15;margin:0 0 12px}.hero p{font-size:18px;color:#CFE8E1;max-width:640px;margin:0 0 22px}
 .btn{display:inline-block;background:var(--teal);color:var(--ink);font-weight:800;padding:12px 20px;border-radius:12px;text-decoration:none}.btn.alt{background:#fff}
 section{padding:48px 0}h2{font-size:28px;margin:0 0 6px}.sub{color:var(--muted);margin:0 0 22px}
@@ -52,7 +54,7 @@ table{width:100%;border-collapse:collapse;background:#fff;border:1px solid var(-
 .legal{max-width:760px}.legal h2{margin-top:32px;font-size:22px}.legal p,.legal li{color:#30433F}
 footer{background:var(--ink);color:#B9C9C5;padding:36px 0;font-size:14px}footer .wrap{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:24px}footer .wrap>div{min-width:0}footer a{color:#fff;text-decoration:none;overflow-wrap:anywhere}footer h4{color:#fff;margin:0 0 8px;font-size:14px;text-transform:uppercase;letter-spacing:.06em}
 .note{background:#fff;border-left:4px solid var(--teal);padding:12px 14px;border-radius:8px;color:#30433F}
-@media(max-width:640px){header .wrap{gap:10px}.brand{font-size:16px}nav{width:100%;gap:4px 14px}nav a{font-size:14px}nav a.cta{width:100%;text-align:center;margin-top:4px;padding:10px 14px}.hero{padding:56px 0 48px}.hero h1{font-size:30px}.hero p{font-size:16px}.feature{grid-template-columns:1fr}.feature img{width:90px;height:90px}.feature h3{font-size:21px}h2{font-size:24px}.pests{grid-template-columns:repeat(3,minmax(0,1fr))}.pest summary img{width:64px;height:64px}.pest summary{padding:10px 4px 8px}}
+@media(max-width:640px){header .wrap{gap:10px}.brand{font-size:16px}nav{width:100%;gap:4px 14px;margin-left:0}nav a{font-size:14px}nav .actions{width:100%;margin:6px 0 0}nav a.cta,nav a.staff{flex:1;justify-content:center;height:42px}.hero{padding:56px 0 48px}.hero h1{font-size:30px}.hero p{font-size:16px}.feature{grid-template-columns:1fr}.feature img{width:90px;height:90px}.feature h3{font-size:21px}h2{font-size:24px}.pests{grid-template-columns:repeat(3,minmax(0,1fr))}.pest summary img{width:64px;height:64px}.pest summary{padding:10px 4px 8px}}
 `;
 
 function layout(ctx: SiteContext, page: { title: string; description: string; path: string }, body: string) {
@@ -67,7 +69,7 @@ function layout(ctx: SiteContext, page: { title: string; description: string; pa
 <body>
 <header><div class="wrap">
   <a class="brand" href="${b}/"><img src="${b}/assets/logo-mark.png" alt="">${e(c.name)}</a>
-  <nav>${NAV.map((n) => `<a href="${n.href.startsWith('/app') ? n.href : b + n.href}">${e(n.label)}</a>`).join('')}<a class="cta" href="tel:${e(c.phone.replace(/\D/g, ''))}">Call ${e(c.phone)}</a><a class="staff" href="/app/login">Staff Login</a></nav>
+  <nav>${NAV.map((n) => `<a href="${n.href.startsWith('/app') ? n.href : b + n.href}">${e(n.label)}</a>`).join('')}<span class="actions"><a class="cta" href="tel:${e(c.phone.replace(/\D/g, ''))}">Call ${e(c.phone)}</a><a class="staff" href="/app/login">Staff Login</a></span></nav>
 </div></header>
 ${body}
 <footer><div class="wrap">
