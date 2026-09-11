@@ -643,7 +643,7 @@ function payClientScript() {
 router.get(
   '/current',
   authenticate,
-  authorize('customers:read'),
+  authorize('customers:read', 'customers:read_assigned'),
   asyncHandler(async (req, res) => {
     const query = z.object({ customerId: z.string().uuid() }).parse(req.query);
     const scope = technicianScope(req, 'customers:read');
