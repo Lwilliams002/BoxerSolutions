@@ -59,12 +59,12 @@ export function technicianForPoint(point: LatLng | null, territories: TerritoryR
  * Decide which recurring plans get a visit created this run (pure, for tests):
  * due within the horizon, has a location, and no visit already linked for that date.
  */
-export function planRecurringVisits(plans: RecurringPlanRow[], territories: TerritoryRow[], today = todayIso()): PlannedVisit[] {
+export function planRecurringVisits(plans: RecurringPlanRow[], territories: TerritoryRow[], today = todayIso(), opts: { ignoreHorizon?: boolean } = {}): PlannedVisit[] {
   const horizon = daysFromToday(today, VISIT_HORIZON_DAYS);
   const out: PlannedVisit[] = [];
   for (const plan of plans) {
     const due = plan.nextDueDate;
-    if (!due || due > horizon || plan.hasVisitForDueDate || !plan.locationId) continue;
+    if (!due || (!opts.ignoreHorizon && due > horizon) || plan.hasVisitForDueDate || !plan.locationId) continue;
     // Overdue plans are scheduled for today rather than in the past.
     const scheduledDate = due < today ? today : due;
     const point = plan.latitude != null && plan.longitude != null ? { latitude: plan.latitude, longitude: plan.longitude } : null;
@@ -152,7 +152,7 @@ export async function buildTermVisits(recurringChargeId: string, systemUserId: s
   const taken = new Set(existing.rows.map((r) => String(r.d).slice(0, 10)));
   const [y, m, d] = today.split('-').map(Number);
   const end = new Date(Date.UTC(y, m - 1 + months, d, 12)).toISOString().slice(0, 10);
-  const base = planRecurringVisits([{ ...plan, hasVisitForDueDate: false }], territories, today)[0];
+  const base = planRecurringVisits([{ ...plan, hasVisitForDueDate: false }], territories, today, { ignoreHorizon: true })[0];
   const dates: string[] = [];
   let cursor = plan.nextDueDate < today ? today : plan.nextDueDate;
   while (cursor <= end && dates.length < 60) {

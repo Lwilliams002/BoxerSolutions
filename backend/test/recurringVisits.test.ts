@@ -42,3 +42,9 @@ test('assigned technician wins over territory; last visit time is reused', () =>
   assert.equal(technicianForPoint(null, [{ technicianId: 't', polygon: square }]), null);
   assert.equal(addMinutes('23:30', 60), '23:59');
 });
+
+test('term builder can plan beyond the 7-day horizon', () => {
+  const far = plan({ nextDueDate: '2026-10-09' });
+  assert.equal(planRecurringVisits([far], [], '2026-09-11').length, 0);
+  assert.equal(planRecurringVisits([far], [], '2026-09-11', { ignoreHorizon: true }).length, 1);
+});
