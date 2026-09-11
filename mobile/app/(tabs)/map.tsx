@@ -51,6 +51,8 @@ export default function TerritoryMapScreen() {
   const [locationGranted, setLocationGranted] = useState(false);
   const [stages, setStages] = useState<Set<CustomerStage>>(new Set(STAGE_ORDER));
   const [mapType, setMapType] = useState<'hybrid' | 'standard'>('hybrid');
+  // Custom marker views need one tracked render on Android before we freeze them.
+  const [trackMarkers, setTrackMarkers] = useState(true);
 
   // Center the map on the signed-in user's current location (tech or owner).
   useEffect(() => {
@@ -92,6 +94,11 @@ export default function TerritoryMapScreen() {
     refetchInterval: 60_000,
   });
   const visiblePins = useMemo(() => filterPins(mapLocations.data ?? [], stages), [mapLocations.data, stages]);
+  useEffect(() => {
+    setTrackMarkers(true);
+    const t = setTimeout(() => setTrackMarkers(false), 1500);
+    return () => clearTimeout(t);
+  }, [mapLocations.data, mapType]);
 
   const goToMyLocation = async () => {
     try {
@@ -224,10 +231,15 @@ export default function TerritoryMapScreen() {
           <Marker
             key={c.id}
             coordinate={{ latitude: c.latitude, longitude: c.longitude }}
-            pinColor={pinColor(c)}
-            tracksViewChanges={false}
+            anchor={{ x: 0.5, y: 0.5 }}
+            calloutAnchor={{ x: 0.5, y: 0.1 }}
+            tracksViewChanges={trackMarkers}
             onCalloutPress={() => { if (c.canOpen) router.push(`/customer/${c.customerId}`); }}
           >
+            <View style={styles.star}>
+              <Ionicons name="star" size={30} color="#0D0D0D" style={styles.starShadow} />
+              <Ionicons name="star" size={26} color={pinColor(c)} style={styles.starFill} />
+            </View>
             <Callout tooltip={false}>
               <View style={styles.callout}>
                 <Text style={styles.calloutTitle}>{pinTitle(c)}</Text>
@@ -335,6 +347,9 @@ const styles = StyleSheet.create({
   calloutStage: { fontSize: 12, fontWeight: '700', color: colors.text, flex: 1 },
   calloutAddr: { fontSize: 12, color: colors.textMuted, marginTop: 4 },
   calloutHint: { fontSize: 11, color: colors.primaryDark, fontWeight: '800', marginTop: 6 },
+  star: { width: 34, height: 34, alignItems: 'center', justifyContent: 'center' },
+  starShadow: { position: 'absolute', opacity: 0.55 },
+  starFill: { position: 'absolute' },
   fabs: { position: 'absolute', right: 14, bottom: 24, gap: 10 },
   fab: { width: 46, height: 46, borderRadius: 23, backgroundColor: '#fff', alignItems: 'center', justifyContent: 'center', shadowColor: '#0D0D0D', shadowOpacity: 0.2, shadowRadius: 6, shadowOffset: { width: 0, height: 3 }, elevation: 4 },
   fabPrimary: { backgroundColor: colors.primary },

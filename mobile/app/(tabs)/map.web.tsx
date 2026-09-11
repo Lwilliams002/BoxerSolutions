@@ -40,6 +40,12 @@ function loadLeaflet(): Promise<Leaflet> {
   if (w.L) return Promise.resolve(w.L);
   if (leafletPromise) return leafletPromise;
   leafletPromise = new Promise((resolve, reject) => {
+    if (!document.getElementById('customer-star-css')) {
+      const style = document.createElement('style');
+      style.id = 'customer-star-css';
+      style.textContent = '.customer-star{background:transparent;border:0}';
+      document.head.appendChild(style);
+    }
     if (!document.querySelector(`link[href="${LEAFLET_CSS}"]`)) {
       const css = document.createElement('link');
       css.rel = 'stylesheet';
@@ -140,9 +146,12 @@ export default function TerritoryMapScreenWeb() {
     if (!L || !layers) return;
     layers.pins.clearLayers();
     for (const pin of visiblePins) {
-      const marker = L.circleMarker([pin.latitude, pin.longitude], {
-        radius: 9, color: '#FFFFFF', weight: 2, fillColor: pinColor(pin), fillOpacity: 0.95,
+      const icon = L.divIcon({
+        className: 'customer-star',
+        html: `<svg width="30" height="30" viewBox="0 0 24 24" style="filter:drop-shadow(0 1px 2px rgba(0,0,0,.6))"><path d="M12 2.5l2.9 6 6.6.9-4.8 4.6 1.2 6.5L12 17.4l-5.9 3.1 1.2-6.5L2.5 9.4l6.6-.9z" fill="${pinColor(pin)}" stroke="#0D0D0D" stroke-width="1.2" stroke-linejoin="round"/></svg>`,
+        iconSize: [30, 30], iconAnchor: [15, 15], popupAnchor: [0, -12],
       });
+      const marker = L.marker([pin.latitude, pin.longitude], { icon, title: pinTitle(pin) });
       const popup = document.createElement('div');
       popup.style.minWidth = '200px';
       popup.innerHTML = `<div style="font:800 15px -apple-system,Helvetica,Arial,sans-serif;color:#0D0D0D">${escapeHtml(pinTitle(pin))}</div>
