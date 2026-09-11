@@ -126,7 +126,7 @@ export default function CustomersScreen() {
       <FlatList
         data={data?.items ?? []}
         keyExtractor={(c) => c.id}
-        contentContainerStyle={{ padding: 16, paddingTop: 8 }}
+        contentContainerStyle={{ padding: 16, paddingTop: 8, paddingBottom: 110 }}
         ListEmptyComponent={<EmptyState title="No customers found" />}
         refreshing={isRefetching}
         onRefresh={() => void refetch()}
