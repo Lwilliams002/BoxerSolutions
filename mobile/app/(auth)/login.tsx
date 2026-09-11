@@ -6,8 +6,7 @@ import {
   StyleSheet,
   KeyboardAvoidingView,
   Platform,
-  Image,
-} from 'react-native';
+  Image,, TouchableOpacity } from 'react-native';
 import { useRouter } from 'expo-router';
 import { useAuth } from '../../src/lib/authStore';
 import { Button, ErrorText } from '../../src/components/ui';
@@ -143,11 +142,15 @@ export default function LoginScreen() {
           loading={busy}
           disabled={!email || !password}
         />
+        <TouchableOpacity onPress={requestResetCode} disabled={resetBusy || !email} style={styles.linkRow}>
+          <Text style={[styles.link, !email && { opacity: 0.5 }]}>{resetBusy ? 'Sending reset code…' : 'Forgot password?'}</Text>
+        </TouchableOpacity>
         <Button
           title="Forgot Password"
           variant="secondary"
           onPress={requestResetCode}
           loading={resetBusy}
+          style={{ display: 'none' }}
           disabled={!email}
         />
         {showReset ? (
@@ -176,23 +179,26 @@ export default function LoginScreen() {
             />
           </View>
         ) : null}
-        <Button
-          title="Customer Portal"
-          variant="outline"
-          onPress={() => router.push('/(auth)/customer-portal')}
-        />
-        <Button
-          title="New customer? Request service"
-          variant="secondary"
-          onPress={() => router.push('/(auth)/request-service-public')}
-        />
-        <Button
-          title="Privacy Policy"
-          variant="secondary"
-          onPress={() => router.push('/(auth)/privacy-policy')}
-        />
+        <View style={styles.dividerRow}><View style={styles.dividerLine} /><Text style={styles.dividerText}>Customers</Text><View style={styles.dividerLine} /></View>
+        <View style={styles.pairRow}>
+          <Button
+            title="Customer Portal"
+            variant="outline"
+            onPress={() => router.push('/(auth)/customer-portal')}
+            style={{ flex: 1, marginRight: 6 }}
+          />
+          <Button
+            title="Request Service"
+            variant="secondary"
+            onPress={() => router.push('/(auth)/request-service-public')}
+            style={{ flex: 1, marginLeft: 6 }}
+          />
+        </View>
 
-        <Text style={styles.tagline}>Boxer Solutions Pest Control</Text>
+        <View style={styles.footerRow}>
+          <Text style={styles.tagline}>Boxer Solutions Pest Control</Text>
+          <TouchableOpacity onPress={() => router.push('/(auth)/privacy-policy')}><Text style={styles.link}>Privacy Policy</Text></TouchableOpacity>
+        </View>
       </View>
     </KeyboardAvoidingView>
   );
@@ -208,9 +214,9 @@ const styles = StyleSheet.create({
     paddingTop: 40,
   },
   logo: {
-    width: 170,
-    height: 170,
-    marginBottom: 18,
+    width: 140,
+    height: 140,
+    marginBottom: 14,
   },
   brandName: {
     color: '#FFFFFF',
@@ -235,9 +241,16 @@ const styles = StyleSheet.create({
     backgroundColor: '#FFFFFF',
     borderTopLeftRadius: 28,
     borderTopRightRadius: 28,
-    padding: 28,
-    paddingBottom: 48,
+    padding: 24,
+    paddingBottom: 34,
   },
+  linkRow: { alignSelf: 'flex-end', marginTop: -2, marginBottom: 10 },
+  link: { color: colors.primaryDark, fontWeight: '800', fontSize: 14 },
+  dividerRow: { flexDirection: 'row', alignItems: 'center', marginTop: 8, marginBottom: 10 },
+  dividerLine: { flex: 1, height: 1, backgroundColor: colors.border },
+  dividerText: { marginHorizontal: 10, fontSize: 12, fontWeight: '800', color: colors.textMuted, textTransform: 'uppercase', letterSpacing: 1 },
+  pairRow: { flexDirection: 'row' },
+  footerRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: 12 },
   welcome: {
     fontSize: 18,
     fontWeight: '700',
