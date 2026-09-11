@@ -36,7 +36,9 @@
       "package": "com.boxersolutionspestcontrol.app"
     },
     "web": {
-      "favicon": "./assets/favicon.png"
+      "favicon": "./assets/favicon.png",
+      "bundler": "metro",
+      "output": "static"
     },
     "plugins": [
       "expo-router",
@@ -73,6 +75,9 @@
       "eas": {
         "projectId": "246c70b3-caa1-463c-a662-60f89485435c"
       }
+    },
+    "experiments": {
+      "baseUrl": "/app"
     }
   }
 }

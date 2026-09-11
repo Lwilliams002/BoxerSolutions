@@ -28,6 +28,7 @@ const NAV: { href: string; label: string }[] = [
   { href: '/#pricing', label: 'Pricing' },
   { href: '/#estimate', label: 'Free Estimate' },
   { href: '/contact', label: 'Contact' },
+  { href: '/app/customer-portal', label: 'Customer Portal' },
 ];
 
 const CSS = `
@@ -36,7 +37,7 @@ const CSS = `
 a{color:var(--teal-dark)}.wrap{max-width:1040px;margin:0 auto;padding:0 20px}
 header{background:var(--ink);color:#fff}header .wrap{display:flex;align-items:center;justify-content:space-between;gap:12px 16px;padding-top:12px;padding-bottom:12px;flex-wrap:wrap}
 .brand{display:flex;align-items:center;gap:12px;color:#fff;text-decoration:none;font-weight:800;font-size:18px}.brand img{width:40px;height:40px;flex:none}
-nav{display:flex;flex-wrap:wrap;align-items:center;gap:6px 18px}nav a{color:#fff;text-decoration:none;font-weight:600;font-size:15px;white-space:nowrap;padding:4px 0}nav a.cta{background:var(--teal);color:var(--ink);padding:8px 14px;border-radius:999px}
+nav{display:flex;flex-wrap:wrap;align-items:center;gap:6px 18px}nav a{color:#fff;text-decoration:none;font-weight:600;font-size:15px;white-space:nowrap;padding:4px 0}nav a.cta{background:var(--teal);color:var(--ink);padding:8px 14px;border-radius:999px}nav a.staff{border:2px solid #2DC4A2;color:#2DC4A2;padding:6px 14px;border-radius:999px}
 .hero{position:relative;background:#0D0D0D center/cover no-repeat;color:#fff;padding:96px 0 72px;isolation:isolate}.hero:before{content:"";position:absolute;inset:0;background:linear-gradient(180deg,rgba(13,13,13,.35) 0%,rgba(13,13,13,.78) 70%,#0D0D0D 100%);z-index:-1}.hero .kicker{text-transform:uppercase;letter-spacing:.35em;font-size:12px;font-weight:700;color:var(--teal);margin:0 0 10px}.hero h1{font-size:40px;line-height:1.15;margin:0 0 12px}.hero p{font-size:18px;color:#CFE8E1;max-width:640px;margin:0 0 22px}
 .btn{display:inline-block;background:var(--teal);color:var(--ink);font-weight:800;padding:12px 20px;border-radius:12px;text-decoration:none}.btn.alt{background:#fff}
 section{padding:48px 0}h2{font-size:28px;margin:0 0 6px}.sub{color:var(--muted);margin:0 0 22px}
@@ -66,13 +67,14 @@ function layout(ctx: SiteContext, page: { title: string; description: string; pa
 <body>
 <header><div class="wrap">
   <a class="brand" href="${b}/"><img src="${b}/assets/logo-mark.png" alt="">${e(c.name)}</a>
-  <nav>${NAV.map((n) => `<a href="${b}${n.href}">${e(n.label)}</a>`).join('')}<a class="cta" href="tel:${e(c.phone.replace(/\D/g, ''))}">Call ${e(c.phone)}</a></nav>
+  <nav>${NAV.map((n) => `<a href="${n.href.startsWith('/app') ? n.href : b + n.href}">${e(n.label)}</a>`).join('')}<a class="cta" href="tel:${e(c.phone.replace(/\D/g, ''))}">Call ${e(c.phone)}</a><a class="staff" href="/app/login">Staff Login</a></nav>
 </div></header>
 ${body}
 <footer><div class="wrap">
   <div><h4>${e(c.name)}</h4>${c.addressLines.map((l) => `<div>${e(l)}</div>`).join('')}<div>${e(c.license)}</div></div>
   <div><h4>Customer Service</h4><div><a href="tel:${e(c.phone.replace(/\D/g, ''))}">${e(c.phone)}</a></div><div><a href="mailto:${e(c.email)}">${e(c.email)}</a></div><div>Mon–Fri 8am–6pm · Sat 9am–2pm</div></div>
   <div><h4>Policies</h4><div><a href="${b}/privacy">Privacy Policy</a></div><div><a href="${b}/terms">Terms of Service</a></div><div><a href="${b}/refund-policy">Refund &amp; Cancellation Policy</a></div><div><a href="${b}/recurring-billing">Recurring Billing Terms</a></div><div><a href="${b}/contact">Contact Us</a></div></div>
+  <div><h4>Online</h4><div><a href="/app/customer-portal">Customer Portal</a></div><div><a href="/app/request-service-public">Request Service</a></div><div><a href="/app/login">Staff Login</a></div></div>
   <div><h4>Payments</h4><div>We accept Visa, Mastercard, American Express, Discover and bank (ACH) payments through our secure mobile app and emailed payment links. Card details are entered only in our payment processor's secure form and are never stored on our systems.</div><div style="margin-top:10px">© ${ctx.year} ${e(c.name)}. All rights reserved.</div></div>
 </div></footer>
 </body></html>`;
