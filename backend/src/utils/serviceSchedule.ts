@@ -4,15 +4,16 @@
  * mobile/src/lib/serviceSchedule.ts so the document the customer signs and
  * the server's due-date bookkeeping agree.
  */
-export type ServiceFrequency = 'weekly' | 'biweekly' | 'monthly' | 'bimonthly';
+export type ServiceFrequency = 'weekly' | 'biweekly' | 'monthly' | 'bimonthly' | 'quarterly';
 
-export const SERVICE_FREQUENCIES: readonly ServiceFrequency[] = ['weekly', 'biweekly', 'monthly', 'bimonthly'];
+export const SERVICE_FREQUENCIES: readonly ServiceFrequency[] = ['weekly', 'biweekly', 'monthly', 'bimonthly', 'quarterly'];
 
 export const SERVICE_FREQUENCY_LABELS: Record<ServiceFrequency, string> = {
   weekly: 'Weekly',
   biweekly: 'Every 2 weeks',
   monthly: 'Monthly',
   bimonthly: 'Every 2 months',
+  quarterly: 'Every 3 months',
 };
 
 export const DEFAULT_SERVICE_FREQUENCY: ServiceFrequency = 'monthly';
@@ -25,6 +26,7 @@ export function parseServiceFrequency(value: unknown): ServiceFrequency | null {
     case 'biweekly': case 'every2weeks': case 'everytwoweeks': case '2weeks': return 'biweekly';
     case 'monthly': case 'month': case 'everymonth': return 'monthly';
     case 'bimonthly': case 'every2months': case 'everytwomonths': case '2months': return 'bimonthly';
+    case 'quarterly': case 'every3months': case 'everythreemonths': case '3months': return 'quarterly';
     default: return null;
   }
 }
@@ -55,6 +57,7 @@ export function addServiceInterval(dateIso: string, frequency: ServiceFrequency)
     case 'biweekly': d.setUTCDate(d.getUTCDate() + 14); return toIso(d);
     case 'monthly': return toIso(addMonthsClamped(d, 1));
     case 'bimonthly': return toIso(addMonthsClamped(d, 2));
+    case 'quarterly': return toIso(addMonthsClamped(d, 3));
   }
 }
 

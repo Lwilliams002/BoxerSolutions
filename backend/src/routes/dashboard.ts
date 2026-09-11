@@ -72,6 +72,16 @@ router.get(
            WHERE rc.active = true AND c.deleted_at IS NULL AND rc.next_due_date <= CURRENT_DATE`,
         );
 
+    const needsScheduling = scope
+      ? { rows: [{ unassigned: 0, due_plans: 0 }] }
+      : await pool.query(
+          `SELECT
+             (SELECT count(*)::int FROM appointments a WHERE a.deleted_at IS NULL AND a.status = 'scheduled' AND a.technician_id IS NULL AND a.scheduled_date BETWEEN CURRENT_DATE AND CURRENT_DATE + 14) AS unassigned,
+             (SELECT count(*)::int FROM recurring_charges rc JOIN customers c ON c.id = rc.customer_id AND c.deleted_at IS NULL AND c.status <> 'inactive'
+               WHERE rc.active AND rc.next_due_date IS NOT NULL AND rc.next_due_date <= CURRENT_DATE + 14
+                 AND NOT EXISTS (SELECT 1 FROM appointments a WHERE a.recurring_charge_id = rc.id AND a.deleted_at IS NULL AND a.status <> 'cancelled' AND a.scheduled_date >= CURRENT_DATE)) AS due_plans`,
+        );
+
     const upcoming = await pool.query(
       `SELECT count(*)::int AS total FROM appointments a
        WHERE a.scheduled_date > CURRENT_DATE AND a.scheduled_date <= CURRENT_DATE + 7
@@ -96,6 +106,7 @@ router.get(
       },
       upcomingAppointments: upcoming.rows[0].total,
       recurringDue: { count: Number(recurringDue.rows[0].total), amount: Number(recurringDue.rows[0].amount) },
+      needsScheduling: { unassigned: Number(needsScheduling.rows[0].unassigned), duePlans: Number(needsScheduling.rows[0].due_plans) },
       technicianActivity: activity.rows,
     });
   }),

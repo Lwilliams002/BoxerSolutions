@@ -39,6 +39,7 @@ router.post(
         frequency: (body.frequency ?? null) as import('../utils/serviceSchedule').ServiceFrequency | null,
         startDate: body.startDate ?? null,
         isUpdate: body.isUpdate ?? false,
+        createdBy: req.user!.id,
       },
     );
     ok(res, row ? { id: row.id, amount: Number(row.amount), frequency: row.frequency, nextDueDate: row.next_due_date } : null, 'Recurring charge saved');
@@ -52,6 +53,23 @@ router.get(
     const scope = technicianScope(req, 'invoices:read');
     if (scope && req.query.customerId) await assertCustomerAccess(scope, req.query.customerId as string);
     ok(res, await recurringChargeService.list({ customerId: req.query.customerId as string | undefined }));
+  }),
+);
+
+router.get(
+  '/:id/visits',
+  authorize('invoices:read', 'invoices:read_assigned', 'appointments:read', 'appointments:read_assigned'),
+  asyncHandler(async (req, res) => {
+    ok(res, await recurringChargeService.listVisits(req.params.id));
+  }),
+);
+
+router.post(
+  '/:id/rebuild-schedule',
+  authorize('appointments:write'),
+  asyncHandler(async (req, res) => {
+    const result = await recurringChargeService.rebuildSchedule(req.params.id, req.user!.id);
+    ok(res, result, `${result.created} visit(s) scheduled`);
   }),
 );
 

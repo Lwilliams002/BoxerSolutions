@@ -8,7 +8,9 @@ test('parseServiceFrequency accepts labels and keys', () => {
   assert.equal(parseServiceFrequency('Monthly'), 'monthly');
   assert.equal(parseServiceFrequency('every two months'), 'bimonthly');
   assert.equal(parseServiceFrequency('weekly'), 'weekly');
-  assert.equal(parseServiceFrequency('quarterly'), null);
+  assert.equal(parseServiceFrequency('quarterly'), 'quarterly');
+  assert.equal(parseServiceFrequency('Every 3 months'), 'quarterly');
+  assert.equal(parseServiceFrequency('yearly'), null);
   assert.equal(parseServiceFrequency(undefined), null);
 });
 
@@ -43,6 +45,9 @@ test('buildChargeSchedule covers the term at the chosen cadence', () => {
 
   const bimonthly = buildChargeSchedule({ startDate: '2026-09-08', frequency: 'bimonthly', termMonths: 12, initialAmount: 100, recurringAmount: 40 });
   assert.equal(bimonthly.length, 6);
+  const quarterly = buildChargeSchedule({ startDate: '2026-09-08', frequency: 'quarterly', termMonths: 12, initialAmount: 100, recurringAmount: 40 });
+  assert.equal(quarterly.length, 4);
+  assert.equal(quarterly[1].date, '2026-12-08');
 });
 
 test('buildChargeSchedule honours an existing next due date for updates', () => {

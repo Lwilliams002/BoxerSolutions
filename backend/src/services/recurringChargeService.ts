@@ -9,6 +9,7 @@ import {
 } from '../utils/serviceSchedule';
 
 import { todayIso, toIsoDate } from '../utils/dates';
+import { buildTermVisits, cancelFutureVisits } from '../jobs/recurringVisits';
 
 export interface RecurringChargeUpsertOptions {
   frequency?: ServiceFrequency | null;
@@ -16,6 +17,13 @@ export interface RecurringChargeUpsertOptions {
   startDate?: string | null;
   /** Agreement update: keep the existing due date unless the cadence changed. */
   isUpdate?: boolean;
+  /** User performing the signing (falls back to the owner) — recorded on generated visits. */
+  createdBy?: string | null;
+}
+
+async function ownerUserId(): Promise<string> {
+  const { rows } = await pool.query(`SELECT u.id FROM users u JOIN user_roles ur ON ur.user_id = u.id JOIN roles r ON r.id = ur.role_id WHERE r.code = 'OWNER' ORDER BY u.created_at LIMIT 1`);
+  return rows[0]?.id;
 }
 
 function mapRow(row: any) {
@@ -88,7 +96,46 @@ export const recurringChargeService = {
        RETURNING *`,
       [customerId, normalized, sourceAgreementFileId, frequency, nextDueDate],
     );
-    return rows[0] ?? null;
+    const row = rows[0] ?? null;
+    // Put the customer's visits for the agreement term on the calendar. A new
+    // agreement or a cadence change rebuilds the future; an update keeps them.
+    if (row) {
+      try {
+        const cadenceChanged = !!current && parseServiceFrequency(current.frequency) !== frequency;
+        if (!options.isUpdate || cadenceChanged) await cancelFutureVisits(row.id);
+        await buildTermVisits(row.id, options.createdBy ?? (await ownerUserId()), 12);
+      } catch (err) {
+        logger.warn({ err, recurringChargeId: row.id }, 'could not build the agreement visit schedule');
+      }
+    }
+    return row;
+  },
+
+  /** Upcoming visits generated from the plan (next 12 months). */
+  async listVisits(id: string) {
+    const { rows } = await pool.query(
+      `SELECT a.id, a.scheduled_date, a.window_start, a.window_end, a.status, a.technician_id,
+              tu.first_name || ' ' || tu.last_name AS technician_name,
+              EXISTS (SELECT 1 FROM route_stops rs WHERE rs.appointment_id = a.id) AS on_route,
+              (SELECT i.id FROM invoices i WHERE i.appointment_id = a.id AND i.deleted_at IS NULL LIMIT 1) AS invoice_id
+       FROM appointments a
+       LEFT JOIN employees te ON te.id = a.technician_id LEFT JOIN users tu ON tu.id = te.user_id
+       WHERE a.recurring_charge_id = $1 AND a.deleted_at IS NULL AND a.status <> 'cancelled'
+         AND a.scheduled_date >= CURRENT_DATE - 30
+       ORDER BY a.scheduled_date, a.window_start`,
+      [id],
+    );
+    return rows.map((r) => ({
+      id: r.id, scheduledDate: toIsoDate(r.scheduled_date), windowStart: String(r.window_start).slice(0, 5), windowEnd: String(r.window_end).slice(0, 5),
+      status: r.status, technicianId: r.technician_id, technicianName: r.technician_name, onRoute: !!r.on_route, invoiceId: r.invoice_id,
+    }));
+  },
+
+  /** Rebuild the future schedule (owner action after fixing address/technician). */
+  async rebuildSchedule(id: string, userId: string) {
+    const cancelled = await cancelFutureVisits(id);
+    const built = await buildTermVisits(id, userId, 12);
+    return { cancelled, created: built.created };
   },
 
   /** Active recurring plans whose next service date has arrived. */

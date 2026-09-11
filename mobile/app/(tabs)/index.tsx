@@ -25,6 +25,7 @@ interface Dashboard {
   invoices: { outstanding: number; pastDue: number };
   upcomingAppointments: number;
   recurringDue?: { count: number; amount: number };
+  needsScheduling?: { unassigned: number; duePlans: number };
   technicianActivity: { technicianName: string; completed: number; remaining: number }[];
 }
 
@@ -139,6 +140,17 @@ export default function DashboardScreen() {
           <StatTile icon="hourglass-outline" label="Outstanding" value={money(data?.invoices.outstanding)} tone={colors.warning} />
           <StatTile icon="alert-circle-outline" label="Past Due" value={money(data?.invoices.pastDue)} tone={colors.danger} />
         </View>
+
+        {data?.needsScheduling && (data.needsScheduling.unassigned + data.needsScheduling.duePlans) > 0 ? (
+          <TouchableOpacity style={[styles.alertBanner, { borderColor: '#F5D9A6', backgroundColor: '#FFF7E6' }]} onPress={() => router.push('/(tabs)/schedule')} activeOpacity={0.8}>
+            <Ionicons name="calendar-outline" size={18} color="#8A5A00" />
+            <Text style={[styles.alertText, { color: '#8A5A00' }]}>
+              {data.needsScheduling.unassigned + data.needsScheduling.duePlans} visit{data.needsScheduling.unassigned + data.needsScheduling.duePlans === 1 ? '' : 's'} need scheduling
+              {data.needsScheduling.unassigned ? ` · ${data.needsScheduling.unassigned} without a technician` : ''}
+            </Text>
+            <Ionicons name="chevron-forward" size={16} color="#8A5A00" />
+          </TouchableOpacity>
+        ) : null}
 
         {data?.recurringDue?.count ? (
           <TouchableOpacity style={styles.alertBanner} onPress={() => router.push({ pathname: '/(tabs)/invoices', params: { section: 'recurring' } })} activeOpacity={0.8}>

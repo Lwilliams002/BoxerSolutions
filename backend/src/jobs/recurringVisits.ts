@@ -2,7 +2,7 @@ import { pool } from '../config/db';
 import { logger } from '../utils/logger';
 import { todayIso, toIsoDate } from '../utils/dates';
 import { pointInPolygon, LatLng } from '../utils/geo';
-import { SERVICE_FREQUENCY_LABELS, parseServiceFrequency, DEFAULT_SERVICE_FREQUENCY } from '../utils/serviceSchedule';
+import { SERVICE_FREQUENCY_LABELS, parseServiceFrequency, DEFAULT_SERVICE_FREQUENCY, addServiceInterval } from '../utils/serviceSchedule';
 
 /** How far ahead a recurring visit is put on the calendar. */
 export const VISIT_HORIZON_DAYS = 7;
@@ -86,7 +86,7 @@ export function planRecurringVisits(plans: RecurringPlanRow[], territories: Terr
   return out;
 }
 
-async function loadPlans(today: string): Promise<RecurringPlanRow[]> {
+async function loadPlans(today: string, onlyId?: string): Promise<RecurringPlanRow[]> {
   const { rows } = await pool.query(
     `SELECT rc.id, rc.customer_id, rc.next_due_date, rc.frequency, c.assigned_technician_id,
             sl.id AS location_id, sl.latitude, sl.longitude,
@@ -103,8 +103,8 @@ async function loadPlans(today: string): Promise<RecurringPlanRow[]> {
        WHERE customer_id = c.id AND deleted_at IS NULL
        ORDER BY is_primary DESC, (latitude IS NOT NULL) DESC, created_at LIMIT 1
      ) sl ON true
-     WHERE rc.active = true AND rc.next_due_date IS NOT NULL`,
-    [today],
+     WHERE rc.active = true AND rc.next_due_date IS NOT NULL AND ($2::uuid IS NULL OR rc.id = $2::uuid)`,
+    [today, onlyId ?? null],
   );
   return rows.map((r) => ({
     id: r.id,
@@ -123,6 +123,57 @@ async function loadPlans(today: string): Promise<RecurringPlanRow[]> {
 async function loadTerritories(): Promise<TerritoryRow[]> {
   const { rows } = await pool.query('SELECT technician_id, polygon FROM technician_territories');
   return rows.map((r) => ({ technicianId: r.technician_id, polygon: Array.isArray(r.polygon) ? r.polygon : [] }));
+}
+
+async function insertVisit(v: PlannedVisit, systemUserId: string) {
+  await pool.query(
+    `INSERT INTO appointments (customer_id, service_location_id, technician_id, recurring_charge_id,
+       scheduled_date, window_start, window_end, duration_minutes, status, notes, created_by)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,'scheduled',$9,$10)`,
+    [v.customerId, v.locationId, v.technicianId, v.recurringChargeId, v.scheduledDate, v.windowStart, v.windowEnd, v.durationMinutes, v.notes, systemUserId],
+  );
+}
+
+/**
+ * Build the customer's whole schedule for the agreement term: one visit per
+ * interval from the plan's next due date through `months` months. Dates that
+ * already have a linked visit are kept as they are (reschedules survive).
+ */
+export async function buildTermVisits(recurringChargeId: string, systemUserId: string, months = 12) {
+  const today = todayIso();
+  const [plans, territories] = await Promise.all([loadPlans(today, recurringChargeId), loadTerritories()]);
+  const plan = plans[0];
+  if (!plan || !plan.nextDueDate || !plan.locationId) return { created: 0, dates: [] as string[] };
+  const frequency = parseServiceFrequency(plan.frequency) ?? DEFAULT_SERVICE_FREQUENCY;
+  const existing = await pool.query(
+    `SELECT scheduled_date::text AS d FROM appointments WHERE recurring_charge_id = $1 AND deleted_at IS NULL AND status <> 'cancelled'`,
+    [recurringChargeId],
+  );
+  const taken = new Set(existing.rows.map((r) => String(r.d).slice(0, 10)));
+  const [y, m, d] = today.split('-').map(Number);
+  const end = new Date(Date.UTC(y, m - 1 + months, d, 12)).toISOString().slice(0, 10);
+  const base = planRecurringVisits([{ ...plan, hasVisitForDueDate: false }], territories, today)[0];
+  const dates: string[] = [];
+  let cursor = plan.nextDueDate < today ? today : plan.nextDueDate;
+  while (cursor <= end && dates.length < 60) {
+    if (!taken.has(cursor) && base) {
+      await insertVisit({ ...base, scheduledDate: cursor }, systemUserId);
+      dates.push(cursor);
+    }
+    cursor = addServiceInterval(cursor, frequency);
+  }
+  return { created: dates.length, dates };
+}
+
+/** Drop future, untouched visits of a plan (used before rebuilding after a cadence change). */
+export async function cancelFutureVisits(recurringChargeId: string) {
+  const { rowCount } = await pool.query(
+    `UPDATE appointments SET status = 'cancelled', cancellation_reason = 'Agreement schedule rebuilt', updated_at = now()
+     WHERE recurring_charge_id = $1 AND deleted_at IS NULL AND status = 'scheduled' AND scheduled_date > CURRENT_DATE
+       AND NOT EXISTS (SELECT 1 FROM route_stops rs WHERE rs.appointment_id = appointments.id)`,
+    [recurringChargeId],
+  );
+  return rowCount ?? 0;
 }
 
 /** Job: put upcoming recurring visits on the schedule. */

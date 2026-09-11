@@ -86,7 +86,7 @@ export default function CustomerScreen() {
   const { data: recurringCharges } = useQuery({
     queryKey: ['recurring-charges', id],
     queryFn: () => api<{ items: any[] }>(`/recurring-charges?customerId=${id}`),
-    enabled: tab === 'Invoices',
+    enabled: tab === 'Invoices' || tab === 'Plan',
   });
   const { data: payments } = useQuery({
     queryKey: ['customerPayments', id],
@@ -119,6 +119,28 @@ export default function CustomerScreen() {
     queryFn: () => api<{ items: any[] }>(`/files?customerId=${id}&fileType=document&pageSize=50`),
     enabled: tab === 'Documents',
   });
+  const activePlan = (recurringCharges?.items ?? [])[0] as any | undefined;
+  const { data: planVisits } = useQuery({
+    queryKey: ['recurring-visits', activePlan?.id],
+    queryFn: () => api<any[]>(`/recurring-charges/${activePlan!.id}/visits`),
+    enabled: tab === 'Plan' && !!activePlan?.id,
+  });
+  const [rebuilding, setRebuilding] = useState(false);
+  const rebuildSchedule = () =>
+    confirmAction({
+      title: 'Rebuild schedule',
+      message: 'Cancel future unstarted visits from this plan and rebuild the next 12 months from the current frequency and next due date?',
+      confirmText: 'Rebuild',
+      onConfirm: async () => {
+        setRebuilding(true);
+        try {
+          const r = await api<{ created: number; cancelled: number }>(`/recurring-charges/${activePlan!.id}/rebuild-schedule`, { method: 'POST', body: {} });
+          notify('Schedule rebuilt', `${r.created} visit(s) scheduled.`);
+          void qc.invalidateQueries({ queryKey: ['recurring-visits'] });
+          void qc.invalidateQueries({ queryKey: ['schedule'] });
+        } catch (e) { notify('Could not rebuild', (e as Error).message); } finally { setRebuilding(false); }
+      },
+    });
   const { data: plans } = useQuery({
     queryKey: ['customerPlans', id],
     queryFn: () => api<{ items: any[] }>(`/subscriptions?customerId=${id}&pageSize=20`),
@@ -514,38 +536,75 @@ export default function CustomerScreen() {
 
         {tab === 'Plan' && (
           <>
-            {hasPermission('appointments:write') && (
-              <Button title="+ New Plan" onPress={() => router.push({ pathname: '/subscription/new', params: { customerId: id } })} />
-            )}
-            {((plans?.items?.length ?? 0) === 0) ? (
-              <EmptyState title="No recurring plan" subtitle="Create a plan to automate future service visits." />
+            {!activePlan ? (
+              <Card>
+                <Value style={{ fontWeight: '800' }}>No signed agreement yet</Value>
+                <Text style={styles.metaText}>The plan comes from the customer's service agreement. Sign one under Documents and the visits for the next 12 months are scheduled automatically.</Text>
+                {hasSignedAgreement === false && hasPermission('customers:write') ? <Button title="+ Add Agreement" onPress={addAgreement} /> : null}
+              </Card>
             ) : (
-              plans!.items.map((plan) => (
-                <Card key={plan.id}>
+              <>
+                <Card>
                   <Row>
-                    <Value style={{ fontWeight: '800' }}>{String(plan.frequency).replace('_', ' ')}</Value>
-                    <StatusBadge status={plan.status} />
+                    <Value style={{ fontWeight: '800', fontSize: 17 }}>{activePlan.frequencyLabel ?? 'Monthly'} service</Value>
+                    <StatusBadge status={activePlan.isDue ? 'past_due' : 'recurring'} />
                   </Row>
-                  <View style={{ marginTop: 8 }}>
-                    <Label>Next Service</Label>
-                    <Value>{fmtDate(plan.nextServiceDate ?? plan.nextGenerationDate)}</Value>
-                  </View>
-                  <Text style={styles.metaText}>{(plan.services ?? []).map((s: any) => s.name).join(', ')}</Text>
-                  {plan.preferredTechnicianName ? <Text style={styles.metaText}>{plan.preferredTechnicianName} · {fmtTime(plan.preferredTime)}</Text> : null}
-                  {hasPermission('appointments:write') && (
-                    <View style={styles.planActions}>
-                      {plan.status === 'active' ? (
-                        <TouchableOpacity onPress={() => planAction(plan, 'pause')}><Text style={styles.link}>Pause</Text></TouchableOpacity>
-                      ) : plan.status === 'paused' ? (
-                        <TouchableOpacity onPress={() => planAction(plan, 'resume')}><Text style={styles.link}>Resume</Text></TouchableOpacity>
-                      ) : null}
-                      {plan.status !== 'cancelled' && <TouchableOpacity onPress={() => planAction(plan, 'skip')}><Text style={styles.link}>Skip Next</Text></TouchableOpacity>}
-                      {plan.status !== 'cancelled' && <TouchableOpacity onPress={() => planAction(plan, 'cancel')}><Text style={[styles.link, { color: colors.danger }]}>Cancel</Text></TouchableOpacity>}
-                    </View>
-                  )}
+                  <Row style={{ marginTop: 10 }}>
+                    <View><Label>Per visit</Label><Value style={{ fontWeight: '800' }}>{money(activePlan.amount)}</Value></View>
+                    <View><Label>Next due</Label><Value style={{ fontWeight: '700', color: activePlan.isDue ? colors.danger : colors.text }}>{activePlan.nextDueDate ? fmtDate(activePlan.nextDueDate) : '—'}</Value></View>
+                    <View><Label>Last charged</Label><Value>{activePlan.lastChargedAt ? fmtDate(activePlan.lastChargedAt) : 'Never'}</Value></View>
+                  </Row>
+                  <Text style={[styles.metaText, { marginTop: 10 }]}>From the signed agreement. Change the frequency or services with Update Agreement under Documents; the schedule rebuilds automatically.</Text>
+                  {hasPermission('invoices:write', 'payments:collect', 'payments:write') ? (
+                    <Button title={chargingRecurring ? 'Charging…' : `Charge ${money(activePlan.amount)} now`} variant="success" onPress={() => chargeRecurring(activePlan)} loading={chargingRecurring} disabled={chargingRecurring} />
+                  ) : null}
                 </Card>
-              ))
+
+                <Row style={{ marginTop: 6, marginBottom: 6, alignItems: 'center' }}>
+                  <Text style={styles.sectionLabel}>Upcoming visits · next 12 months</Text>
+                  {hasPermission('appointments:write') ? (
+                    <TouchableOpacity onPress={rebuildSchedule} disabled={rebuilding}><Text style={styles.link}>{rebuilding ? 'Rebuilding…' : 'Rebuild'}</Text></TouchableOpacity>
+                  ) : null}
+                </Row>
+                {(planVisits ?? []).length === 0 ? (
+                  <Card><Text style={styles.metaText}>No visits scheduled yet. Tap Rebuild to generate them from the plan.</Text></Card>
+                ) : (
+                  (planVisits ?? []).map((v: any) => (
+                    <TouchableOpacity key={v.id} onPress={() => router.push(`/stop/${v.id}`)}>
+                      <Card>
+                        <Row>
+                          <Value style={{ fontWeight: '700' }}>{fmtDate(v.scheduledDate)} · {fmtTime(v.windowStart)}</Value>
+                          <StatusBadge status={v.status} />
+                        </Row>
+                        <Text style={[styles.metaText, !v.technicianName && { color: colors.warning, fontWeight: '800' }]}>
+                          {v.technicianName ?? 'No technician assigned'}{v.onRoute ? ' · on route' : ''}{v.invoiceId ? ' · invoiced' : ''}
+                        </Text>
+                      </Card>
+                    </TouchableOpacity>
+                  ))
+                )}
+              </>
             )}
+
+            {(plans?.items?.length ?? 0) > 0 ? (
+              <>
+                <Text style={[styles.sectionLabel, { marginTop: 14 }]}>Other plans</Text>
+                {plans!.items.map((plan) => (
+                  <Card key={plan.id}>
+                    <Row>
+                      <Value style={{ fontWeight: '800' }}>{String(plan.frequency).replace('_', ' ')}</Value>
+                      <StatusBadge status={plan.status} />
+                    </Row>
+                    <Text style={styles.metaText}>Next {fmtDate(plan.nextServiceDate ?? plan.nextGenerationDate)} · {(plan.services ?? []).map((s: any) => s.name).join(', ')}</Text>
+                    {hasPermission('appointments:write') && plan.status !== 'cancelled' ? (
+                      <View style={styles.planActions}>
+                        <TouchableOpacity onPress={() => planAction(plan, 'cancel')}><Text style={[styles.link, { color: colors.danger }]}>Cancel</Text></TouchableOpacity>
+                      </View>
+                    ) : null}
+                  </Card>
+                ))}
+              </>
+            ) : null}
           </>
         )}
 
@@ -909,6 +968,7 @@ const styles = StyleSheet.create({
   tabTextActive: { color: colors.primaryDark, fontWeight: '800' },
   content: { padding: 16, paddingBottom: 60 },
   metaText: { fontSize: 13, color: colors.textMuted, marginTop: 4 },
+  sectionLabel: { fontSize: 12, fontWeight: '800', color: colors.textMuted, textTransform: 'uppercase', letterSpacing: 0.5 },
   accessNotes: { fontSize: 13, color: colors.warning, marginTop: 4, fontStyle: 'italic' },
   noteInput: { minHeight: 60, fontSize: 15, color: colors.text, textAlignVertical: 'top', marginBottom: 8 },
   link: { color: colors.primaryDark, fontWeight: '700', fontSize: 14 },

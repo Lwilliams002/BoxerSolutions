@@ -263,7 +263,7 @@ async function buildSignedAgreementPdf(input: {
         }
       }
       const [yy, mm, dd] = entry.date.split('-').map(Number);
-      const label = frequency === 'monthly' || frequency === 'bimonthly'
+      const label = frequency === 'monthly' || frequency === 'bimonthly' || frequency === 'quarterly'
         ? new Date(Date.UTC(yy, mm - 1, dd, 12)).toLocaleDateString('en-US', { month: 'short', year: '2-digit', timeZone: 'UTC' }).replace(' ', " '")
         : new Date(Date.UTC(yy, mm - 1, dd, 12)).toLocaleDateString('en-US', { month: 'short', day: 'numeric', timeZone: 'UTC' });
       doc.rect(x, y, cellW - 4, 13).fill(entry.kind === 'initial' ? '#0D0D0D' : '#2DC4A2');
@@ -843,6 +843,7 @@ export const agreementSigningService = {
         await recurringChargeService.upsertFromAgreement(row.customer_id, recurringTotal, row.id, {
           frequency: agreement?.frequency ?? null,
           isUpdate: agreement?.isUpdate ?? false,
+          createdBy: null,
         });
       } catch (error) {
         logger.warn({ err: error, customerId: row.customer_id }, 'failed to upsert recurring charge from agreement');
