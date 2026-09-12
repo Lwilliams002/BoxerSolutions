@@ -1,5 +1,5 @@
 import React from 'react';
-import { ColorValue } from 'react-native';
+import { ColorValue, Platform } from 'react-native';
 import { Tabs } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { useAuth } from '../../src/lib/authStore';
@@ -29,6 +29,9 @@ export default function TabsLayout() {
           borderTopColor: '#222',
           borderTopWidth: 1,
           paddingTop: 4,
+          // On the web the bar gets no safe-area height, so the default 49px
+          // clips the labels under the icons; give it room and a bottom inset.
+          ...(Platform.OS === 'web' ? { height: 64, paddingBottom: 8 } : {}),
         },
         tabBarActiveTintColor: '#2DC4A2',
         tabBarInactiveTintColor: '#6B7C78',

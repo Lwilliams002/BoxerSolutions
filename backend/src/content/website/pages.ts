@@ -86,7 +86,7 @@ function home(ctx: SiteContext) {
   const c = ctx.company;
   const b = ctx.base;
   const body = `
-<section class="hero" style="background-image:url('${b}/assets/hero-miami.jpg')"><div class="wrap">
+<section class="hero" style="background-image:url('${b}/assets/hero-miami.jpg?v=2')"><div class="wrap">
   <p class="kicker">South Florida · Miami-Dade, Broward &amp; Palm Beach</p>
   <h1>South Florida pest control, built for the coast.</h1>
   <p>${e(c.name)} is a licensed, local pest control company. We start with an initial flush-out treatment, then keep your home protected with regular service on the schedule you choose — weekly, every two weeks, monthly or every two months.</p>
