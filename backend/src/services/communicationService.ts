@@ -539,8 +539,10 @@ export const communicationService = {
     }
     if (key === 'agreement_signed_copy') {
       const f = await pool.query(
-        `SELECT id FROM files WHERE customer_id = $1 AND deleted_at IS NULL AND upload_status = 'uploaded'
-           AND mime_type = 'application/pdf' AND file_name LIKE 'service-agreement-signed-%' ORDER BY updated_at DESC LIMIT 1`,
+          `SELECT id FROM files
+           WHERE customer_id = $1 AND deleted_at IS NULL AND upload_status = 'uploaded' AND file_type = 'document'
+             AND file_name LIKE 'service-agreement%' AND file_name NOT LIKE 'service-agreement-unsigned-%'
+           ORDER BY updated_at DESC LIMIT 1`,
         [comm.customer_id],
       );
       if (f.rows[0]) fileLink('Signed agreement (PDF)', f.rows[0].id);
@@ -619,8 +621,8 @@ export const communicationService = {
       case 'agreement_signed_copy': {
         const file = await pool.query(
           `SELECT id FROM files
-           WHERE customer_id = $1 AND deleted_at IS NULL AND upload_status = 'uploaded'
-             AND mime_type = 'application/pdf' AND file_name LIKE 'service-agreement-signed-%'
+           WHERE customer_id = $1 AND deleted_at IS NULL AND upload_status = 'uploaded' AND file_type = 'document'
+             AND file_name LIKE 'service-agreement%' AND file_name NOT LIKE 'service-agreement-unsigned-%'
            ORDER BY updated_at DESC LIMIT 1`,
           [comm.customer_id],
         );
