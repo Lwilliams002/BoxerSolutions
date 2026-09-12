@@ -98,6 +98,19 @@ export default function CustomerScreen() {
     queryFn: () => api<{ items: any[] }>(`/notes?customerId=${id}&pageSize=50`),
     enabled: tab === 'Notes',
   });
+  const [resendingId, setResendingId] = useState<string | null>(null);
+  const resendComm = async (commId: string) => {
+    setResendingId(commId);
+    try {
+      await api(`/communications/${commId}/resend`, { method: 'POST' });
+      notify('Message re-sent');
+      void qc.invalidateQueries({ queryKey: ['customerComms', id] });
+    } catch (e) {
+      notify('Could not re-send', (e as Error).message);
+    } finally {
+      setResendingId(null);
+    }
+  };
   const { data: comms } = useQuery({
     queryKey: ['customerComms', id],
     queryFn: () => api<{ items: any[] }>(`/communications?customerId=${id}&pageSize=50`),
@@ -773,7 +786,21 @@ export default function CustomerScreen() {
                       {cm.templateKey.replace(/_/g, ' ')} · {fmtDate(cm.sentAt ?? cm.createdAt)}
                     </Text>
                   </View>
-                  <StatusBadge status={cm.status} />
+                  <View style={{ alignItems: 'flex-end' }}>
+                    <StatusBadge status={cm.status} />
+                    {cm.status === 'failed' && cm.resentCommunicationId ? (
+                      <Text style={[styles.metaText, { marginTop: 4 }]}>Re-sent</Text>
+                    ) : null}
+                    {cm.status === 'failed' && !cm.resentCommunicationId && hasPermission('customers:write') ? (
+                      <Button
+                        title="Resend"
+                        variant="outline"
+                        loading={resendingId === cm.id}
+                        onPress={() => resendComm(cm.id)}
+                        style={{ paddingVertical: 6, paddingHorizontal: 12, marginTop: 6 }}
+                      />
+                    ) : null}
+                  </View>
                 </Row>
               </Card>
             ))

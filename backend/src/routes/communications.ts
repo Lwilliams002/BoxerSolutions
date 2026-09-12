@@ -51,4 +51,16 @@ router.post(
   }),
 );
 
+router.post(
+  '/:id/resend',
+  authorize('customers:write'),
+  asyncHandler(async (req, res) => {
+    const { id } = z.object({ id: z.string().uuid() }).parse(req.params);
+    const forwardedProto = req.header('x-forwarded-proto');
+    const proto = (forwardedProto ? forwardedProto.split(',')[0] : req.protocol).trim();
+    const apiBaseUrl = `${proto}://${req.get('host')}`;
+    ok(res, await communicationService.resend(id, req.user!.id, apiBaseUrl), 'Message re-sent', 201);
+  }),
+);
+
 export default router;

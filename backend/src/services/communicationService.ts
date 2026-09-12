@@ -1,4 +1,5 @@
 import { QueryResultRow } from 'pg';
+import { ApiError } from '../utils/errors';
 import { pool } from '../config/db';
 import { EmailAttachment, getOutboundMessageProvider } from '../integrations/notifications';
 import { storage } from '../integrations/storage';
@@ -511,6 +512,73 @@ export const communicationService = {
       sentBy,
       to: ctx.customer_email,
     });
+  },
+
+  /**
+   * Re-send a failed communication. The message is re-rendered from the
+   * current record (invoice, appointment, agreement) so it reflects today's
+   * data; the original failed row keeps its audit trail and points at the
+   * new row through resent_communication_id.
+   */
+  async resend(communicationId: string, sentBy: string | null, apiBaseUrl?: string | null) {
+    const { rows } = await pool.query(`SELECT * FROM communications WHERE id = $1`, [communicationId]);
+    const comm = rows[0];
+    if (!comm) throw ApiError.notFound('Communication not found');
+    if (comm.status !== 'failed') throw ApiError.badRequest('Only failed communications can be re-sent');
+    if (comm.resent_communication_id) throw ApiError.badRequest('This communication was already re-sent');
+    const key = comm.template_key as CommunicationTemplateKey;
+    let result: Record<string, unknown> | null | undefined = null;
+    switch (key) {
+      case 'appointment_confirmation':
+      case 'appointment_reminder':
+      case 'technician_on_my_way':
+      case 'appointment_rescheduled':
+        if (!comm.appointment_id) throw ApiError.badRequest('Appointment no longer exists');
+        result = await communicationService.sendAppointmentTemplate(comm.appointment_id, key, sentBy);
+        break;
+      case 'invoice_created':
+      case 'payment_received':
+      case 'payment_failed':
+      case 'payment_refunded': {
+        if (!comm.invoice_id) throw ApiError.badRequest('Invoice no longer exists');
+        const extra: Record<string, unknown> = {};
+        if (key !== 'invoice_created') {
+          const status = key === 'payment_received' ? 'succeeded' : key === 'payment_failed' ? 'failed' : 'refunded';
+          const pay = await pool.query(
+            `SELECT amount, refunded_amount FROM payments WHERE invoice_id = $1 AND status = $2 ORDER BY created_at DESC LIMIT 1`,
+            [comm.invoice_id, status],
+          );
+          const p = pay.rows[0];
+          if (p) extra.amount = key === 'payment_refunded' ? Number(p.refunded_amount || p.amount) : Number(p.amount);
+        }
+        result = await communicationService.sendInvoiceTemplate(comm.invoice_id, key, sentBy, extra);
+        break;
+      }
+      case 'service_completed':
+        if (!comm.appointment_id) throw ApiError.badRequest('Appointment no longer exists');
+        result = await communicationService.sendServiceReport(comm.appointment_id, sentBy);
+        break;
+      case 'agreement_signed_copy': {
+        const file = await pool.query(
+          `SELECT id FROM files
+           WHERE customer_id = $1 AND deleted_at IS NULL AND upload_status = 'uploaded'
+             AND mime_type = 'application/pdf' AND file_name LIKE 'service-agreement-signed-%'
+           ORDER BY updated_at DESC LIMIT 1`,
+          [comm.customer_id],
+        );
+        if (!file.rows[0]) throw ApiError.badRequest('No signed agreement on file for this customer');
+        result = await communicationService.sendSignedAgreementCopy(comm.customer_id, file.rows[0].id, sentBy);
+        break;
+      }
+      case 'agreement_review_sign':
+        result = await communicationService.sendAgreementReviewRequest(comm.customer_id, sentBy, null, apiBaseUrl ?? null);
+        break;
+      default:
+        throw ApiError.badRequest(`${String(key).replace(/_/g, ' ')} messages cannot be re-sent`);
+    }
+    if (!result) throw ApiError.badRequest('Customer has no email address on file');
+    await pool.query(`UPDATE communications SET resent_communication_id = $2 WHERE id = $1`, [communicationId, result.id]);
+    return result;
   },
 
   async sendAgreementReviewRequest(
