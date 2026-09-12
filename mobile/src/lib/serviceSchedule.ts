@@ -49,6 +49,16 @@ function addMonthsClamped(d: Date, months: number) {
   return target;
 }
 
+/** Days between the initial "flush out" service and the first regular service (egg-cycle follow-up). */
+export const FIRST_REGULAR_FOLLOW_UP_DAYS = 30;
+
+/** First regular service date: 30 days after the initial service, regardless of cadence. */
+export function firstRegularServiceDate(startIso: string): string {
+  const d = parseIso(startIso);
+  d.setUTCDate(d.getUTCDate() + FIRST_REGULAR_FOLLOW_UP_DAYS);
+  return toIso(d);
+}
+
 /** The service date one interval after `dateIso`. */
 export function addServiceInterval(dateIso: string, frequency: ServiceFrequency): string {
   const d = parseIso(dateIso);
@@ -87,20 +97,21 @@ export interface ChargeScheduleInput {
   termMonths: number;
   initialAmount: number;
   recurringAmount: number;
-  /** First regular service date; defaults to one interval after `startDate`. */
+  /** First regular service date; defaults to 30 days after `startDate` (egg-cycle follow-up). */
   firstRegularDate?: string | null;
 }
 
 /**
  * Every charge inside the agreement term: the initial service on the start
- * date, then the recurring amount at each interval until the term ends.
+ * date, the first regular service 30 days later (egg-cycle follow-up), then
+ * the recurring amount at each interval until the term ends.
  */
 export function buildChargeSchedule(input: ChargeScheduleInput): ScheduledCharge[] {
   const termEnd = toIso(addMonthsClamped(parseIso(input.startDate), Math.max(1, input.termMonths)));
   const out: ScheduledCharge[] = [{ date: input.startDate, amount: round2(input.initialAmount), kind: 'initial' }];
   let cursor = input.firstRegularDate && input.firstRegularDate > input.startDate
     ? input.firstRegularDate
-    : addServiceInterval(input.startDate, input.frequency);
+    : firstRegularServiceDate(input.startDate);
   while (cursor < termEnd && out.length < 120) {
     out.push({ date: cursor, amount: round2(input.recurringAmount), kind: 'regular' });
     cursor = addServiceInterval(cursor, input.frequency);

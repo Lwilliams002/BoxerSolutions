@@ -8,6 +8,7 @@ import { invoiceService } from './invoiceService';
 import { paymentService } from './paymentService';
 import { recurringChargeService } from './recurringChargeService';
 import { CompanyInfo, getCompanyInfo } from './settingsService';
+import { EGG_CYCLE_TITLE, EGG_CYCLE_BADGE, EGG_CYCLE_TEXT, INSECT_ACTIVITY_TITLE, insectActivityText, scheduleNote } from '../content/agreementTerms';
 import { todayIso } from '../utils/dates';
 import { DEFAULT_SERVICE_FREQUENCY, SERVICE_FREQUENCY_LABELS, ServiceFrequency, buildChargeSchedule, parseServiceFrequency } from '../utils/serviceSchedule';
 import { northGatewayService } from './northGatewayService';
@@ -276,7 +277,15 @@ async function buildSignedAgreementPdf(input: {
     });
     doc.x = doc.page.margins.left;
     doc.y = y + cellH + 6;
-    doc.font('Helvetica').fontSize(8).fillColor('#30433F').text('(I) initial service. Regular services continue at the same cadence after the term until canceled.');
+    doc.font('Helvetica').fontSize(8).fillColor('#30433F').text(scheduleNote(SERVICE_FREQUENCY_LABELS[frequency], termMonths, Boolean(input.agreement?.isUpdate)));
+
+    // Egg cycle + insect activity explanation (same copy as the in-app document).
+    doc.moveDown(0.9);
+    doc.font('Helvetica-Bold').fontSize(11).fillColor('#0D0D0D').text(`${EGG_CYCLE_TITLE} — ${EGG_CYCLE_BADGE}`);
+    doc.font('Helvetica').fontSize(9).fillColor('#30433F').text(EGG_CYCLE_TEXT, { lineGap: 2 });
+    doc.moveDown(0.5);
+    doc.font('Helvetica-Bold').fontSize(11).fillColor('#0D0D0D').text(INSECT_ACTIVITY_TITLE);
+    doc.font('Helvetica').fontSize(9).fillColor('#30433F').text(insectActivityText(input.company.phone), { lineGap: 2 });
 
     doc.moveDown(0.9);
     doc.font('Helvetica-Bold').fontSize(11).fillColor('#0D0D0D').text('Covered Pests');

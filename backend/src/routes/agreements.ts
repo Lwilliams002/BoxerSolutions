@@ -12,6 +12,9 @@ import { getCompanyInfo } from '../services/settingsService';
 import { computeSurcharge } from '../utils/surcharge';
 import { communicationService, safelyQueueCommunication } from '../services/communicationService';
 import { logger } from '../utils/logger';
+import { EGG_CYCLE_TITLE, EGG_CYCLE_BADGE, EGG_CYCLE_TEXT, INSECT_ACTIVITY_TITLE, insectActivityText, scheduleNote } from '../content/agreementTerms';
+import { SERVICE_FREQUENCY_LABELS, DEFAULT_SERVICE_FREQUENCY, buildChargeSchedule } from '../utils/serviceSchedule';
+import { todayIso } from '../utils/dates';
 
 const router = Router();
 
@@ -119,11 +122,24 @@ function signPageStyles() {
   .pricing-table th, .pricing-table td { vertical-align: top; }
   .pest-pill { display:inline-flex; align-items:center; gap:6px; margin:0 8px 8px 0; padding:6px 10px; border-radius:999px; background:#EAF8F5; color:#0D0D0D; font-size:13px; }
   .pest-pill img { width:14px; height:14px; object-fit:contain; }
+  .sched-grid { display:grid; grid-template-columns:repeat(6, minmax(0,1fr)); gap:4px; }
+  .sched-head { background:#2DC4A2; color:#0D0D0D; font-weight:800; font-size:10px; text-align:center; padding:3px 2px; border-radius:3px 3px 0 0; white-space:nowrap; overflow:hidden; }
+  .sched-head-initial { background:#0D0D0D; color:#FFFFFF; }
+  .sched-amount { font-size:10px; color:#0D0D0D; text-align:center; padding:4px 2px; border:1px solid #D5EDE9; border-top:0; border-radius:0 0 3px 3px; white-space:nowrap; }
+  .egg-grid { display:grid; grid-template-columns:1fr 1fr; gap:14px; }
+  .egg-col { display:flex; gap:10px; align-items:flex-start; min-width:0; }
+  .egg-badge { flex:0 0 74px; text-align:center; border:1px solid #D5EDE9; border-radius:8px; padding:6px 4px; background:#F6FCFA; }
+  .egg-badge-title { font-size:10px; font-weight:800; color:#0D0D0D; }
+  .egg-badge-num { font-size:26px; font-weight:900; color:#0D0D0D; line-height:1.1; }
+  .egg-badge-sub { font-size:9px; font-weight:700; color:#607D78; }
+  .egg-text { margin:0; font-size:10.5px; color:#0D0D0D; line-height:1.45; }
   @media (max-width: 640px) {
     body { padding: 10px; }
     .page-card { padding: 14px; }
     .agreement-doc { padding: 12px; }
     .agreement-grid { grid-template-columns: 1fr; }
+    .egg-grid { grid-template-columns: 1fr; }
+    .sched-grid { grid-template-columns:repeat(4, minmax(0,1fr)); }
     .pricing-table { min-width: 520px; }
     .pricing-table th { font-size: 11px !important; padding: 6px 4px !important; }
     .pricing-table td { font-size: 11px !important; padding: 6px 4px !important; }
@@ -131,7 +147,7 @@ function signPageStyles() {
   </style>`;
 }
 
-function renderAgreementDocument(ctx: Awaited<ReturnType<typeof agreementSigningService.getSigningContext>>) {
+function renderAgreementDocument(ctx: Awaited<ReturnType<typeof agreementSigningService.getSigningContext>>, companyPhone: string) {
   const serviceRows = ctx.agreement?.lineItems?.length
     ? ctx.agreement.lineItems.map((item) => `
       <tr>
@@ -180,6 +196,50 @@ function renderAgreementDocument(ctx: Awaited<ReturnType<typeof agreementSigning
       `;
   const customerType = ctx.customerType ? `${ctx.customerType.slice(0, 1).toUpperCase()}${ctx.customerType.slice(1)} Account` : 'Account';
 
+  const frequency = ctx.agreement?.frequency ?? DEFAULT_SERVICE_FREQUENCY;
+  const frequencyLabel = SERVICE_FREQUENCY_LABELS[frequency];
+  const isUpdate = Boolean(ctx.agreement?.isUpdate);
+  const schedule = ctx.agreement
+    ? buildChargeSchedule({
+        startDate: todayIso(),
+        frequency,
+        termMonths,
+        initialAmount: isUpdate ? (ctx.agreement.initialDueNow ?? 0) : (ctx.agreement.initialTotal ?? 0),
+        recurringAmount: ctx.agreement.recurringTotal ?? 0,
+      })
+    : [];
+  const cellLabel = (dateIso: string) => {
+    const [yy, mm, dd] = dateIso.split('-').map(Number);
+    const d = new Date(Date.UTC(yy, mm - 1, dd, 12));
+    return frequency === 'monthly' || frequency === 'bimonthly' || frequency === 'quarterly'
+      ? d.toLocaleDateString('en-US', { month: 'short', year: '2-digit', timeZone: 'UTC' }).replace(' ', " '")
+      : d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', timeZone: 'UTC' });
+  };
+  const scheduleCells = schedule.map((entry) => `
+      <div class="sched-cell">
+        <div class="sched-head${entry.kind === 'initial' ? ' sched-head-initial' : ''}">${htmlEscape(cellLabel(entry.date))}</div>
+        <div class="sched-amount">${entry.kind === 'initial' ? '(I) ' : ''}${money(entry.amount)}</div>
+      </div>`).join('');
+  const scheduleBlock = schedule.length
+    ? `
+    <h4 style="background:#2DC4A2;color:#0D0D0D;font-weight:800;font-size:12px;text-align:center;padding:4px;border-radius:4px;margin:14px 0 8px 0;">${htmlEscape(frequencyLabel)} Service Schedule</h4>
+    <p style="margin:0 0 8px 0;font-size:12px;color:#0D0D0D;"><b>Service frequency:</b> ${htmlEscape(frequencyLabel)} &nbsp;·&nbsp; <b>Regular service:</b> ${recurringTotal}</p>
+    <div class="sched-grid">${scheduleCells}</div>
+    <p style="margin:6px 0 0 0;font-size:10.5px;color:#607D78;line-height:1.45;">${htmlEscape(scheduleNote(frequencyLabel, termMonths, isUpdate))}</p>`
+    : '';
+  const eggCycleBlock = `
+    <h4 style="background:#2DC4A2;color:#0D0D0D;font-weight:800;font-size:12px;text-align:center;padding:4px;border-radius:4px;margin:14px 0 8px 0;">What to Expect</h4>
+    <div class="egg-grid">
+      <div class="egg-col">
+        <div class="egg-badge"><div class="egg-badge-title">${htmlEscape(EGG_CYCLE_TITLE)}</div><div class="egg-badge-num">30</div><div class="egg-badge-sub">${htmlEscape(EGG_CYCLE_BADGE)}</div></div>
+        <p class="egg-text">${htmlEscape(EGG_CYCLE_TEXT)}</p>
+      </div>
+      <div class="egg-col">
+        <div class="egg-badge"><div class="egg-badge-title">${htmlEscape(INSECT_ACTIVITY_TITLE)}</div><div class="egg-badge-num">&#8600;</div><div class="egg-badge-sub">Declines over time</div></div>
+        <p class="egg-text">${htmlEscape(insectActivityText(companyPhone))}</p>
+      </div>
+    </div>`;
+
   return `
   <div class="agreement-doc">
     <div style="background:#0D0D0D;border-radius:10px;padding:12px;">
@@ -217,9 +277,11 @@ function renderAgreementDocument(ctx: Awaited<ReturnType<typeof agreementSigning
       <tfoot>${pricingFoot}</tfoot>
     </table>
     </div>
+    ${scheduleBlock}
 
     <h4 style="background:#2DC4A2;color:#0D0D0D;font-weight:800;font-size:12px;text-align:center;padding:4px;border-radius:4px;margin:14px 0 8px 0;">Covered Pests</h4>
     <div>${pests}</div>
+    ${eggCycleBlock}
 
     <h4 style="background:#2DC4A2;color:#0D0D0D;font-weight:800;font-size:12px;text-align:center;padding:4px;border-radius:4px;margin:14px 0 8px 0;">Terms & Conditions</h4>
     <p style="margin:0 0 8px 0;font-size:10.5px;color:#607D78;line-height:1.45;">
@@ -740,6 +802,7 @@ router.get(
   asyncHandler(async (req, res) => {
     const query = z.object({ token: z.string().min(20) }).parse(req.query);
     const ctx = await agreementSigningService.getSigningContext(query.token);
+    const company = await getCompanyInfo();
     // After signing, the client rewrites this document in place
     // (document.write) with the payment page, so the browser keeps THIS
     // response's headers. The North checkout headers must be sent here.
@@ -782,7 +845,7 @@ router.get(
     <div class="page-card">
       <h2 style="margin-top:0;color:#0D0D0D;">${title}</h2>
       <p style="color:#30433F;line-height:1.5;">${body}</p>
-      ${renderAgreementDocument(ctx)}
+      ${renderAgreementDocument(ctx, company.phone)}
       ${action}
     </div>
     ${ctx.alreadySigned ? '' : '<script src="/api/v1/agreements/sign/client.js?v=4"></script>'}

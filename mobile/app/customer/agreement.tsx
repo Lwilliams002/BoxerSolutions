@@ -40,6 +40,7 @@ import {
   DEFAULT_SERVICE_FREQUENCY, SERVICE_FREQUENCIES, SERVICE_FREQUENCY_LABELS, SERVICE_FREQUENCY_SHORT,
   ServiceFrequency, buildChargeSchedule, parseServiceFrequency, scheduleCellLabel, todayIso,
 } from '../../src/lib/serviceSchedule';
+import { EGG_CYCLE_TITLE, EGG_CYCLE_BADGE, EGG_CYCLE_TEXT, INSECT_ACTIVITY_TITLE, insectActivityText, scheduleNote } from '../../src/lib/agreementContent';
 
 interface ServiceLocation {
   addressLine1: string;
@@ -865,7 +866,7 @@ export default function AgreementScreen() {
                 ))}
               </View>
               <Text style={styles.schedNote}>
-                (I) {isUpdate ? 'due now for the added services' : 'initial service'}. Regular service {money(regularTotal)} {SERVICE_FREQUENCY_LABELS[frequency].toLowerCase()} through the {TERM_MONTHS}-month term, continuing at the same cadence until canceled.
+                {scheduleNote(SERVICE_FREQUENCY_LABELS[frequency], TERM_MONTHS, isUpdate)} Regular service {money(regularTotal)}.
               </Text>
             </>
           )}
@@ -884,6 +885,25 @@ export default function AgreementScreen() {
               ))}
             </View>
           )}
+
+          {/* Egg cycle + insect activity */}
+          <Text style={styles.sectionBarFull}>What to Expect</Text>
+          <View style={styles.eggRow}>
+            <View style={styles.eggBadge}>
+              <Text style={styles.eggBadgeTitle}>{EGG_CYCLE_TITLE}</Text>
+              <Text style={styles.eggBadgeNum}>30</Text>
+              <Text style={styles.eggBadgeSub}>{EGG_CYCLE_BADGE}</Text>
+            </View>
+            <Text style={styles.eggText}>{EGG_CYCLE_TEXT}</Text>
+          </View>
+          <View style={styles.eggRow}>
+            <View style={styles.eggBadge}>
+              <Text style={styles.eggBadgeTitle}>{INSECT_ACTIVITY_TITLE}</Text>
+              <Text style={styles.eggBadgeNum}>↘</Text>
+              <Text style={styles.eggBadgeSub}>Declines over time</Text>
+            </View>
+            <Text style={styles.eggText}>{insectActivityText(company.phone)}</Text>
+          </View>
 
           {/* Terms */}
           <Text style={styles.sectionBarFull}>Terms &amp; Conditions</Text>
@@ -1205,6 +1225,12 @@ const styles = StyleSheet.create({
   schedHeadInitial: { backgroundColor: '#0D0D0D', color: '#fff' },
   schedAmount: { fontSize: 9, color: colors.text, textAlign: 'center', paddingVertical: 3, borderWidth: 1, borderTopWidth: 0, borderColor: colors.border, borderBottomLeftRadius: 3, borderBottomRightRadius: 3 },
   schedNote: { fontSize: 10, color: colors.textMuted, marginTop: 4, lineHeight: 14 },
+  eggRow: { flexDirection: 'row', alignItems: 'flex-start', gap: 10, marginBottom: 10 },
+  eggBadge: { width: 74, alignItems: 'center', borderWidth: 1, borderColor: colors.border, borderRadius: 8, paddingVertical: 6, paddingHorizontal: 4, backgroundColor: '#F6FCFA' },
+  eggBadgeTitle: { fontSize: 10, fontWeight: '800', color: colors.text },
+  eggBadgeNum: { fontSize: 26, fontWeight: '900', color: colors.text, lineHeight: 30 },
+  eggBadgeSub: { fontSize: 9, fontWeight: '700', color: colors.textMuted, textAlign: 'center' },
+  eggText: { flex: 1, fontSize: 10.5, color: colors.text, lineHeight: 15 },
   freqRow: { flexDirection: 'row', flexWrap: 'wrap', marginTop: 4 },
   freqChip: { borderWidth: 1.5, borderColor: colors.border, borderRadius: 20, paddingVertical: 8, paddingHorizontal: 14, marginRight: 8, marginBottom: 8, backgroundColor: '#fff' },
   freqChipActive: { borderColor: colors.primary, backgroundColor: colors.primary },

@@ -5,7 +5,7 @@ import { paymentService } from './paymentService';
 import { logger } from '../utils/logger';
 import {
   DEFAULT_SERVICE_FREQUENCY, SERVICE_FREQUENCY_LABELS, ServiceFrequency,
-  addServiceInterval, advanceDueDate, parseServiceFrequency,
+  addServiceInterval, advanceDueDate, parseServiceFrequency, firstRegularServiceDate,
 } from '../utils/serviceSchedule';
 
 import { todayIso, toIsoDate } from '../utils/dates';
@@ -73,7 +73,7 @@ export const recurringChargeService = {
     const frequency = options.frequency
       ?? (options.isUpdate && current ? parseServiceFrequency(current.frequency) : null)
       ?? DEFAULT_SERVICE_FREQUENCY;
-    const firstRegular = addServiceInterval(startDate, frequency);
+    const firstRegular = firstRegularServiceDate(startDate);
     let nextDueDate = firstRegular;
     if (current && options.isUpdate) {
       const currentDue = toIsoDate(current.next_due_date);
