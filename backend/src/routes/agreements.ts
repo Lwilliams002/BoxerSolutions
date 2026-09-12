@@ -12,7 +12,7 @@ import { getCompanyInfo } from '../services/settingsService';
 import { computeSurcharge } from '../utils/surcharge';
 import { communicationService, safelyQueueCommunication } from '../services/communicationService';
 import { logger } from '../utils/logger';
-import { EGG_CYCLE_TITLE, EGG_CYCLE_BADGE, EGG_CYCLE_TEXT, INSECT_ACTIVITY_TITLE, insectActivityText, scheduleNote } from '../content/agreementTerms';
+import { EGG_CYCLE_TITLE, EGG_CYCLE_BADGE, EGG_CYCLE_TEXT, INSECT_ACTIVITY_TITLE, insectActivityText, scheduleNote, splitCoveredPests } from '../content/agreementTerms';
 import { SERVICE_FREQUENCY_LABELS, DEFAULT_SERVICE_FREQUENCY, buildChargeSchedule } from '../utils/serviceSchedule';
 import { todayIso } from '../utils/dates';
 
@@ -66,6 +66,8 @@ function pestAssetForName(name: string) {
     'asian beetles': 'general.png',
     centipedes: 'centipede.png',
     clovermites: 'general.png',
+    'clover mites': 'general.png',
+    'sow / pill bugs': 'general.png',
     crickets: 'cricket.png',
     'sow / pill bug': 'general.png',
     spiders: 'spider.png',
@@ -122,6 +124,9 @@ function signPageStyles() {
   .pricing-table th, .pricing-table td { vertical-align: top; }
   .pest-pill { display:inline-flex; align-items:center; gap:6px; margin:0 8px 8px 0; padding:6px 10px; border-radius:999px; background:#EAF8F5; color:#0D0D0D; font-size:13px; }
   .pest-pill img { width:14px; height:14px; object-fit:contain; }
+  .pest-grid { display:grid; grid-template-columns:repeat(4, minmax(0,1fr)); gap:6px 10px; }
+  .pest-item { display:flex; align-items:center; gap:8px; min-width:0; font-size:12px; font-weight:700; color:#0D0D0D; }
+  .pest-item img { width:34px; height:34px; object-fit:contain; flex:0 0 34px; }
   .sched-grid { display:grid; grid-template-columns:repeat(6, minmax(0,1fr)); gap:4px; }
   .sched-head { background:#2DC4A2; color:#0D0D0D; font-weight:800; font-size:10px; text-align:center; padding:3px 2px; border-radius:3px 3px 0 0; white-space:nowrap; overflow:hidden; }
   .sched-head-initial { background:#0D0D0D; color:#FFFFFF; }
@@ -139,6 +144,7 @@ function signPageStyles() {
     .agreement-doc { padding: 12px; }
     .agreement-grid { grid-template-columns: 1fr; }
     .egg-grid { grid-template-columns: 1fr; }
+    .pest-grid { grid-template-columns:repeat(2, minmax(0,1fr)); }
     .sched-grid { grid-template-columns:repeat(4, minmax(0,1fr)); }
     .pricing-table { min-width: 520px; }
     .pricing-table th { font-size: 11px !important; padding: 6px 4px !important; }
@@ -158,9 +164,15 @@ function renderAgreementDocument(ctx: Awaited<ReturnType<typeof agreementSigning
     `).join('')
     : `<tr><td colspan="3" style="padding:12px;color:#607D78;">No service pricing details were found for this agreement.</td></tr>`;
 
-  const pests = ctx.agreement?.coveredPests?.length
-    ? ctx.agreement.coveredPests.map((p) => `<span class="pest-pill"><img src="/api/v1/agreements/assets/${encodeURIComponent(pestAssetForName(p))}?v=3" alt="" loading="lazy" />${htmlEscape(p)}</span>`).join('')
-    : '<p style="color:#607D78;margin:0;">No covered pests were listed.</p>';
+  const { included: includedPests, additional: additionalPests } = splitCoveredPests(ctx.agreement?.coveredPests ?? []);
+  const pestGrid = (list: string[], empty: string) => list.length
+    ? `<div class="pest-grid">${list.map((p) => `<div class="pest-item"><img src="/api/v1/agreements/assets/${encodeURIComponent(pestAssetForName(p))}?v=3" alt="" loading="lazy" /><span>${htmlEscape(p)}</span></div>`).join('')}</div>`
+    : `<p style="color:#607D78;margin:0;font-size:12px;">${empty}</p>`;
+  const pestsBlock = `
+    <h4 style="background:#2DC4A2;color:#0D0D0D;font-weight:800;font-size:12px;text-align:center;padding:4px;border-radius:4px;margin:14px 0 8px 0;">Included Insects</h4>
+    ${pestGrid(includedPests, 'No standard service on this agreement.')}
+    <h4 style="background:#2DC4A2;color:#0D0D0D;font-weight:800;font-size:12px;text-align:center;padding:4px;border-radius:4px;margin:14px 0 8px 0;">Additional Pests</h4>
+    ${pestGrid(additionalPests, 'No additional pest services selected.')}`;
 
   const termMonths = ctx.agreement?.termMonths ?? 12;
   const initialDiscount =
@@ -277,10 +289,8 @@ function renderAgreementDocument(ctx: Awaited<ReturnType<typeof agreementSigning
       <tfoot>${pricingFoot}</tfoot>
     </table>
     </div>
+    ${pestsBlock}
     ${scheduleBlock}
-
-    <h4 style="background:#2DC4A2;color:#0D0D0D;font-weight:800;font-size:12px;text-align:center;padding:4px;border-radius:4px;margin:14px 0 8px 0;">Covered Pests</h4>
-    <div>${pests}</div>
     ${eggCycleBlock}
 
     <h4 style="background:#2DC4A2;color:#0D0D0D;font-weight:800;font-size:12px;text-align:center;padding:4px;border-radius:4px;margin:14px 0 8px 0;">Terms & Conditions</h4>

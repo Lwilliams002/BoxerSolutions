@@ -285,6 +285,8 @@ export default function AgreementScreen() {
     () => Math.max(0, chargeSubtotal - initialDiscount),
     [chargeSubtotal, initialDiscount],
   );
+  const includedPests = useMemo(() => coveredPests.filter((p) => STANDARD_PESTS.includes(p)), [coveredPests]);
+  const additionalPests = useMemo(() => coveredPests.filter((p) => !STANDARD_PESTS.includes(p)), [coveredPests]);
   /** Every charge across the term at the chosen cadence, shown on the document. */
   const chargeSchedule = useMemo(
     () => buildChargeSchedule({
@@ -851,6 +853,34 @@ export default function AgreementScreen() {
             </View>
           ) : null}
 
+          {/* Included insects (standard plan) and additional pests (add-ons / odd jobs) */}
+          <Text style={styles.sectionBarFull}>Included Insects</Text>
+          {includedPests.length === 0 ? (
+            <Text style={styles.termsMuted}>Select a Standard Four Point Service size to include the standard pests.</Text>
+          ) : (
+            <View style={styles.pestGrid}>
+              {includedPests.map((p) => (
+                <View key={p} style={styles.pestCell}>
+                  <Image source={pestImage(p)} style={styles.pestCellIcon} resizeMode="contain" />
+                  <Text style={styles.pestCellText} numberOfLines={2}>{p}</Text>
+                </View>
+              ))}
+            </View>
+          )}
+          <Text style={styles.sectionBarFull}>Additional Pests</Text>
+          {additionalPests.length === 0 ? (
+            <Text style={styles.termsMuted}>No additional pest services selected.</Text>
+          ) : (
+            <View style={styles.pestGrid}>
+              {additionalPests.map((p) => (
+                <View key={p} style={styles.pestCell}>
+                  <Image source={pestImage(p)} style={styles.pestCellIcon} resizeMode="contain" />
+                  <Text style={styles.pestCellText} numberOfLines={2}>{p}</Text>
+                </View>
+              ))}
+            </View>
+          )}
+
           {/* Charge schedule across the term */}
           <Text style={styles.sectionBarFull}>{SERVICE_FREQUENCY_LABELS[frequency]} Service Schedule</Text>
           {lineItems.length === 0 ? (
@@ -869,21 +899,6 @@ export default function AgreementScreen() {
                 {scheduleNote(SERVICE_FREQUENCY_LABELS[frequency], TERM_MONTHS, isUpdate)} Regular service {money(regularTotal)}.
               </Text>
             </>
-          )}
-
-          {/* Covered pests */}
-          <Text style={styles.sectionBarFull}>Covered Pests</Text>
-          {coveredPests.length === 0 ? (
-            <Text style={styles.termsMuted}>No pests selected yet.</Text>
-          ) : (
-            <View style={styles.pestListWrap}>
-              {coveredPests.map((p) => (
-                <View key={p} style={styles.pestTag}>
-                  <Image source={pestImage(p)} style={styles.pestTagIcon} resizeMode="contain" />
-                  <Text style={styles.pestTagText}>{p}</Text>
-                </View>
-              ))}
-            </View>
           )}
 
           {/* Egg cycle + insect activity */}
@@ -1241,6 +1256,10 @@ const styles = StyleSheet.create({
   pestListWrap: { flexDirection: 'row', flexWrap: 'wrap' },
   pestTag: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#E9FBF6', borderRadius: 6, paddingVertical: 3, paddingHorizontal: 8, marginRight: 6, marginBottom: 6, borderWidth: 1, borderColor: colors.border },
   pestTagIcon: { width: 16, height: 16, marginRight: 5 },
+  pestGrid: { flexDirection: 'row', flexWrap: 'wrap', marginBottom: 4 },
+  pestCell: { width: '33.33%', flexDirection: 'row', alignItems: 'center', paddingVertical: 4, paddingRight: 6 },
+  pestCellIcon: { width: 30, height: 30, marginRight: 6 },
+  pestCellText: { flex: 1, fontSize: 11, color: colors.text, fontWeight: '700' },
   pestTagText: { fontSize: 11, color: colors.primaryDark, fontWeight: '700' },
   terms: { fontSize: 10.5, color: colors.textMuted, lineHeight: 15, marginBottom: 8 },
   signBlock: { marginTop: 12, borderTopWidth: 1, borderColor: colors.border, paddingTop: 12 },

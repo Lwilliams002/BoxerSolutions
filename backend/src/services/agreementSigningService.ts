@@ -8,7 +8,7 @@ import { invoiceService } from './invoiceService';
 import { paymentService } from './paymentService';
 import { recurringChargeService } from './recurringChargeService';
 import { CompanyInfo, getCompanyInfo } from './settingsService';
-import { EGG_CYCLE_TITLE, EGG_CYCLE_BADGE, EGG_CYCLE_TEXT, INSECT_ACTIVITY_TITLE, insectActivityText, scheduleNote } from '../content/agreementTerms';
+import { EGG_CYCLE_TITLE, EGG_CYCLE_BADGE, EGG_CYCLE_TEXT, INSECT_ACTIVITY_TITLE, insectActivityText, scheduleNote, splitCoveredPests } from '../content/agreementTerms';
 import { todayIso } from '../utils/dates';
 import { DEFAULT_SERVICE_FREQUENCY, SERVICE_FREQUENCY_LABELS, ServiceFrequency, buildChargeSchedule, parseServiceFrequency } from '../utils/serviceSchedule';
 import { northGatewayService } from './northGatewayService';
@@ -191,9 +191,7 @@ async function buildSignedAgreementPdf(input: {
   const initialTotal = input.agreement?.initialTotal ?? lineItems.reduce((sum, item) => sum + item.initial, 0);
   const recurringTotal = input.agreement?.recurringTotal ?? lineItems.reduce((sum, item) => sum + item.regular, 0);
   const initialSubtotal = initialTotal + initialDiscount;
-  const coveredPests = input.agreement?.coveredPests?.length
-    ? input.agreement.coveredPests.join(', ')
-    : 'No covered pests were listed.';
+  const { included: includedPests, additional: additionalPests } = splitCoveredPests(input.agreement?.coveredPests ?? []);
 
   const terms =
     `This agreement is for an initial period of ${termMonths} month(s). You, the customer, may cancel this transaction any time prior to midnight of the third business day after the date of this transaction by giving written notice of cancellation to ${COMPANY_NAME}. Upon completion of the initial service, the customer agrees to pay the full initial service charge. Recurring treatments continue at the agreed frequency until canceled by the customer. ${COMPANY_NAME} will re-treat at no additional charge between scheduled visits if covered pest activity persists. If this agreement is terminated before the end of the ${termMonths}-month term, the customer agrees to repay any initial service discount applied under this agreement.`;
@@ -288,8 +286,11 @@ async function buildSignedAgreementPdf(input: {
     doc.font('Helvetica').fontSize(9).fillColor('#30433F').text(insectActivityText(input.company.phone), { lineGap: 2 });
 
     doc.moveDown(0.9);
-    doc.font('Helvetica-Bold').fontSize(11).fillColor('#0D0D0D').text('Covered Pests');
-    doc.font('Helvetica').fontSize(10).text(coveredPests);
+    doc.font('Helvetica-Bold').fontSize(11).fillColor('#0D0D0D').text('Included Insects');
+    doc.font('Helvetica').fontSize(10).text(includedPests.length ? includedPests.join(', ') : 'No standard service on this agreement.');
+    doc.moveDown(0.4);
+    doc.font('Helvetica-Bold').fontSize(11).fillColor('#0D0D0D').text('Additional Pests');
+    doc.font('Helvetica').fontSize(10).text(additionalPests.length ? additionalPests.join(', ') : 'No additional pest services selected.');
 
     doc.moveDown(0.9);
     doc.font('Helvetica-Bold').fontSize(11).text('Terms & Conditions');
