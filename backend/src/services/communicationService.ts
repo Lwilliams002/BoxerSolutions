@@ -545,7 +545,7 @@ export const communicationService = {
            ORDER BY updated_at DESC LIMIT 1`,
         [comm.customer_id],
       );
-      if (f.rows[0]) fileLink('Signed agreement (PDF)', f.rows[0].id);
+      if (f.rows[0]) fileLink('Signed agreement', f.rows[0].id);
     }
     if (comm.invoice_id) {
       const inv = await pool.query(`SELECT pdf_file_id, deleted_at FROM invoices WHERE id = $1`, [comm.invoice_id]);
