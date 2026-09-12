@@ -267,7 +267,7 @@ router.get(
       [session.customerId],
     );
     const { rows } = await pool.query(
-      `SELECT sr.id, sr.description, sr.status, sr.quoted_price, sr.owner_notes, sr.requested_at, sr.reviewed_at,
+      `SELECT sr.id, sr.description, sr.status, sr.quoted_price, sr.owner_notes, sr.requested_at, sr.reviewed_at, sr.decline_reason, sr.declined_at,
               sr.assigned_technician_id, u.first_name AS technician_first_name, u.last_name AS technician_last_name,
               a.scheduled_date, a.window_start, a.window_end,
               COALESCE(

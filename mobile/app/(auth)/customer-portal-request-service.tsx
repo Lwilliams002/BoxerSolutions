@@ -185,6 +185,9 @@ export default function CustomerPortalRequestServiceScreen() {
                 </Text>
               ) : null}
               {r.quoted_price != null ? <Text style={styles.quote}>Quoted: {money(r.quoted_price)}</Text> : null}
+              {r.status === 'declined' && r.decline_reason ? (
+                <Text style={styles.declineReason}>We could not take this request: {r.decline_reason}</Text>
+              ) : null}
               {r.files.length ? (
                 <View style={styles.fileRow}>
                   {r.files.map((file) => (
@@ -208,6 +211,7 @@ const styles = StyleSheet.create({
   content: { padding: 16, paddingBottom: 24 },
   title: { color: colors.text, fontSize: 18, fontWeight: '800', marginBottom: 6 },
   meta: { color: colors.textMuted, marginBottom: 10 },
+  declineReason: { color: colors.danger, marginTop: 4, fontWeight: '600' },
   description: {
     minHeight: 120,
     borderWidth: 1,

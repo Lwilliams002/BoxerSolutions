@@ -238,6 +238,8 @@ export interface CustomerPortalServiceRequest {
   status: 'submitted' | 'reviewed' | 'scheduled' | 'declined';
   quoted_price: string | number | null;
   owner_notes: string | null;
+  decline_reason?: string | null;
+  declined_at?: string | null;
   requested_at: string;
   reviewed_at: string | null;
   assigned_technician_id: string | null;
@@ -260,6 +262,8 @@ export interface OwnerServiceRequest {
   assigned_technician_id: string | null;
   quoted_price: string | number | null;
   owner_notes: string | null;
+  decline_reason?: string | null;
+  declined_at?: string | null;
   requested_at: string;
   reviewed_at: string | null;
   appointment_id?: string | null;

@@ -28,7 +28,8 @@ export type CommunicationTemplateKey =
   | 'payment_refunded'
   | 'agreement_review_sign'
   | 'agreement_signed_copy'
-  | 'service_completed';
+  | 'service_completed'
+  | 'service_request_declined';
 
 const COMPANY = {
   name: 'Boxer Solutions Pest Control',
@@ -48,6 +49,7 @@ const DEFAULT_CHANNEL: Record<CommunicationTemplateKey, CommunicationChannel> = 
   agreement_review_sign: 'email',
   agreement_signed_copy: 'email',
   service_completed: 'email',
+  service_request_declined: 'email',
 };
 
 function fmtDate(value: string | Date) {
@@ -300,6 +302,11 @@ function renderTemplate(templateKey: CommunicationTemplateKey, ctx: QueryResultR
       return {
         subject: `Your signed service agreement with ${String(extra?.companyName ?? COMPANY.name)}`,
         body: `Hi ${firstName(ctx)}, thank you for choosing ${String(extra?.companyName ?? COMPANY.name)}. A copy of the service agreement you signed on ${String(extra?.signedOn ?? 'today')} is attached for your records. Questions? Reply to this email or call ${String(extra?.companyPhone ?? COMPANY.phone)}.`,
+      };
+    case 'service_request_declined':
+      return {
+        subject: `Update on your service request — ${String(extra?.companyName ?? COMPANY.name)}`,
+        body: `Hi ${firstName(ctx)}, thank you for reaching out to ${String(extra?.companyName ?? COMPANY.name)}. We are not able to take on this request${extra?.reason ? `: ${String(extra.reason)}` : '.'} If anything changes or you have questions, reply to this email or call ${String(extra?.companyPhone ?? COMPANY.phone)}.`,
       };
     case 'agreement_review_sign':
       return {
@@ -639,6 +646,32 @@ export const communicationService = {
     if (!result) throw ApiError.badRequest('Customer has no email address on file');
     await pool.query(`UPDATE communications SET resent_communication_id = $2 WHERE id = $1`, [communicationId, result.id]);
     return result;
+  },
+
+  /** Tell the customer their service request was declined, and why. */
+  async sendServiceRequestDeclined(customerId: string, description: string, reason: string, sentBy?: string | null) {
+    const ctx = await customerContext(customerId);
+    if (!ctx) throw new Error('Customer not found for communication');
+    if (!ctx.customer_email) {
+      logger.info({ customerId }, 'service request declined email skipped: customer has no email');
+      return null;
+    }
+    const company = await getCompanyInfo();
+    const templateKey: CommunicationTemplateKey = 'service_request_declined';
+    const rendered = renderTemplate(templateKey, ctx, { companyName: company.name, companyPhone: company.phone, reason });
+    const html = `<!DOCTYPE html><html><body style="margin:0;background:#F0FAF8;padding:16px 0;"><table role="presentation" width="100%" cellpadding="0" cellspacing="0"><tr><td align="center"><table role="presentation" width="600" cellpadding="0" cellspacing="0" style="max-width:600px;width:100%;background:#fff;border-radius:10px;"><tr><td style="padding:18px 24px;border-bottom:3px solid #0D0D0D;font:700 16px Helvetica,Arial,sans-serif;color:#0D0D0D;">${escapeHtml(company.name)}</td></tr><tr><td style="padding:14px 24px;background:#0D0D0D;color:#fff;font:700 16px Helvetica,Arial,sans-serif;">Update on your service request</td></tr><tr><td style="padding:18px 24px;font:14px/20px Helvetica,Arial,sans-serif;color:#0D0D0D;">Hi ${escapeHtml(firstName(ctx))},<br><br>Thank you for reaching out to ${escapeHtml(company.name)}. We reviewed your request and are not able to take it on at this time.<br><br><b>Your request:</b><br>${escapeHtml(description.slice(0, 600))}<br><br><b>Reason:</b><br>${escapeHtml(reason)}<br><br>If anything changes or you have questions, reply to this email or call ${escapeHtml(company.phone)}.</td></tr><tr><td style="padding:0 24px 18px;font:11px Helvetica,Arial,sans-serif;color:#5B6B68;text-align:center;">${escapeHtml(company.name)}${company.addressLines.length ? ` · ${escapeHtml(company.addressLines.join(', '))}` : ''} · ${escapeHtml(company.license)}</td></tr></table></td></tr></table></body></html>`;
+    return insertAndSend({
+      customerId,
+      appointmentId: null,
+      invoiceId: null,
+      channel: 'email',
+      templateKey,
+      subject: rendered.subject,
+      body: rendered.body,
+      html,
+      sentBy,
+      to: ctx.customer_email,
+    });
   },
 
   async sendAgreementReviewRequest(

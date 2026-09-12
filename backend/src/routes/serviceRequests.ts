@@ -7,6 +7,7 @@ import { pool } from '../config/db';
 import { ApiError } from '../utils/errors';
 import { recordAudit } from '../services/auditService';
 import { appointmentService } from '../services/appointmentService';
+import { communicationService, safelyQueueCommunication } from '../services/communicationService';
 
 const router = Router();
 router.use(authenticate);
@@ -34,7 +35,7 @@ router.get(
     params.push(limit, offset);
     const { rows } = await pool.query(
       `SELECT sr.id, sr.customer_id, sr.description, sr.status, sr.assigned_technician_id, sr.quoted_price, sr.owner_notes,
-              sr.requested_at, sr.reviewed_at, sr.created_at, sr.updated_at, sr.appointment_id,
+              sr.requested_at, sr.reviewed_at, sr.created_at, sr.updated_at, sr.appointment_id, sr.decline_reason, sr.declined_at,
               a.scheduled_date, a.window_start, a.window_end,
               c.first_name || ' ' || c.last_name AS customer_name,
               c.email AS customer_email, c.phone AS customer_phone,
@@ -188,6 +189,38 @@ router.patch(
     });
 
     ok(res, rows[0], 'Service request updated');
+  }),
+);
+
+router.post(
+  '/:id/decline',
+  authorize('users:write', 'appointments:write'),
+  asyncHandler(async (req, res) => {
+    const { reason } = z.object({ reason: z.string().trim().min(3, 'Please give the customer a reason').max(1000) }).parse(req.body);
+    const existing = await pool.query('SELECT * FROM service_requests WHERE id = $1', [req.params.id]);
+    const request = existing.rows[0];
+    if (!request) throw ApiError.notFound('Service request not found');
+    if (request.appointment_id) throw ApiError.badRequest('This request already has a scheduled visit. Cancel the appointment instead.');
+    if (request.status === 'declined') throw ApiError.badRequest('This request was already declined');
+
+    const { rows } = await pool.query(
+      `UPDATE service_requests
+       SET status = 'declined', decline_reason = $2, declined_at = now(), reviewed_at = COALESCE(reviewed_at, now()), updated_at = now()
+       WHERE id = $1 RETURNING *`,
+      [req.params.id, reason],
+    );
+    await recordAudit({
+      userId: req.user!.id,
+      action: 'service_request.declined',
+      entityType: 'service_request',
+      entityId: req.params.id,
+      previousValue: request,
+      newValue: { status: 'declined', reason },
+    });
+    safelyQueueCommunication(() =>
+      communicationService.sendServiceRequestDeclined(request.customer_id, String(request.description), reason, req.user!.id),
+    );
+    ok(res, rows[0], 'Service request declined');
   }),
 );
 

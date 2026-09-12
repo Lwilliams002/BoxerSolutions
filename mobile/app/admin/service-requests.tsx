@@ -3,6 +3,7 @@ import { Alert, Linking, Modal, Platform, Pressable, ScrollView, StyleSheet, Tex
 import DateTimePicker from '@react-native-community/datetimepicker';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api } from '../../src/lib/api';
+import { confirmAction, notify } from '../../src/lib/confirm';
 import { useAuth } from '../../src/lib/authStore';
 import { Button, Card, StatusBadge } from '../../src/components/ui';
 import { colors, fmtDate, money } from '../../src/lib/theme';
@@ -130,6 +131,33 @@ export default function ServiceRequestsAdminScreen() {
     onError: (e) => Alert.alert('Unable to update request', (e as Error).message),
   });
 
+  const [declineFor, setDeclineFor] = useState<string | null>(null);
+  const [declineReason, setDeclineReason] = useState('');
+  const decline = useMutation({
+    mutationFn: async (requestId: string) => {
+      const reason = declineReason.trim();
+      if (reason.length < 3) throw new Error('Tell the customer why the request is being declined.');
+      await api(`/service-requests/${requestId}/decline`, { method: 'POST', body: { reason } });
+    },
+    onSuccess: async () => {
+      setDeclineFor(null);
+      setDeclineReason('');
+      await qc.invalidateQueries({ queryKey: ['owner-service-requests'] });
+      await qc.invalidateQueries({ queryKey: ['dashboard-service-requests'] });
+      notify('Request declined', 'The customer was emailed the reason and sees it in their portal.');
+    },
+    onError: (e) => notify('Unable to decline request', (e as Error).message),
+  });
+  const confirmDecline = (requestId: string) => {
+    confirmAction({
+      title: 'Decline this request?',
+      message: 'The customer will get an email with your reason and the request will show as declined in their portal.',
+      confirmText: 'Decline',
+      destructive: true,
+      onConfirm: () => decline.mutate(requestId),
+    });
+  };
+
   const pickTech = (requestId: string) => {
     const options = (technicians.data ?? []).slice(0, 8).map((t) => ({
       text: `${t.firstName} ${t.lastName}`,
@@ -215,6 +243,13 @@ export default function ServiceRequestsAdminScreen() {
                 Visit scheduled: {fmtDate(r.scheduled_date)} · {String(r.window_start ?? '').slice(0, 5)}–{String(r.window_end ?? '').slice(0, 5)}
               </Text>
             ) : null}
+            {r.status === 'declined' ? (
+              <Text style={styles.declinedBanner}>
+                Declined{r.declined_at ? ` ${fmtDate(r.declined_at)}` : ''}{r.decline_reason ? `: ${r.decline_reason}` : ''}
+              </Text>
+            ) : null}
+            {r.status !== 'declined' ? (
+            <>
             <TouchableOpacity style={styles.assignBtn} onPress={() => pickTech(r.id)}>
               <Text style={styles.assignText}>
                 {selectedTechName ? `Tech: ${selectedTechName.firstName} ${selectedTechName.lastName}` : 'Assign Technician'}
@@ -257,6 +292,32 @@ export default function ServiceRequestsAdminScreen() {
               onPress={() => update.mutate(r.id)}
               loading={update.isPending}
             />
+            </>
+            ) : null}
+            {!alreadyScheduled && r.status !== 'declined' ? (
+              declineFor === r.id ? (
+                <View style={styles.declineBox}>
+                  <Text style={styles.declineTitle}>Reason for declining (sent to the customer)</Text>
+                  <TextInput
+                    style={[styles.input, styles.notes]}
+                    value={declineReason}
+                    onChangeText={setDeclineReason}
+                    placeholder="e.g. We do not service this area yet"
+                    placeholderTextColor={colors.textMuted}
+                    multiline
+                    autoFocus
+                  />
+                  <View style={{ flexDirection: 'row', gap: 8 }}>
+                    <Button title="Cancel" variant="outline" onPress={() => { setDeclineFor(null); setDeclineReason(''); }} style={{ flex: 1 }} />
+                    <Button title="Decline & Email" variant="danger" onPress={() => confirmDecline(r.id)} loading={decline.isPending} style={{ flex: 1 }} />
+                  </View>
+                </View>
+              ) : (
+                <TouchableOpacity style={styles.declineLink} onPress={() => { setDeclineFor(r.id); setDeclineReason(''); }}>
+                  <Text style={styles.declineLinkText}>Decline request</Text>
+                </TouchableOpacity>
+              )
+            ) : null}
           </Card>
         );
       })}
@@ -322,6 +383,11 @@ const styles = StyleSheet.create({
     marginBottom: 8,
   },
   notes: { minHeight: 72, textAlignVertical: 'top' },
+  declinedBanner: { color: colors.danger, fontWeight: '700', marginBottom: 8 },
+  declineLink: { alignSelf: 'center', paddingVertical: 10 },
+  declineLinkText: { color: colors.danger, fontWeight: '700' },
+  declineBox: { marginTop: 10, padding: 12, borderRadius: 12, borderWidth: 1, borderColor: colors.danger, backgroundColor: `${colors.danger}0D` },
+  declineTitle: { color: colors.text, fontWeight: '700', marginBottom: 8 },
   quotePreview: { color: colors.success, fontWeight: '700', marginBottom: 8 },
   scheduledBanner: { color: colors.primaryDark, fontWeight: '800', marginBottom: 8 },
   pickerRow: { flexDirection: 'row', gap: 8, marginBottom: 8 },
