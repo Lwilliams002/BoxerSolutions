@@ -89,7 +89,7 @@ function home(ctx: SiteContext) {
 <section class="hero" style="background-image:url('${b}/assets/hero-miami.jpg?v=2')"><div class="wrap">
   <p class="kicker">South Florida · Miami-Dade, Broward &amp; Palm Beach</p>
   <h1>South Florida pest control, built for the coast.</h1>
-  <p>${e(c.name)} is a licensed, local pest control company. We start with an initial flush-out treatment, then keep your home protected with regular service on the schedule you choose — weekly, every two weeks, monthly or every two months.</p>
+  <p>${e(c.name)} is a licensed, local pest control company. We start with an initial flush-out treatment, then keep your home protected with regular service on the schedule you choose — weekly, every two weeks, monthly, every two months or every three months.</p>
   <a class="btn" href="tel:${e(c.phone.replace(/\D/g, ''))}">Call ${e(c.phone)}</a> &nbsp; <a class="btn alt" href="${b}/#estimate">Free estimate</a>
 </div></section>
 
