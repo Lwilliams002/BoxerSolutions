@@ -25,6 +25,7 @@ import { useAuth } from '../../src/lib/authStore';
 import {
   HOME_SIZES,
   STANDARD_PESTS,
+  ADDITIONAL_PESTS,
   YARD_ANT_TIERS,
   YARD_ANT_PESTS,
   ADDONS,
@@ -285,8 +286,7 @@ export default function AgreementScreen() {
     () => Math.max(0, chargeSubtotal - initialDiscount),
     [chargeSubtotal, initialDiscount],
   );
-  const includedPests = useMemo(() => coveredPests.filter((p) => STANDARD_PESTS.includes(p)), [coveredPests]);
-  const additionalPests = useMemo(() => coveredPests.filter((p) => !STANDARD_PESTS.includes(p)), [coveredPests]);
+  const selectedPestSet = useMemo(() => new Set(coveredPests), [coveredPests]);
   /** Every charge across the term at the chosen cadence, shown on the document. */
   const chargeSchedule = useMemo(
     () => buildChargeSchedule({
@@ -855,31 +855,28 @@ export default function AgreementScreen() {
 
           {/* Included insects (standard plan) and additional pests (add-ons / odd jobs) */}
           <Text style={styles.sectionBarFull}>Included Insects</Text>
-          {includedPests.length === 0 ? (
-            <Text style={styles.termsMuted}>Select a Standard Four Point Service size to include the standard pests.</Text>
-          ) : (
-            <View style={styles.pestGrid}>
-              {includedPests.map((p) => (
-                <View key={p} style={styles.pestCell}>
-                  <Image source={pestImage(p)} style={styles.pestCellIcon} resizeMode="contain" />
-                  <Text style={styles.pestCellText} numberOfLines={2}>{p}</Text>
-                </View>
-              ))}
-            </View>
-          )}
+          <View style={styles.pestGrid}>
+            {STANDARD_PESTS.map((p) => (
+              <View key={p} style={styles.pestCell}>
+                <Image source={pestImage(p)} style={styles.pestCellIcon} resizeMode="contain" />
+                <Text style={styles.pestCellText} numberOfLines={2}>{p}</Text>
+              </View>
+            ))}
+          </View>
+          <Text style={styles.schedNote}>Covered by the Standard Four Point Service{homeSize ? '' : ' (select a home size above)'}.</Text>
           <Text style={styles.sectionBarFull}>Additional Pests</Text>
-          {additionalPests.length === 0 ? (
-            <Text style={styles.termsMuted}>No additional pest services selected.</Text>
-          ) : (
-            <View style={styles.pestGrid}>
-              {additionalPests.map((p) => (
-                <View key={p} style={styles.pestCell}>
+          <View style={styles.pestGrid}>
+            {ADDITIONAL_PESTS.map((p) => {
+              const on = selectedPestSet.has(p);
+              return (
+                <View key={p} style={[styles.pestCell, !on && styles.pestCellOff]}>
                   <Image source={pestImage(p)} style={styles.pestCellIcon} resizeMode="contain" />
-                  <Text style={styles.pestCellText} numberOfLines={2}>{p}</Text>
+                  <Text style={styles.pestCellText} numberOfLines={2}>{on ? '✓ ' : ''}{p}</Text>
                 </View>
-              ))}
-            </View>
-          )}
+              );
+            })}
+          </View>
+          <Text style={styles.schedNote}>✓ = added to this agreement. Other pests are available as add-on or single-pest services.</Text>
 
           {/* Charge schedule across the term */}
           <Text style={styles.sectionBarFull}>{SERVICE_FREQUENCY_LABELS[frequency]} Service Schedule</Text>
@@ -1259,6 +1256,7 @@ const styles = StyleSheet.create({
   pestGrid: { flexDirection: 'row', flexWrap: 'wrap', marginBottom: 4 },
   pestCell: { width: '33.33%', flexDirection: 'row', alignItems: 'center', paddingVertical: 4, paddingRight: 6 },
   pestCellIcon: { width: 30, height: 30, marginRight: 6 },
+  pestCellOff: { opacity: 0.55 },
   pestCellText: { flex: 1, fontSize: 11, color: colors.text, fontWeight: '700' },
   pestTagText: { fontSize: 11, color: colors.primaryDark, fontWeight: '700' },
   terms: { fontSize: 10.5, color: colors.textMuted, lineHeight: 15, marginBottom: 8 },

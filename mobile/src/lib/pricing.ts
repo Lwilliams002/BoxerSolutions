@@ -83,4 +83,12 @@ export const ODD_JOBS: OddJob[] = [
   { key: 'earwigs', label: 'Earwigs', total: 220, treatments: 2, pest: 'Earwigs' },
 ];
 
+/** Every pest an add-on or odd job can cover, in price-sheet order (always printed on the agreement). */
+export const ADDITIONAL_PESTS: string[] = [
+  ...YARD_ANT_PESTS,
+  ...ADDONS.flatMap((a) => a.pests),
+  WEB_REMOVAL.pest,
+  ...ODD_JOBS.map((o) => o.pest),
+];
+
 export const AGREEMENT_TERM_MONTHS = 12;

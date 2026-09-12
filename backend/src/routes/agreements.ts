@@ -12,7 +12,7 @@ import { getCompanyInfo } from '../services/settingsService';
 import { computeSurcharge } from '../utils/surcharge';
 import { communicationService, safelyQueueCommunication } from '../services/communicationService';
 import { logger } from '../utils/logger';
-import { EGG_CYCLE_TITLE, EGG_CYCLE_BADGE, EGG_CYCLE_TEXT, INSECT_ACTIVITY_TITLE, insectActivityText, scheduleNote, splitCoveredPests } from '../content/agreementTerms';
+import { EGG_CYCLE_TITLE, EGG_CYCLE_BADGE, EGG_CYCLE_TEXT, INSECT_ACTIVITY_TITLE, insectActivityText, scheduleNote, agreementPestLists } from '../content/agreementTerms';
 import { SERVICE_FREQUENCY_LABELS, DEFAULT_SERVICE_FREQUENCY, buildChargeSchedule } from '../utils/serviceSchedule';
 import { todayIso } from '../utils/dates';
 
@@ -57,19 +57,23 @@ const ASSET_FILES: Record<string, string> = {
   'iguana.png': '../../../mobile/pests/iguana.png',
   'commercial.png': '../../../mobile/pests/commercial.png',
   'earwig.png': '../../../mobile/pests/earwig.png',
+  'boxelder.png': '../../../mobile/pests/boxelder.png',
+  'asianbeetle.png': '../../../mobile/pests/asianbeetle.png',
+  'clovermite.png': '../../../mobile/pests/clovermite.png',
+  'pillbug.png': '../../../mobile/pests/pillbug.png',
 };
 
 function pestAssetForName(name: string) {
   const key = name.trim().toLowerCase();
   const map: Record<string, string> = {
-    'box elder bugs': 'general.png',
-    'asian beetles': 'general.png',
+    'box elder bugs': 'boxelder.png',
+    'asian beetles': 'asianbeetle.png',
     centipedes: 'centipede.png',
-    clovermites: 'general.png',
-    'clover mites': 'general.png',
-    'sow / pill bugs': 'general.png',
+    clovermites: 'clovermite.png',
+    'clover mites': 'clovermite.png',
+    'sow / pill bugs': 'pillbug.png',
     crickets: 'cricket.png',
-    'sow / pill bug': 'general.png',
+    'sow / pill bug': 'pillbug.png',
     spiders: 'spider.png',
     'household ants': 'ant.png',
     'palmetto bugs': 'cockroach.png',
@@ -127,6 +131,7 @@ function signPageStyles() {
   .pest-grid { display:grid; grid-template-columns:repeat(4, minmax(0,1fr)); gap:6px 10px; }
   .pest-item { display:flex; align-items:center; gap:8px; min-width:0; font-size:12px; font-weight:700; color:#0D0D0D; }
   .pest-item img { width:34px; height:34px; object-fit:contain; flex:0 0 34px; }
+  .pest-item.off { opacity:0.55; font-weight:600; }
   .sched-grid { display:grid; grid-template-columns:repeat(6, minmax(0,1fr)); gap:4px; }
   .sched-head { background:#2DC4A2; color:#0D0D0D; font-weight:800; font-size:10px; text-align:center; padding:3px 2px; border-radius:3px 3px 0 0; white-space:nowrap; overflow:hidden; }
   .sched-head-initial { background:#0D0D0D; color:#FFFFFF; }
@@ -164,15 +169,17 @@ function renderAgreementDocument(ctx: Awaited<ReturnType<typeof agreementSigning
     `).join('')
     : `<tr><td colspan="3" style="padding:12px;color:#607D78;">No service pricing details were found for this agreement.</td></tr>`;
 
-  const { included: includedPests, additional: additionalPests } = splitCoveredPests(ctx.agreement?.coveredPests ?? []);
-  const pestGrid = (list: string[], empty: string) => list.length
-    ? `<div class="pest-grid">${list.map((p) => `<div class="pest-item"><img src="/api/v1/agreements/assets/${encodeURIComponent(pestAssetForName(p))}?v=3" alt="" loading="lazy" /><span>${htmlEscape(p)}</span></div>`).join('')}</div>`
-    : `<p style="color:#607D78;margin:0;font-size:12px;">${empty}</p>`;
+  const { included: includedPests, additional: additionalPests } = agreementPestLists(ctx.agreement?.coveredPests ?? []);
+  const pestGrid = (list: { name: string; selected: boolean }[], showCheck: boolean) =>
+    `<div class="pest-grid">${list.map((p) => `<div class="pest-item${showCheck && !p.selected ? ' off' : ''}"><img src="/api/v1/agreements/assets/${encodeURIComponent(pestAssetForName(p.name))}?v=4" alt="" loading="lazy" /><span>${showCheck && p.selected ? '&#10003; ' : ''}${htmlEscape(p.name)}</span></div>`).join('')}</div>`;
+  const standardOn = includedPests.some((p) => p.selected);
   const pestsBlock = `
     <h4 style="background:#2DC4A2;color:#0D0D0D;font-weight:800;font-size:12px;text-align:center;padding:4px;border-radius:4px;margin:14px 0 8px 0;">Included Insects</h4>
-    ${pestGrid(includedPests, 'No standard service on this agreement.')}
+    ${pestGrid(includedPests, false)}
+    <p style="margin:6px 0 0 0;font-size:10.5px;color:#607D78;">Covered by the Standard Four Point Service${standardOn ? '' : ' (not part of this agreement)'}.</p>
     <h4 style="background:#2DC4A2;color:#0D0D0D;font-weight:800;font-size:12px;text-align:center;padding:4px;border-radius:4px;margin:14px 0 8px 0;">Additional Pests</h4>
-    ${pestGrid(additionalPests, 'No additional pest services selected.')}`;
+    ${pestGrid(additionalPests, true)}
+    <p style="margin:6px 0 0 0;font-size:10.5px;color:#607D78;">&#10003; = added to this agreement. Other pests are available as add-on or single-pest services.</p>`;
 
   const termMonths = ctx.agreement?.termMonths ?? 12;
   const initialDiscount =

@@ -18,17 +18,20 @@ export function scheduleNote(frequencyLabel: string, termMonths: number, isUpdat
   return `(I) ${isUpdate ? 'due now for the added services' : 'initial flush-out service'}. First regular service 30 days after the initial to break the egg cycle, then ${frequencyLabel.toLowerCase()} through the ${termMonths}-month term, continuing at the same cadence until canceled.`;
 }
 
-const STANDARD_PEST_KEYS = new Set(
-  ['Box Elder Bugs', 'Asian Beetles', 'Centipedes', 'Clover Mites', 'Crickets', 'Sow / Pill Bugs', 'Spiders', 'Household Ants', 'Palmetto Bugs'].map(pestKey),
-);
+/** Price-sheet pest lists, always printed on the agreement (mirrors mobile/src/lib/pricing.ts). */
+export const INCLUDED_PESTS = ['Box Elder Bugs', 'Asian Beetles', 'Centipedes', 'Clovermites', 'Crickets', 'Sow / Pill Bug', 'Spiders', 'Household Ants', 'Palmetto Bugs'];
+export const ADDITIONAL_PESTS = ['Yard Ants', 'Fire Ants', 'Carpenter Ants', 'Fleas', 'Ticks', 'Black Widow', 'Brown Recluse', 'Spider Web Removal', 'Wasps / Hornets', 'Millipedes', 'Silverfish', 'Earwigs'];
+
 function pestKey(name: string) {
   const k = name.toLowerCase().replace(/[^a-z]/g, '');
   return k.endsWith('s') ? k : `${k}s`;
 }
-/** Split an agreement's covered pests into the Standard Four Point Service set and everything added on. */
-export function splitCoveredPests(pests: string[]) {
-  const included: string[] = [];
-  const additional: string[] = [];
-  for (const p of pests) (STANDARD_PEST_KEYS.has(pestKey(p)) ? included : additional).push(p);
-  return { included, additional };
+export interface AgreementPest { name: string; selected: boolean }
+/** Both lists with each pest flagged if the signed agreement covers it. */
+export function agreementPestLists(covered: string[]): { included: AgreementPest[]; additional: AgreementPest[] } {
+  const on = new Set(covered.map(pestKey));
+  return {
+    included: INCLUDED_PESTS.map((name) => ({ name, selected: on.has(pestKey(name)) })),
+    additional: ADDITIONAL_PESTS.map((name) => ({ name, selected: on.has(pestKey(name)) })),
+  };
 }

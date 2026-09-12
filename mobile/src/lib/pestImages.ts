@@ -4,7 +4,9 @@ import { ImageSourcePropType } from 'react-native';
 // Unknown pests fall back to the general icon.
 const GENERAL: ImageSourcePropType = require('../../pests/general.png');
 const ANT: ImageSourcePropType = require('../../pests/ant.png');
-const BEETLE: ImageSourcePropType = GENERAL;
+const BEETLE: ImageSourcePropType = require('../../pests/asianbeetle.png');
+const BOXELDER: ImageSourcePropType = require('../../pests/boxelder.png');
+const PILLBUG: ImageSourcePropType = require('../../pests/pillbug.png');
 const CENTIPEDE: ImageSourcePropType = require('../../pests/centipede.png');
 const CRICKET: ImageSourcePropType = require('../../pests/cricket.png');
 const COCKROACH: ImageSourcePropType = require('../../pests/cockroach.png');
@@ -12,7 +14,7 @@ const EARWIG: ImageSourcePropType = require('../../pests/earwig.png');
 const BEE: ImageSourcePropType = require('../../pests/bee.png');
 const FLEA: ImageSourcePropType = require('../../pests/flea.png');
 const HORNET: ImageSourcePropType = require('../../pests/hornet.png');
-const MITE: ImageSourcePropType = GENERAL;
+const MITE: ImageSourcePropType = require('../../pests/clovermite.png');
 const MILLIPEDE: ImageSourcePropType = require('../../pests/millepede.png');
 const NOSEEUM: ImageSourcePropType = require('../../pests/noseeum.png');
 const MOSQUITO: ImageSourcePropType = require('../../pests/mosquito.png');
@@ -30,12 +32,14 @@ const TERMITE: ImageSourcePropType = require('../../pests/termite.png');
 const WILDLIFE: ImageSourcePropType = require('../../pests/wildlife.png');
 
 const PEST_IMAGES: Record<string, ImageSourcePropType> = {
-  'box elder bugs': BEETLE,
+  'box elder bugs': BOXELDER,
   'asian beetles': BEETLE,
   centipedes: CENTIPEDE,
   clovermites: MITE,
   crickets: CRICKET,
-  'sow / pill bug': GENERAL,
+  'sow / pill bug': PILLBUG,
+  'sow / pill bugs': PILLBUG,
+  'clover mites': MITE,
   spiders: SPIDER,
   'household ants': ANT,
   'palmetto bugs': COCKROACH,
