@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { View, Text, ScrollView, StyleSheet, TouchableOpacity, Alert, TextInput, Linking, RefreshControl } from 'react-native';
+import { View, Text, ScrollView, StyleSheet, TouchableOpacity, Alert, TextInput, Linking, RefreshControl, Modal, Pressable, Platform, Share } from 'react-native';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { api, newIdempotencyKey } from '../../src/lib/api';
@@ -99,12 +99,31 @@ export default function CustomerScreen() {
     enabled: tab === 'Notes',
   });
   const [resendingId, setResendingId] = useState<string | null>(null);
+  const [commDetailId, setCommDetailId] = useState<string | null>(null);
+  const { data: commDetail, isLoading: commDetailLoading } = useQuery({
+    queryKey: ['commDetail', commDetailId],
+    queryFn: () => api<any>(`/communications/${commDetailId}`),
+    enabled: !!commDetailId,
+  });
+  const shareLink = async (label: string, url: string) => {
+    try {
+      if (Platform.OS === 'web' && typeof navigator !== 'undefined' && navigator.clipboard) {
+        await navigator.clipboard.writeText(url);
+        notify('Link copied', `${label} link is on your clipboard.`);
+      } else {
+        await Share.share({ message: url });
+      }
+    } catch (e) {
+      notify('Could not share link', (e as Error).message);
+    }
+  };
   const resendComm = async (commId: string) => {
     setResendingId(commId);
     try {
       await api(`/communications/${commId}/resend`, { method: 'POST' });
       notify('Message re-sent');
       void qc.invalidateQueries({ queryKey: ['customerComms', id] });
+      void qc.invalidateQueries({ queryKey: ['commDetail'] });
     } catch (e) {
       notify('Could not re-send', (e as Error).message);
     } finally {
@@ -775,7 +794,8 @@ export default function CustomerScreen() {
             <EmptyState title="No communications" />
           ) : (
             comms!.items.map((cm) => (
-              <Card key={cm.id}>
+              <TouchableOpacity key={cm.id} onPress={() => setCommDetailId(cm.id)} activeOpacity={0.7}>
+              <Card>
                 <Row>
                   <View style={{ flex: 1, marginRight: 10 }}>
                     <Text style={styles.commTitle} numberOfLines={1}>
@@ -802,7 +822,9 @@ export default function CustomerScreen() {
                     ) : null}
                   </View>
                 </Row>
+                <Text style={[styles.metaText, { marginTop: 6 }]}>Tap to view message and links</Text>
               </Card>
+              </TouchableOpacity>
             ))
           ))}
 
@@ -961,6 +983,66 @@ export default function CustomerScreen() {
             </>
           )}
       </ScrollView>
+
+      {commDetailId ? (
+        <Modal transparent animationType="fade" visible onRequestClose={() => setCommDetailId(null)}>
+          <Pressable style={styles.commBackdrop} onPress={() => setCommDetailId(null)}>
+            <Pressable style={styles.commSheet} onPress={() => undefined}>
+              {commDetailLoading || !commDetail ? (
+                <Loading />
+              ) : (
+                <ScrollView contentContainerStyle={{ paddingBottom: 12 }} showsVerticalScrollIndicator={false}>
+                  <Row>
+                    <Text style={[styles.commTitle, { flex: 1, marginRight: 10 }]}>{commDetail.subject ?? commDetail.templateKey}</Text>
+                    <StatusBadge status={commDetail.status} />
+                  </Row>
+                  <Text style={styles.metaText}>
+                    To {commDetail.customerName}
+                    {commDetail.channel === 'sms' ? ` · ${commDetail.customerPhone ?? 'no phone'}` : ` · ${commDetail.customerEmail ?? 'no email on file'}`}
+                  </Text>
+                  <Text style={styles.metaText}>
+                    {String(commDetail.templateKey).replace(/_/g, ' ')} · {fmtDate(commDetail.sentAt ?? commDetail.createdAt)}
+                  </Text>
+                  {commDetail.status === 'failed' ? (
+                    <Text style={styles.commWarn}>
+                      This message was not delivered. Send the customer the link below by text or from your own email, or tap Resend.
+                    </Text>
+                  ) : null}
+
+                  {(commDetail.links ?? []).length > 0 ? (
+                    <View style={{ marginTop: 12 }}>
+                      <Label>Links to send manually</Label>
+                      {commDetail.links.map((l: { label: string; url: string; note: string }) => (
+                        <View key={l.url} style={styles.commLink}>
+                          <Value style={{ fontWeight: '800' }}>{l.label}</Value>
+                          {l.note ? <Text style={styles.metaText}>{l.note}</Text> : null}
+                          <Text style={styles.commUrl} numberOfLines={2} selectable>{l.url}</Text>
+                          <View style={{ flexDirection: 'row', gap: 8, marginTop: 8 }}>
+                            <Button title={Platform.OS === 'web' ? 'Copy link' : 'Share link'} variant="success" onPress={() => shareLink(l.label, l.url)} style={{ paddingVertical: 8, flex: 1 }} />
+                            <Button title="Open" variant="outline" onPress={() => Linking.openURL(l.url)} style={{ paddingVertical: 8, flex: 1 }} />
+                          </View>
+                        </View>
+                      ))}
+                    </View>
+                  ) : null}
+
+                  <View style={{ marginTop: 12 }}>
+                    <Label>Message</Label>
+                    <Text style={styles.commBody} selectable>{commDetail.body}</Text>
+                  </View>
+
+                  <View style={{ flexDirection: 'row', gap: 8, marginTop: 16 }}>
+                    {commDetail.status === 'failed' && !commDetail.resentCommunicationId && hasPermission('customers:write') ? (
+                      <Button title="Resend" loading={resendingId === commDetail.id} onPress={() => resendComm(commDetail.id)} style={{ flex: 1 }} />
+                    ) : null}
+                    <Button title="Close" variant="outline" onPress={() => setCommDetailId(null)} style={{ flex: 1 }} />
+                  </View>
+                </ScrollView>
+              )}
+            </Pressable>
+          </Pressable>
+        </Modal>
+      ) : null}
     </View>
   );
 }
@@ -1000,5 +1082,11 @@ const styles = StyleSheet.create({
   noteInput: { minHeight: 60, fontSize: 15, color: colors.text, textAlignVertical: 'top', marginBottom: 8 },
   link: { color: colors.primaryDark, fontWeight: '700', fontSize: 14 },
   commTitle: { fontSize: 15, fontWeight: '800', color: colors.text },
+  commBackdrop: { flex: 1, backgroundColor: 'rgba(0,0,0,0.45)', justifyContent: 'flex-end' },
+  commSheet: { backgroundColor: colors.card, borderTopLeftRadius: 18, borderTopRightRadius: 18, padding: 18, maxHeight: '88%' },
+  commWarn: { marginTop: 10, fontSize: 13, color: colors.danger, fontWeight: '700' },
+  commLink: { marginTop: 8, padding: 12, borderRadius: 12, backgroundColor: colors.bg, borderWidth: 1, borderColor: colors.border },
+  commUrl: { marginTop: 4, fontSize: 12, color: colors.primary },
+  commBody: { marginTop: 6, fontSize: 14, lineHeight: 20, color: colors.text },
   planActions: { flexDirection: 'row', justifyContent: 'space-between', marginTop: 14 },
 });

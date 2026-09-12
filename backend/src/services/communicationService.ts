@@ -5,6 +5,8 @@ import { EmailAttachment, getOutboundMessageProvider } from '../integrations/not
 import { storage } from '../integrations/storage';
 import { rowsToCamel, toCamel } from './customerService';
 import { logger } from '../utils/logger';
+import { fileService } from './fileService';
+import { invoiceService } from './invoiceService';
 import { agreementSigningService } from './agreementSigningService';
 import {
   ServiceNotificationContext, ServiceNotificationKind,
@@ -512,6 +514,62 @@ export const communicationService = {
       sentBy,
       to: ctx.customer_email,
     });
+  },
+
+  /**
+   * One communication with everything the office needs to deliver it by hand
+   * when the automated send failed: recipient, full text, and share links
+   * (fresh signing link, signed agreement, invoice PDF, receipt).
+   */
+  async getDetail(communicationId: string, apiBaseUrl: string, userId: string | null) {
+    const { rows } = await pool.query(
+      `SELECT cm.*, c.first_name || ' ' || c.last_name AS customer_name, c.email AS customer_email, c.phone AS customer_phone
+       FROM communications cm JOIN customers c ON c.id = cm.customer_id WHERE cm.id = $1`,
+      [communicationId],
+    );
+    const comm = rows[0];
+    if (!comm) throw ApiError.notFound('Communication not found');
+    const key = comm.template_key as CommunicationTemplateKey;
+    const links: { label: string; url: string; note: string }[] = [];
+    const fileLink = (label: string, fileId: string, note = 'Link works for 30 days') =>
+      links.push({ label, url: `${apiBaseUrl}/api/v1/public/files/${fileService.issueShareToken(fileId)}`, note });
+
+    if (key === 'agreement_review_sign') {
+      links.push({ label: 'Review & sign link', url: await agreementSigningService.buildReviewUrl(comm.customer_id, apiBaseUrl), note: 'New link, valid 7 days' });
+    }
+    if (key === 'agreement_signed_copy') {
+      const f = await pool.query(
+        `SELECT id FROM files WHERE customer_id = $1 AND deleted_at IS NULL AND upload_status = 'uploaded'
+           AND mime_type = 'application/pdf' AND file_name LIKE 'service-agreement-signed-%' ORDER BY updated_at DESC LIMIT 1`,
+        [comm.customer_id],
+      );
+      if (f.rows[0]) fileLink('Signed agreement (PDF)', f.rows[0].id);
+    }
+    if (comm.invoice_id) {
+      const inv = await pool.query(`SELECT pdf_file_id, deleted_at FROM invoices WHERE id = $1`, [comm.invoice_id]);
+      if (inv.rows[0] && !inv.rows[0].deleted_at) {
+        let pdfFileId: string | null = inv.rows[0].pdf_file_id;
+        if (!pdfFileId) {
+          try {
+            pdfFileId = (await invoiceService.generatePdf(comm.invoice_id, String(userId ?? comm.sent_by ?? ''))).fileId;
+          } catch (err) {
+            logger.warn({ err, invoiceId: comm.invoice_id }, 'could not generate invoice pdf for share link');
+          }
+        }
+        if (pdfFileId) fileLink('Invoice (PDF)', pdfFileId);
+      }
+      if (key === 'payment_received' || key === 'payment_refunded') {
+        const pay = await pool.query(
+          `SELECT receipt_file_id FROM payments WHERE invoice_id = $1 AND receipt_file_id IS NOT NULL ORDER BY created_at DESC LIMIT 1`,
+          [comm.invoice_id],
+        );
+        if (pay.rows[0]) fileLink('Receipt (PDF)', pay.rows[0].receipt_file_id);
+      }
+    }
+    for (const m of String(comm.body).match(/https?:\/\/[^\s)>"']+/g) ?? []) {
+      if (!links.some((l) => l.url === m) && !m.includes('/agreements/sign?token=')) links.push({ label: 'Link in message', url: m, note: '' });
+    }
+    return { ...(toCamel(comm) as Record<string, unknown>), customerId: String(comm.customer_id), links };
   },
 
   /**

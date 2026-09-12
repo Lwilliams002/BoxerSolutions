@@ -4,6 +4,7 @@ import rateLimit from 'express-rate-limit';
 import { asyncHandler } from '../utils/asyncHandler';
 import { ok } from '../utils/http';
 import { submitPublicRequest } from '../services/publicRequestService';
+import { fileService } from '../services/fileService';
 
 /** Unauthenticated endpoints for the public (website form, new-customer request in the app). */
 const router = Router();
@@ -26,6 +27,14 @@ router.post('/service-requests', limiter, asyncHandler(async (req, res) => {
   if (body.company) return ok(res, { received: true }, 'Thanks! We will be in touch shortly.');
   const result = await submitPublicRequest({ name: body.name, phone: body.phone, email: body.email || null, address: body.address || null, pest: body.pest || null, message: body.message || null, source: 'app' });
   return ok(res, { received: true, requestId: result.requestId }, 'Request received', 201);
+}));
+
+router.get('/files/:token', asyncHandler(async (req, res) => {
+  const { fileName, mimeType, content } = await fileService.getSharedFile(String(req.params.token));
+  res.setHeader('Content-Type', mimeType);
+  res.setHeader('Content-Disposition', `inline; filename="${fileName.replace(/["\r\n]/g, '')}"`);
+  res.setHeader('Cache-Control', 'private, no-store');
+  res.send(content);
 }));
 
 export default router;

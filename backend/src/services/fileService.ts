@@ -1,4 +1,6 @@
+import jwt from 'jsonwebtoken';
 import crypto from 'crypto';
+import { config } from '../config';
 import { pool } from '../config/db';
 import { ApiError } from '../utils/errors';
 import { storage } from '../integrations/storage';
@@ -76,6 +78,32 @@ export const fileService = {
   },
 
   /** Authorized download: short-lived signed GET URL (spec §4). */
+  /**
+   * Long-lived, unguessable link to a document (signed agreement, invoice PDF,
+   * receipt) that the office can paste into a text or personal email when the
+   * automated email could not be delivered. Served by GET /public/files/:token.
+   */
+  issueShareToken(fileId: string, ttlSeconds = 60 * 60 * 24 * 30) {
+    return jwt.sign({ purpose: 'file_share', fileId }, config.jwt.secret, { expiresIn: ttlSeconds });
+  },
+
+  async getSharedFile(token: string) {
+    let payload: { purpose?: string; fileId?: string };
+    try {
+      payload = jwt.verify(token, config.jwt.secret) as typeof payload;
+    } catch {
+      throw ApiError.notFound('This link has expired');
+    }
+    if (payload.purpose !== 'file_share' || !payload.fileId) throw ApiError.notFound('File not found');
+    const { rows } = await pool.query(
+      `SELECT file_name, mime_type, storage_object_key FROM files WHERE id = $1 AND deleted_at IS NULL AND upload_status = 'uploaded'`,
+      [payload.fileId],
+    );
+    if (!rows[0]) throw ApiError.notFound('File not found');
+    const content = await storage.getObject(rows[0].storage_object_key);
+    return { fileName: String(rows[0].file_name), mimeType: String(rows[0].mime_type), content };
+  },
+
   async getDownloadUrl(fileId: string) {
     const { rows } = await pool.query(
       `SELECT * FROM files WHERE id = $1 AND deleted_at IS NULL AND upload_status = 'uploaded'`,

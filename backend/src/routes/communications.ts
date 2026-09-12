@@ -51,6 +51,21 @@ router.post(
   }),
 );
 
+router.get(
+  '/:id',
+  authorize('customers:read', 'customers:read_assigned'),
+  asyncHandler(async (req, res) => {
+    const { id } = z.object({ id: z.string().uuid() }).parse(req.params);
+    const scope = technicianScope(req, 'customers:read');
+    const forwardedProto = req.header('x-forwarded-proto');
+    const proto = (forwardedProto ? forwardedProto.split(',')[0] : req.protocol).trim();
+    const apiBaseUrl = `${proto}://${req.get('host')}`;
+    const detail = await communicationService.getDetail(id, apiBaseUrl, req.user!.id);
+    if (scope) await assertCustomerAccess(scope, String(detail.customerId));
+    ok(res, detail);
+  }),
+);
+
 router.post(
   '/:id/resend',
   authorize('customers:write'),
