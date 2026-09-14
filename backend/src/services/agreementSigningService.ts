@@ -57,6 +57,8 @@ interface AgreementSnapshot {
   previousRecurringTotal: number | null;
   /** Service cadence from the Frequency line; monthly when an older note has none. */
   frequency: ServiceFrequency;
+  /** Date of the initial service chosen on the agreement (YYYY-MM-DD), or null for signing day. */
+  initialServiceDate: string | null;
 }
 
 const AGREEMENT_TERM_MONTHS_DEFAULT = 12;
@@ -238,7 +240,7 @@ async function buildSignedAgreementPdf(input: {
 
     // Charge schedule across the term, like the customer saw when signing.
     const schedule = buildChargeSchedule({
-      startDate: todayIso(),
+      startDate: input.agreement?.initialServiceDate ?? todayIso(),
       frequency,
       termMonths,
       initialAmount: input.agreement?.isUpdate ? (input.agreement.initialDueNow ?? 0) : initialTotal,
@@ -377,8 +379,14 @@ function parseAgreementSnapshot(noteBody: string): AgreementSnapshot | null {
   let initialDueNow: number | null = null;
   let previousRecurringTotal: number | null = null;
   let frequency: ServiceFrequency | null = null;
+  let initialServiceDate: string | null = null;
 
   for (const line of lines) {
+    if (line.startsWith('Initial service date:')) {
+      const v = line.replace('Initial service date:', '').trim();
+      if (/^\d{4}-\d{2}-\d{2}$/.test(v)) initialServiceDate = v;
+      continue;
+    }
     if (line.startsWith('Frequency:')) {
       frequency = parseServiceFrequency(line.replace('Frequency:', ''));
       continue;
@@ -444,7 +452,7 @@ function parseAgreementSnapshot(noteBody: string): AgreementSnapshot | null {
   }
 
   if (!frequency && selections) frequency = parseServiceFrequency(selections.frequency);
-  return { lineItems, initialDiscount, initialTotal, recurringTotal, termMonths, coveredPests, status, selections, isUpdate, initialDueNow, previousRecurringTotal, frequency: frequency ?? DEFAULT_SERVICE_FREQUENCY };
+  return { lineItems, initialDiscount, initialTotal, recurringTotal, termMonths, coveredPests, status, selections, isUpdate, initialDueNow, previousRecurringTotal, frequency: frequency ?? DEFAULT_SERVICE_FREQUENCY, initialServiceDate };
 }
 
 async function loadAgreementSnapshot(customerId: string) {
@@ -854,6 +862,7 @@ export const agreementSigningService = {
       try {
         await recurringChargeService.upsertFromAgreement(row.customer_id, recurringTotal, row.id, {
           frequency: agreement?.frequency ?? null,
+          startDate: agreement?.initialServiceDate ?? null,
           isUpdate: agreement?.isUpdate ?? false,
           createdBy: null,
         });

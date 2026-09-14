@@ -220,7 +220,7 @@ function renderAgreementDocument(ctx: Awaited<ReturnType<typeof agreementSigning
   const isUpdate = Boolean(ctx.agreement?.isUpdate);
   const schedule = ctx.agreement
     ? buildChargeSchedule({
-        startDate: todayIso(),
+        startDate: ctx.agreement?.initialServiceDate ?? todayIso(),
         frequency,
         termMonths,
         initialAmount: isUpdate ? (ctx.agreement.initialDueNow ?? 0) : (ctx.agreement.initialTotal ?? 0),
@@ -234,6 +234,10 @@ function renderAgreementDocument(ctx: Awaited<ReturnType<typeof agreementSigning
       ? d.toLocaleDateString('en-US', { month: 'short', year: '2-digit', timeZone: 'UTC' }).replace(' ', " '")
       : d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', timeZone: 'UTC' });
   };
+  const cellLabelLong = (dateIso: string) => {
+    const [yy, mm, dd] = dateIso.split('-').map(Number);
+    return new Date(Date.UTC(yy, mm - 1, dd, 12)).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric', timeZone: 'UTC' });
+  };
   const scheduleCells = schedule.map((entry) => `
       <div class="sched-cell">
         <div class="sched-head${entry.kind === 'initial' ? ' sched-head-initial' : ''}">${htmlEscape(cellLabel(entry.date))}</div>
@@ -242,7 +246,7 @@ function renderAgreementDocument(ctx: Awaited<ReturnType<typeof agreementSigning
   const scheduleBlock = schedule.length
     ? `
     <h4 style="background:#2DC4A2;color:#0D0D0D;font-weight:800;font-size:12px;text-align:center;padding:4px;border-radius:4px;margin:14px 0 8px 0;">${htmlEscape(frequencyLabel)} Service Schedule</h4>
-    <p style="margin:0 0 8px 0;font-size:12px;color:#0D0D0D;"><b>Service frequency:</b> ${htmlEscape(frequencyLabel)} &nbsp;·&nbsp; <b>Regular service:</b> ${recurringTotal}</p>
+    <p style="margin:0 0 8px 0;font-size:12px;color:#0D0D0D;"><b>Initial service:</b> ${htmlEscape(cellLabelLong(ctx.agreement?.initialServiceDate ?? todayIso()))} &nbsp;·&nbsp; <b>Service frequency:</b> ${htmlEscape(frequencyLabel)} &nbsp;·&nbsp; <b>Regular service:</b> ${recurringTotal}</p>
     <div class="sched-grid">${scheduleCells}</div>
     <p style="margin:6px 0 0 0;font-size:10.5px;color:#607D78;line-height:1.45;">${htmlEscape(scheduleNote(frequencyLabel, termMonths, isUpdate))}</p>`
     : '';

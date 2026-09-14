@@ -9,7 +9,7 @@ import {
 } from '../utils/serviceSchedule';
 
 import { todayIso, toIsoDate } from '../utils/dates';
-import { buildTermVisits, cancelFutureVisits } from '../jobs/recurringVisits';
+import { buildTermVisits, cancelFutureVisits, createInitialVisit } from '../jobs/recurringVisits';
 import { dispatchService } from './dispatchService';
 
 export interface RecurringChargeUpsertOptions {
@@ -104,7 +104,12 @@ export const recurringChargeService = {
       try {
         const cadenceChanged = !!current && parseServiceFrequency(current.frequency) !== frequency;
         if (!options.isUpdate || cadenceChanged) await cancelFutureVisits(row.id);
-        const built = await buildTermVisits(row.id, options.createdBy ?? (await ownerUserId()), 12);
+        const actorId = options.createdBy ?? (await ownerUserId());
+        // The initial flush-out visit goes on the date chosen on the agreement.
+        if (!options.isUpdate) {
+          await createInitialVisit(row.id, startDate, actorId).catch((err) => logger.warn({ err, recurringChargeId: row.id }, 'could not create the initial visit'));
+        }
+        const built = await buildTermVisits(row.id, actorId, 12);
         if (built.created) {
           const unassigned = await pool.query('SELECT count(*)::int AS n FROM appointments WHERE recurring_charge_id = $1 AND technician_id IS NULL AND status = $2 AND deleted_at IS NULL', [row.id, 'scheduled']);
           if (unassigned.rows[0].n > 0) {

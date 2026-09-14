@@ -20,7 +20,8 @@ import { persistLocally, uploadPendingPhoto } from '../../src/lib/photos';
 import { captureView } from '../../src/lib/capture';
 import { SignaturePad, SignaturePadHandle } from '../../src/components/SignaturePad';
 import { SignatureMark } from '../../src/components/SignatureMark';
-import { colors, money } from '../../src/lib/theme';
+import { colors, money, fmtDate } from '../../src/lib/theme';
+import DateTimePicker from '@react-native-community/datetimepicker';
 import { useAuth } from '../../src/lib/authStore';
 import {
   HOME_SIZES,
@@ -151,6 +152,16 @@ export default function AgreementScreen() {
   const [priceOverrides, setPriceOverrides] = useState<Record<string, PriceOverride>>({});
   const [initialDiscountInput, setInitialDiscountInput] = useState('');
   const [frequency, setFrequency] = useState<ServiceFrequency>(DEFAULT_SERVICE_FREQUENCY);
+  /** Date of the initial (flush-out) service; the schedule and the plan start here. */
+  const [initialDate, setInitialDate] = useState<string>(todayIso());
+  const [showDatePicker, setShowDatePicker] = useState(false);
+  const [dateText, setDateText] = useState('');
+  const shiftDays = (days: number) => {
+    const d = new Date(); d.setHours(12, 0, 0, 0); d.setDate(d.getDate() + days);
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+  };
+  const dateFromIso = (iso: string) => { const [y, m, d] = iso.split('-').map(Number); const dt = new Date(); dt.setFullYear(y, m - 1, d); dt.setHours(12, 0, 0, 0); return dt; };
+  const isoFromDate = (dt: Date) => `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, '0')}-${String(dt.getDate()).padStart(2, '0')}`;
 
   // Pre-fill the builder from the current agreement's saved selections.
   useEffect(() => {
@@ -290,14 +301,14 @@ export default function AgreementScreen() {
   /** Every charge across the term at the chosen cadence, shown on the document. */
   const chargeSchedule = useMemo(
     () => buildChargeSchedule({
-      startDate: todayIso(),
+      startDate: isUpdate ? todayIso() : initialDate,
       frequency,
       termMonths: TERM_MONTHS,
       initialAmount: isUpdate ? chargeTotal : initialTotal,
       recurringAmount: regularTotal,
       firstRegularDate: isUpdate ? baseAgreement?.nextDueDate ?? null : null,
     }),
-    [frequency, isUpdate, chargeTotal, initialTotal, regularTotal, baseAgreement],
+    [frequency, isUpdate, chargeTotal, initialTotal, regularTotal, baseAgreement, initialDate],
   );
 
   if (!data) {
@@ -387,6 +398,7 @@ export default function AgreementScreen() {
         `Initial Total: ${money(initialTotal)}`,
         `Recurring Total: ${money(regularTotal)}/service`,
         `Frequency: ${frequency}`,
+        ...(isUpdate ? [] : [`Initial service date: ${initialDate}`]),
         ...(isUpdate
           ? [
             'Update of previous agreement: YES',
@@ -515,7 +527,7 @@ export default function AgreementScreen() {
           try {
             await api('/recurring-charges', {
               method: 'POST',
-              body: { customerId: targetCustomerId, amount: Number(regularTotal.toFixed(2)), frequency, startDate: todayIso(), isUpdate },
+              body: { customerId: targetCustomerId, amount: Number(regularTotal.toFixed(2)), frequency, startDate: isUpdate ? todayIso() : initialDate, isUpdate },
             });
           } catch {
             // Non-fatal; the recurring charge can be corrected from the invoices screen.
@@ -650,6 +662,86 @@ export default function AgreementScreen() {
             );
           })}
         </View>
+
+        {/* ---------- Initial service date ---------- */}
+        {!isUpdate ? (
+          <>
+            <Text style={styles.pickHeader}>Initial Service Date</Text>
+            <Text style={styles.pickSub}>When the initial flush-out visit happens. The first regular service follows 30 days later.</Text>
+            <View style={styles.freqRow}>
+              {[{ label: 'Today', iso: shiftDays(0) }, { label: 'Tomorrow', iso: shiftDays(1) }, { label: 'In 2 days', iso: shiftDays(2) }, { label: 'In 3 days', iso: shiftDays(3) }].map((opt) => {
+                const active = initialDate === opt.iso;
+                return (
+                  <TouchableOpacity key={opt.label} style={[styles.freqChip, active && styles.freqChipActive]} onPress={() => setInitialDate(opt.iso)} activeOpacity={0.85}>
+                    <Text style={[styles.freqChipText, active && styles.freqChipTextActive]}>{opt.label}</Text>
+                  </TouchableOpacity>
+                );
+              })}
+              <TouchableOpacity
+                style={[styles.freqChip, ![shiftDays(0), shiftDays(1), shiftDays(2), shiftDays(3)].includes(initialDate) && styles.freqChipActive]}
+                onPress={() => { setDateText(initialDate); setShowDatePicker(true); }}
+                activeOpacity={0.85}
+              >
+                <Text style={[styles.freqChipText, ![shiftDays(0), shiftDays(1), shiftDays(2), shiftDays(3)].includes(initialDate) && styles.freqChipTextActive]}>Pick a date…</Text>
+              </TouchableOpacity>
+            </View>
+            <Text style={styles.pickSub}>Initial service on <Text style={{ fontWeight: '800', color: colors.text }}>{fmtDate(initialDate)}</Text> · first regular service {fmtDate(chargeSchedule[1]?.date ?? '')}</Text>
+            {showDatePicker && Platform.OS === 'web' ? (
+              <View style={styles.dateBox}>
+                <TextInput
+                  style={styles.dateInput}
+                  value={dateText}
+                  onChangeText={setDateText}
+                  placeholder="YYYY-MM-DD"
+                  placeholderTextColor={colors.textMuted}
+                  autoFocus
+                />
+                <TouchableOpacity
+                  style={[styles.freqChip, styles.freqChipActive, { marginBottom: 0 }]}
+                  onPress={() => {
+                    if (/^\d{4}-\d{2}-\d{2}$/.test(dateText.trim())) { setInitialDate(dateText.trim()); setShowDatePicker(false); }
+                    else notify('Enter the date as YYYY-MM-DD');
+                  }}
+                >
+                  <Text style={[styles.freqChipText, styles.freqChipTextActive]}>Use date</Text>
+                </TouchableOpacity>
+                <TouchableOpacity style={[styles.freqChip, { marginBottom: 0 }]} onPress={() => setShowDatePicker(false)}>
+                  <Text style={styles.freqChipText}>Cancel</Text>
+                </TouchableOpacity>
+              </View>
+            ) : null}
+            {showDatePicker && Platform.OS === 'ios' ? (
+              <Modal transparent animationType="fade" visible onRequestClose={() => setShowDatePicker(false)}>
+                <TouchableOpacity style={styles.dateBackdrop} activeOpacity={1} onPress={() => setShowDatePicker(false)}>
+                  <View style={styles.dateModalCard}>
+                    <Text style={styles.pickHeader}>Initial service date</Text>
+                    <DateTimePicker
+                      value={dateFromIso(initialDate)}
+                      mode="date"
+                      display="spinner"
+                      themeVariant="light"
+                      textColor={colors.text}
+                      minimumDate={new Date()}
+                      onChange={(_e, v) => { if (v) setInitialDate(isoFromDate(v)); }}
+                    />
+                    <TouchableOpacity style={[styles.freqChip, styles.freqChipActive, { alignSelf: 'center', marginTop: 8 }]} onPress={() => setShowDatePicker(false)}>
+                      <Text style={[styles.freqChipText, styles.freqChipTextActive]}>Done</Text>
+                    </TouchableOpacity>
+                  </View>
+                </TouchableOpacity>
+              </Modal>
+            ) : null}
+            {showDatePicker && Platform.OS === 'android' ? (
+              <DateTimePicker
+                value={dateFromIso(initialDate)}
+                mode="date"
+                display="default"
+                minimumDate={new Date()}
+                onChange={(_e, v) => { setShowDatePicker(false); if (v) setInitialDate(isoFromDate(v)); }}
+              />
+            ) : null}
+          </>
+        ) : null}
 
         {/* ---------- Recurring add-ons ---------- */}
         <Text style={styles.pickHeader}>Add-Ons</Text>
@@ -880,6 +972,9 @@ export default function AgreementScreen() {
 
           {/* Charge schedule across the term */}
           <Text style={styles.sectionBarFull}>{SERVICE_FREQUENCY_LABELS[frequency]} Service Schedule</Text>
+          {!isUpdate ? (
+            <Text style={styles.schedNote}>Initial service: <Text style={{ fontWeight: '800', color: colors.text }}>{fmtDate(initialDate)}</Text> · Service frequency: {SERVICE_FREQUENCY_LABELS[frequency]} · Regular service {money(regularTotal)}</Text>
+          ) : null}
           {lineItems.length === 0 ? (
             <Text style={styles.termsMuted}>Select services to see the schedule.</Text>
           ) : (
@@ -1248,6 +1343,10 @@ const styles = StyleSheet.create({
   freqChipActive: { borderColor: colors.primary, backgroundColor: colors.primary },
   freqChipText: { fontSize: 13, fontWeight: '700', color: colors.text },
   freqChipTextActive: { color: '#0D0D0D' },
+  dateBox: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 8 },
+  dateInput: { flex: 1, borderWidth: 1.5, borderColor: colors.border, borderRadius: 10, paddingVertical: 8, paddingHorizontal: 12, fontSize: 14, color: colors.text, backgroundColor: '#fff' },
+  dateBackdrop: { flex: 1, backgroundColor: 'rgba(0,0,0,0.45)', justifyContent: 'flex-end' },
+  dateModalCard: { backgroundColor: '#fff', borderTopLeftRadius: 18, borderTopRightRadius: 18, padding: 18, paddingBottom: 28 },
   discountRowText: { color: '#B3261E', fontWeight: '800' },
   termsMuted: { fontSize: 11, color: colors.textMuted, fontStyle: 'italic', marginBottom: 4 },
   pestListWrap: { flexDirection: 'row', flexWrap: 'wrap' },

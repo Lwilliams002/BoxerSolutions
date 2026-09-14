@@ -165,6 +165,28 @@ export async function buildTermVisits(recurringChargeId: string, systemUserId: s
   return { created: dates.length, dates };
 }
 
+/**
+ * Put the initial (flush-out) service on the calendar for the date chosen on
+ * the agreement. Skipped when the date already passed or the customer already
+ * has a visit that day.
+ */
+export async function createInitialVisit(recurringChargeId: string, dateIso: string, systemUserId: string) {
+  const today = todayIso();
+  if (dateIso < today) return { created: false, reason: 'past' as const };
+  const [plans, territories] = await Promise.all([loadPlans(today, recurringChargeId), loadTerritories()]);
+  const plan = plans[0];
+  if (!plan || !plan.locationId) return { created: false, reason: 'no_location' as const };
+  const existing = await pool.query(
+    `SELECT 1 FROM appointments WHERE customer_id = $1 AND scheduled_date = $2::date AND deleted_at IS NULL AND status <> 'cancelled' LIMIT 1`,
+    [plan.customerId, dateIso],
+  );
+  if (existing.rows[0]) return { created: false, reason: 'exists' as const };
+  const base = planRecurringVisits([{ ...plan, nextDueDate: dateIso, hasVisitForDueDate: false }], territories, today, { ignoreHorizon: true })[0];
+  if (!base) return { created: false, reason: 'no_location' as const };
+  await insertVisit({ ...base, scheduledDate: dateIso, notes: 'Initial service (flush-out) · agreement' }, systemUserId);
+  return { created: true, reason: null };
+}
+
 /** Drop future, untouched visits of a plan (used before rebuilding after a cadence change). */
 export async function cancelFutureVisits(recurringChargeId: string) {
   const { rowCount } = await pool.query(
