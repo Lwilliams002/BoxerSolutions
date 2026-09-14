@@ -329,6 +329,25 @@ export default function CustomerScreen() {
     });
   };
 
+  const [linkBusy, setLinkBusy] = useState<'link' | 'email' | null>(null);
+  const sendPaymentLink = async (deliver: 'link' | 'email') => {
+    if (deliver === 'email' && !cust?.email) { notify('No email on file', 'Add an email address to the customer first, or copy the link instead.'); return; }
+    setLinkBusy(deliver);
+    try {
+      const r = await api<{ url: string; expiresInDays: number; emailed: boolean }>('/payment-links', { method: 'POST', body: { customerId: id, deliver } });
+      if (r.emailed) {
+        notify('Secure link emailed', `${cust?.email} was sent a link to add a payment method. It works for ${r.expiresInDays} days.`);
+        void qc.invalidateQueries({ queryKey: ['customerComms', id] });
+      } else {
+        await shareLink('Add payment method', r.url);
+      }
+    } catch (e) {
+      notify('Could not create link', (e as Error).message);
+    } finally {
+      setLinkBusy(null);
+    }
+  };
+
   const openSaveCard = () => {
     router.push({ pathname: '/payments/fields-checkout', params: { flow: 'store', customerId: id } });
   };
@@ -889,11 +908,35 @@ export default function CustomerScreen() {
               </Card>
             ))}
             {canCollectPaymentInfo && (
-              <Button
-                title="Save Card via Secure Checkout"
-                variant="success"
-                onPress={openSaveCard}
-              />
+              <>
+                <Button
+                  title="Save Card via Secure Checkout"
+                  variant="success"
+                  onPress={openSaveCard}
+                />
+                <Card style={{ marginTop: 12 }}>
+                  <Value style={{ fontWeight: '800' }}>Let the customer add it themselves</Value>
+                  <Text style={styles.metaText}>
+                    Send a secure link. The customer enters their card or bank account on our hosted page, the processor tokenizes it, and it lands here as their default method. Links work for 14 days.
+                  </Text>
+                  <View style={{ flexDirection: 'row', gap: 8, marginTop: 10 }}>
+                    <Button
+                      title={Platform.OS === 'web' ? 'Copy secure link' : 'Share secure link'}
+                      variant="outline"
+                      loading={linkBusy === 'link'}
+                      onPress={() => sendPaymentLink('link')}
+                      style={{ flex: 1, paddingVertical: 10 }}
+                    />
+                    <Button
+                      title="Email to customer"
+                      variant="primary"
+                      loading={linkBusy === 'email'}
+                      onPress={() => sendPaymentLink('email')}
+                      style={{ flex: 1, paddingVertical: 10 }}
+                    />
+                  </View>
+                </Card>
+              </>
             )}
             {(methods ?? []).length === 0 && !(promptPayment === '1') && (
               <EmptyState title="No payment methods" subtitle="Add a card to enable payment collection and AutoPay." />

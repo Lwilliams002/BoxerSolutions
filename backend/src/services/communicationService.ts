@@ -8,6 +8,7 @@ import { logger } from '../utils/logger';
 import { fileService } from './fileService';
 import { invoiceService } from './invoiceService';
 import { agreementSigningService } from './agreementSigningService';
+import { paymentMethodLinkService, PAYMENT_METHOD_LINK_TTL_DAYS } from './paymentMethodLinkService';
 import {
   ServiceNotificationContext, ServiceNotificationKind,
   renderServiceNotificationHtml, renderServiceNotificationText,
@@ -29,7 +30,8 @@ export type CommunicationTemplateKey =
   | 'agreement_review_sign'
   | 'agreement_signed_copy'
   | 'service_completed'
-  | 'service_request_declined';
+  | 'service_request_declined'
+  | 'payment_method_request';
 
 const COMPANY = {
   name: 'Boxer Solutions Pest Control',
@@ -50,6 +52,7 @@ const DEFAULT_CHANNEL: Record<CommunicationTemplateKey, CommunicationChannel> = 
   agreement_signed_copy: 'email',
   service_completed: 'email',
   service_request_declined: 'email',
+  payment_method_request: 'email',
 };
 
 function fmtDate(value: string | Date) {
@@ -303,6 +306,11 @@ function renderTemplate(templateKey: CommunicationTemplateKey, ctx: QueryResultR
         subject: `Your signed service agreement with ${String(extra?.companyName ?? COMPANY.name)}`,
         body: `Hi ${firstName(ctx)}, thank you for choosing ${String(extra?.companyName ?? COMPANY.name)}. A copy of the service agreement you signed on ${String(extra?.signedOn ?? 'today')} is attached for your records. Questions? Reply to this email or call ${String(extra?.companyPhone ?? COMPANY.phone)}.`,
       };
+    case 'payment_method_request':
+      return {
+        subject: `Add your payment method — ${String(extra?.companyName ?? COMPANY.name)}`,
+        body: `Hi ${firstName(ctx)}, please add a card or bank account for your ${String(extra?.companyName ?? COMPANY.name)} service using this secure link: ${String(extra?.url ?? '')} Your details go straight to our payment processor and are never stored on our systems. The link works for ${String(extra?.days ?? 14)} days. Questions? Reply to this email or call ${String(extra?.companyPhone ?? COMPANY.phone)}.`,
+      };
     case 'service_request_declined':
       return {
         subject: `Update on your service request — ${String(extra?.companyName ?? COMPANY.name)}`,
@@ -544,6 +552,9 @@ export const communicationService = {
     if (key === 'agreement_review_sign') {
       links.push({ label: 'Review & sign link', url: await agreementSigningService.buildReviewUrl(comm.customer_id, apiBaseUrl), note: 'New link, valid 7 days' });
     }
+    if (key === 'payment_method_request') {
+      links.push({ label: 'Add payment method link', url: await paymentMethodLinkService.buildLink(comm.customer_id, apiBaseUrl), note: `New link, valid ${PAYMENT_METHOD_LINK_TTL_DAYS} days` });
+    }
     if (key === 'agreement_signed_copy') {
       const f = await pool.query(
           `SELECT id FROM files
@@ -640,12 +651,30 @@ export const communicationService = {
       case 'agreement_review_sign':
         result = await communicationService.sendAgreementReviewRequest(comm.customer_id, sentBy, null, apiBaseUrl ?? null);
         break;
+      case 'payment_method_request': {
+        if (!apiBaseUrl) throw ApiError.badRequest('Cannot rebuild the payment link');
+        const url = await paymentMethodLinkService.buildLink(comm.customer_id, apiBaseUrl);
+        result = await communicationService.sendPaymentMethodRequest(comm.customer_id, url, PAYMENT_METHOD_LINK_TTL_DAYS, sentBy);
+        break;
+      }
       default:
         throw ApiError.badRequest(`${String(key).replace(/_/g, ' ')} messages cannot be re-sent`);
     }
     if (!result) throw ApiError.badRequest('Customer has no email address on file');
     await pool.query(`UPDATE communications SET resent_communication_id = $2 WHERE id = $1`, [communicationId, result.id]);
     return result;
+  },
+
+  /** Email the customer a secure link to add a card or bank account on file. */
+  async sendPaymentMethodRequest(customerId: string, url: string, days: number, sentBy?: string | null) {
+    const ctx = await customerContext(customerId);
+    if (!ctx) throw new Error('Customer not found for communication');
+    if (!ctx.customer_email) throw new Error('Customer has no email address on file');
+    const company = await getCompanyInfo();
+    const templateKey: CommunicationTemplateKey = 'payment_method_request';
+    const rendered = renderTemplate(templateKey, ctx, { companyName: company.name, companyPhone: company.phone, url, days });
+    const html = `<!DOCTYPE html><html><body style="margin:0;background:#F0FAF8;padding:16px 0;"><table role="presentation" width="100%" cellpadding="0" cellspacing="0"><tr><td align="center"><table role="presentation" width="600" cellpadding="0" cellspacing="0" style="max-width:600px;width:100%;background:#fff;border-radius:10px;"><tr><td style="padding:18px 24px;border-bottom:3px solid #0D0D0D;font:700 16px Helvetica,Arial,sans-serif;color:#0D0D0D;">${escapeHtml(company.name)}</td></tr><tr><td style="padding:14px 24px;background:#0F7B3F;color:#fff;font:700 16px Helvetica,Arial,sans-serif;">Add your payment method</td></tr><tr><td style="padding:18px 24px;font:14px/20px Helvetica,Arial,sans-serif;color:#0D0D0D;">Hi ${escapeHtml(firstName(ctx))},<br><br>Please add a card or bank account for your ${escapeHtml(company.name)} service. Your details go straight to our payment processor through a secure form and are never stored on our systems.<br><br><a href="${escapeHtml(url)}" style="display:inline-block;background:#2DC4A2;color:#0D0D0D;text-decoration:none;font-weight:700;padding:12px 18px;border-radius:8px;">Add payment method</a><br><br><span style="font-size:12px;color:#5B6B68;">If the button does not work, copy this link into your browser:<br>${escapeHtml(url)}</span><br><br>This link works for ${days} days. Questions? Reply to this email or call ${escapeHtml(company.phone)}.</td></tr><tr><td style="padding:0 24px 18px;font:11px Helvetica,Arial,sans-serif;color:#5B6B68;text-align:center;">${escapeHtml(company.name)}${company.addressLines.length ? ` · ${escapeHtml(company.addressLines.join(', '))}` : ''} · ${escapeHtml(company.license)}</td></tr></table></td></tr></table></body></html>`;
+    return insertAndSend({ customerId, appointmentId: null, invoiceId: null, channel: 'email', templateKey, subject: rendered.subject, body: rendered.body, html, sentBy, to: ctx.customer_email });
   },
 
   /** Tell the customer their service request was declined, and why. */
