@@ -534,7 +534,8 @@ async function chargeSignedAgreementInitial(customerId: string, agreement: Agree
   try {
     const invoice = await invoiceService.create({
      customerId,
-     dueDate: todayIso(),
+     // Initial charge is due on the initial service date chosen on the agreement.
+     dueDate: (!agreement.isUpdate && agreement.initialServiceDate) || todayIso(),
      taxRate: 0,
      notes: agreement.isUpdate ? 'Agreement update charge (new services)' : 'Initial agreement charge',
      items: [{

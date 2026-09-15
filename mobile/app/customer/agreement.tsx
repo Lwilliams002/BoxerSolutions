@@ -495,7 +495,8 @@ export default function AgreementScreen() {
                 method: 'POST',
                 body: {
                   customerId: targetCustomerId,
-                  dueDate: todayIso(),
+                  // Initial charge is due on the initial service date, not the signing date.
+                  dueDate: isUpdate ? todayIso() : initialDate,
                   taxRate: 0,
                   notes: isUpdate ? 'Agreement update charge (new services)' : 'Initial agreement charge',
                   items: initialChargeItems,
