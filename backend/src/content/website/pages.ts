@@ -47,6 +47,18 @@ header{position:sticky;top:0;z-index:50;background:rgba(13,13,13,.92);backdrop-f
 nav{display:flex;flex-wrap:wrap;align-items:center;gap:6px 22px;margin-left:auto}nav a{color:#DDEBE7;text-decoration:none;font-weight:700;font-size:14px;white-space:nowrap;padding:4px 0}nav a:hover{color:#fff}
 nav .actions{display:flex;align-items:center;gap:10px;margin-left:8px}nav a.cta,nav a.staff{display:inline-flex;align-items:center;height:40px;padding:0 18px;border-radius:999px;font-weight:800;font-size:14px;line-height:1}nav a.cta{background:var(--teal);color:var(--ink)}nav a.staff{border:2px solid rgba(255,255,255,.25);color:#fff}
 @media(min-width:1100px){header .wrap{flex-wrap:nowrap}nav{flex-wrap:nowrap}}
+.nav-toggle,.mobile-actions{display:none}
+@media(max-width:820px){
+  header .wrap{flex-wrap:wrap;padding-top:10px;padding-bottom:10px}
+  .mobile-actions{display:flex;align-items:center;gap:10px;margin-left:auto}
+  .call-icon{display:inline-flex;align-items:center;justify-content:center;width:42px;height:42px;border-radius:999px;background:var(--teal);color:var(--ink);text-decoration:none;font-size:20px}
+  .burger{display:flex;flex-direction:column;justify-content:center;gap:5px;width:42px;height:42px;border-radius:12px;border:1.5px solid rgba(255,255,255,.25);cursor:pointer;padding:0 11px}.burger span{display:block;height:2px;background:#fff;border-radius:2px;transition:transform .2s,opacity .2s}
+  nav{display:none;width:100%;flex-direction:column;align-items:stretch;gap:0;margin:8px 0 0;padding-top:6px;border-top:1px solid rgba(255,255,255,.08)}
+  nav a{font-size:16px;padding:12px 4px;border-bottom:1px solid rgba(255,255,255,.06)}
+  nav .actions{flex-direction:column;align-items:stretch;gap:10px;margin:14px 0 6px;width:100%}nav a.cta,nav a.staff{justify-content:center;height:46px;border-bottom:0;width:100%}
+  .nav-toggle:checked~nav{display:flex}
+  .nav-toggle:checked~.mobile-actions .burger span:nth-child(1){transform:translateY(7px) rotate(45deg)}.nav-toggle:checked~.mobile-actions .burger span:nth-child(2){opacity:0}.nav-toggle:checked~.mobile-actions .burger span:nth-child(3){transform:translateY(-7px) rotate(-45deg)}
+}
 /* hero */
 .hero{position:relative;background:var(--ink) center 40%/cover no-repeat;color:#fff;padding:96px 0 88px;isolation:isolate;overflow:hidden}.hero:before{content:"";position:absolute;inset:0;background:linear-gradient(100deg,rgba(13,13,13,.92) 0%,rgba(13,13,13,.72) 45%,rgba(13,13,13,.35) 100%);z-index:-1}
 .hero .wrap{display:grid;grid-template-columns:1.15fr .85fr;gap:48px;align-items:center}
@@ -80,7 +92,7 @@ table{width:100%;border-collapse:collapse;background:#fff;border:1px solid var(-
 footer{background:var(--ink);color:#B9C9C5;padding:56px 0 30px;font-size:14px}footer .cols{display:grid;grid-template-columns:1.4fr 1fr 1fr 1fr;gap:32px}footer .cols>div{min-width:0}footer a{color:#fff;text-decoration:none;overflow-wrap:anywhere}footer a:hover{color:var(--teal)}footer h4{color:#fff;margin:0 0 12px;font-size:13px;text-transform:uppercase;letter-spacing:.12em}footer .brand{margin-bottom:14px}footer .copy{border-top:1px solid rgba(255,255,255,.08);margin-top:36px;padding-top:20px;display:flex;flex-wrap:wrap;justify-content:space-between;gap:10px;font-size:13px;color:#8FA39E}
 .note{background:#fff;border-left:4px solid var(--teal);padding:12px 14px;border-radius:8px;color:#30433F}
 @media(max-width:960px){.hero .wrap{grid-template-columns:1fr}.hero h1{font-size:44px}.steps,.hot,.plans{grid-template-columns:1fr}.area .wrap{grid-template-columns:1fr}footer .cols{grid-template-columns:1fr 1fr}}
-@media(max-width:640px){header .wrap{gap:10px}.brand{font-size:15px}nav{width:100%;gap:4px 14px;margin-left:0}nav a{font-size:14px}nav .actions{width:100%;margin:6px 0 0}nav a.cta,nav a.staff{flex:1;justify-content:center;height:42px}.hero{padding:56px 0 48px}.hero h1{font-size:36px}.hero p.lead{font-size:17px}section{padding:56px 0}h2{font-size:30px}.sub{font-size:16px}.egg{grid-template-columns:1fr}.pests{grid-template-columns:repeat(2,minmax(0,1fr))}.pest summary img{width:84px;height:84px}footer .cols{grid-template-columns:1fr}.band h2{font-size:26px}}
+@media(max-width:640px){.brand{font-size:15px}.hero{padding:56px 0 48px}.hero h1{font-size:36px}.hero p.lead{font-size:17px}section{padding:56px 0}h2{font-size:30px}.sub{font-size:16px}.egg{grid-template-columns:1fr}.pests{grid-template-columns:repeat(2,minmax(0,1fr))}.pest summary img{width:84px;height:84px}footer .cols{grid-template-columns:1fr}.band h2{font-size:26px}}
 `;
 
 function layout(ctx: SiteContext, page: { title: string; description: string; path: string }, body: string) {
@@ -98,7 +110,9 @@ function layout(ctx: SiteContext, page: { title: string; description: string; pa
 <body>
 <header><div class="wrap">
   <a class="brand" href="${b}/"><img src="${b}/assets/logo-mark.png" alt=""><span>${e(c.name.replace(/ Pest Control$/i, ''))}<small>PEST CONTROL</small></span></a>
-  <nav>${NAV.map((n) => `<a href="${n.href.startsWith('/app') ? n.href : b + n.href}">${e(n.label)}</a>`).join('')}<span class="actions"><a class="cta" href="${tel}">Call ${e(c.phone)}</a><a class="staff" href="/app/login">Staff Login</a></span></nav>
+  <input type="checkbox" id="nav-toggle" class="nav-toggle" aria-hidden="true">
+  <div class="mobile-actions"><a class="call-icon" href="${tel}" aria-label="Call ${e(c.phone)}">&#9742;</a><label for="nav-toggle" class="burger" aria-label="Menu"><span></span><span></span><span></span></label></div>
+  <nav>${NAV.map((n) => `<a href="${n.href.startsWith('/app') ? n.href : b + n.href}">${e(n.label)}</a>`).join('')}<span class="actions"><a class="cta" href="${tel}">Call ${e(c.phone)}</a><a class="staff" href="/app/login">Log In</a></span></nav>
 </div></header>
 ${body}
 <footer><div class="wrap">
@@ -106,7 +120,7 @@ ${body}
     <div><a class="brand" href="${b}/"><img src="${b}/assets/logo-mark.png" alt=""><span>${e(c.name.replace(/ Pest Control$/i, ''))}<small>PEST CONTROL</small></span></a>${c.addressLines.map((l) => `<div>${e(l)}</div>`).join('')}<div>${e(c.license)}</div><div style="margin-top:12px">Mon–Fri 8am–6pm · Sat 9am–2pm</div></div>
     <div><h4>Services</h4><div><a href="${b}/#plans">Standard Four Point Service</a></div><div><a href="${b}/#plans">All Yard Ants</a></div><div><a href="${b}/#pests">Pest programs</a></div><div><a href="${b}/#estimate">Free estimate</a></div></div>
     <div><h4>Customers</h4><div><a href="/app/customer-portal">Customer Portal</a></div><div><a href="/app/request-service-public">Request Service</a></div><div><a href="${tel}">${e(c.phone)}</a></div><div><a href="mailto:${e(c.email)}">${e(c.email)}</a></div><div><a href="${b}/contact">Contact Us</a></div></div>
-    <div><h4>Policies</h4><div><a href="${b}/privacy">Privacy Policy</a></div><div><a href="${b}/terms">Terms of Service</a></div><div><a href="${b}/refund-policy">Refund &amp; Cancellation</a></div><div><a href="${b}/recurring-billing">Recurring Billing Terms</a></div><div><a href="/app/login">Staff Login</a></div></div>
+    <div><h4>Policies</h4><div><a href="${b}/privacy">Privacy Policy</a></div><div><a href="${b}/terms">Terms of Service</a></div><div><a href="${b}/refund-policy">Refund &amp; Cancellation</a></div><div><a href="${b}/recurring-billing">Recurring Billing Terms</a></div><div><a href="/app/login">Log In</a></div></div>
   </div>
   <div class="copy"><span>© ${ctx.year} ${e(c.name)}. All rights reserved.</span><span>Visa · Mastercard · Amex · Discover · Bank (ACH). Card details are entered only in our payment processor's secure form and never stored on our systems.</span></div>
 </div></footer>
