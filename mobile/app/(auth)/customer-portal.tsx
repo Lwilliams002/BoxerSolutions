@@ -59,7 +59,7 @@ export default function CustomerPortalScreen() {
     try {
       const data = await api<TestPortalLoginResult>('/auth/customer-portal/test-login', {
         method: 'POST',
-        body: { email: 'portal.test@antserve.dev' },
+        body: { email: 'demo1@example.com' },
       });
       await setPortalSession({
         portalSessionToken: data.portalSessionToken,
@@ -115,7 +115,7 @@ export default function CustomerPortalScreen() {
           disabled={!email.includes('@')}
         />
         <Button
-          title="Use Test Customer (No OTP)"
+          title="Try the Demo Customer (no code needed)"
           variant="secondary"
           onPress={continueAsTestCustomer}
           loading={busyTest}

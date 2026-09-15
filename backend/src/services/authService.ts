@@ -18,6 +18,9 @@ interface TokenPair {
 const CUSTOMER_PORTAL_CODE_TTL_MS = 10 * 60 * 1000;
 const CUSTOMER_PORTAL_SESSION_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 const DEFAULT_TEST_CUSTOMER_EMAIL = 'portal.test@antserve.dev';
+/** Demo customers whose portal opens without a code in production (App Review). */
+const PRODUCTION_DEMO_PORTAL_EMAILS = (process.env.PORTAL_DEMO_CUSTOMER_EMAILS ?? 'demo1@example.com')
+  .split(',').map((e) => e.trim().toLowerCase()).filter(Boolean);
 type CustomerPortalCodeEntry =
   | { provider: 'local'; codeHash: string; expiresAt: number; customerId: string }
   | { provider: 'cognito'; session: string; expiresAt: number; customerId: string };
@@ -324,8 +327,12 @@ export const authService = {
   },
 
   async testCustomerPortalLogin(email?: string) {
-    if (config.env === 'production') throw ApiError.forbidden('Test portal login is disabled in production');
     const normalizedEmail = normalizeEmail(email ?? DEFAULT_TEST_CUSTOMER_EMAIL);
+    // In production the no-code login only works for the designated demo
+    // customer (App Review / sales demos); nothing is auto-created there.
+    if (config.env === 'production' && !PRODUCTION_DEMO_PORTAL_EMAILS.includes(normalizedEmail)) {
+      throw ApiError.forbidden('The demo customer login is only available for the demo account');
+    }
     const existing = await pool.query(
       `SELECT id, first_name, last_name, email
        FROM customers
@@ -346,6 +353,7 @@ export const authService = {
       };
     }
 
+    if (config.env === 'production') throw ApiError.notFound('Demo customer not found');
     const owner = await pool.query(
       `SELECT id
        FROM users
