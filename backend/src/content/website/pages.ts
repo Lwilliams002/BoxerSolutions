@@ -25,7 +25,6 @@ const e = escapeHtml;
 const NAV: { href: string; label: string }[] = [
   { href: '/', label: 'Home' },
   { href: '/#pests', label: 'Pests' },
-  { href: '/#pricing', label: 'Pricing' },
   { href: '/#estimate', label: 'Free Estimate' },
   { href: '/contact', label: 'Contact' },
   { href: '/app/customer-portal', label: 'Customer Portal' },
@@ -105,7 +104,7 @@ ${body}
 <footer><div class="wrap">
   <div class="cols">
     <div><a class="brand" href="${b}/"><img src="${b}/assets/logo-mark.png" alt=""><span>${e(c.name.replace(/ Pest Control$/i, ''))}<small>PEST CONTROL</small></span></a>${c.addressLines.map((l) => `<div>${e(l)}</div>`).join('')}<div>${e(c.license)}</div><div style="margin-top:12px">Mon–Fri 8am–6pm · Sat 9am–2pm</div></div>
-    <div><h4>Services</h4><div><a href="${b}/#plans">Standard Four Point Service</a></div><div><a href="${b}/#plans">All Yard Ants</a></div><div><a href="${b}/#pests">Pest programs</a></div><div><a href="${b}/#pricing">Pricing</a></div><div><a href="${b}/#estimate">Free estimate</a></div></div>
+    <div><h4>Services</h4><div><a href="${b}/#plans">Standard Four Point Service</a></div><div><a href="${b}/#plans">All Yard Ants</a></div><div><a href="${b}/#pests">Pest programs</a></div><div><a href="${b}/#estimate">Free estimate</a></div></div>
     <div><h4>Customers</h4><div><a href="/app/customer-portal">Customer Portal</a></div><div><a href="/app/request-service-public">Request Service</a></div><div><a href="${tel}">${e(c.phone)}</a></div><div><a href="mailto:${e(c.email)}">${e(c.email)}</a></div><div><a href="${b}/contact">Contact Us</a></div></div>
     <div><h4>Policies</h4><div><a href="${b}/privacy">Privacy Policy</a></div><div><a href="${b}/terms">Terms of Service</a></div><div><a href="${b}/refund-policy">Refund &amp; Cancellation</a></div><div><a href="${b}/recurring-billing">Recurring Billing Terms</a></div><div><a href="/app/login">Staff Login</a></div></div>
   </div>
@@ -120,8 +119,6 @@ function home(ctx: SiteContext) {
   const tel = `tel:${e(c.phone.replace(/\D/g, ''))}`;
   const f = ctx.form ?? {};
   const v = (k: string) => e(f[k] ?? '');
-  const town = HOME_SIZES[0];
-  const yard = YARD_ANT_TIERS[0];
   const body = `
 <section class="hero" style="background-image:url('${b}/assets/hero-miami.jpg?v=2')"><div class="wrap">
   <div>
@@ -163,11 +160,11 @@ function home(ctx: SiteContext) {
 </div></section>
 
 <section id="plans" style="background:#fff"><div class="wrap">
-  <div class="sec-head center"><p class="kicker">Plans</p><h2>Straightforward plans, published prices.</h2><p class="sub">Every plan is a ${TERM_MONTHS}-month agreement you sign on your technician's phone, with every price and every visit date printed on it.</p></div>
+  <div class="sec-head center"><p class="kicker">Plans</p><h2>Straightforward plans, priced for your home.</h2><p class="sub">Every home is different, so every plan is quoted on site. You sign a ${TERM_MONTHS}-month agreement on your technician's phone with every price and every visit date printed on it.</p></div>
   <div class="plans">
-    <div class="plan hi"><span class="flag">Most popular</span><h3>Standard Four Point Service</h3><p class="muted">Interior and exterior protection for the whole home, priced by size.</p><div class="price">${money(town.regular)}<small>/visit from</small></div><div class="init">Initial flush-out from ${money(town.initial)}</div><ul>${STANDARD_PESTS.map((p) => `<li>${e(p)}</li>`).join('')}</ul><a class="btn" href="${b}/#estimate">Start with a free estimate</a></div>
-    <div class="plan"><h3>All Yard Ants</h3><p class="muted">Whole-yard treatment for fire ants, carpenter ants and other yard ants, priced by lot size.</p><div class="price">${money(yard.regular)}<small>/visit from</small></div><div class="init">Initial treatment from ${money(yard.initial)}</div><ul><li>Fire ants</li><li>Carpenter ants</li><li>All other yard ants</li><li>Add to any Four Point plan</li></ul><a class="btn outline" href="${b}/#estimate">Get a quote</a></div>
-    <div class="plan"><h3>Add-ons &amp; single-pest jobs</h3><p class="muted">Bolt on to your plan, or book a one-time targeted treatment.</p><div class="price">${money(ADDONS[0].addRegular)}<small>/visit add-on</small></div><div class="init">Outdoor pet protection (fleas &amp; ticks)</div><ul><li>Black widow / brown recluse</li><li>Spider web removal &amp; prevention</li>${ODD_JOBS.map((o) => `<li>${e(o.label)} · ${money(o.total)}</li>`).join('')}</ul><a class="btn outline" href="${b}/#pricing">See all prices</a></div>
+    <div class="plan hi"><span class="flag">Most popular</span><h3>Standard Four Point Service</h3><p class="muted">Interior and exterior protection for the whole home, priced by size.</p><div class="init">Initial flush-out, then regular visits on your schedule. Quoted by home size.</div><ul>${STANDARD_PESTS.map((p) => `<li>${e(p)}</li>`).join('')}</ul><a class="btn" href="${b}/#estimate">Start with a free estimate</a></div>
+    <div class="plan"><h3>All Yard Ants</h3><p class="muted">Whole-yard treatment for fire ants, carpenter ants and other yard ants, priced by lot size.</p><div class="init">Initial treatment, then regular visits. Quoted by lot size.</div><ul><li>Fire ants</li><li>Carpenter ants</li><li>All other yard ants</li><li>Add to any Four Point plan</li></ul><a class="btn outline" href="${b}/#estimate">Get a quote</a></div>
+    <div class="plan"><h3>Add-ons &amp; single-pest jobs</h3><p class="muted">Bolt on to your plan, or book a one-time targeted treatment.</p><div class="init">Quoted with your plan or as a one-time visit.</div><ul><li>Outdoor pet protection (fleas &amp; ticks)</li><li>Black widow / brown recluse</li><li>Spider web removal &amp; prevention</li>${ODD_JOBS.map((o) => `<li>${e(o.label)}</li>`).join('')}</ul><a class="btn outline" href="${b}/#estimate">Get a quote</a></div>
   </div>
 </div></section>
 
@@ -209,16 +206,6 @@ function home(ctx: SiteContext) {
   </div>
 </div></section>
 
-<section id="pricing"><div class="wrap">
-  <div class="sec-head"><p class="kicker">Price sheet</p><h2>No surprises.</h2><p class="sub">Initial service is a one-time charge at the first visit. Regular service is charged per treatment at your chosen frequency. Prices are before any applicable tax.</p></div>
-  <div class="grid" style="align-items:start">
-    <div><h3 style="margin-bottom:10px">Standard Four Point Service</h3><table><tr><th>Home size</th><th class="num">Initial</th><th class="num">Regular</th></tr>${HOME_SIZES.map((t) => `<tr><td>${e(t.label)}</td><td class="num">${money(t.initial)}</td><td class="num">${money(t.regular)}</td></tr>`).join('')}</table></div>
-    <div><h3 style="margin-bottom:10px">All Yard Ants</h3><table><tr><th>Lot size</th><th class="num">Initial</th><th class="num">Regular</th></tr>${YARD_ANT_TIERS.map((t) => `<tr><td>${e(t.label)}</td><td class="num">${money(t.initial)}</td><td class="num">${money(t.regular)}</td></tr>`).join('')}</table>
-      <h3 style="margin:22px 0 10px">Add-ons (per regular service)</h3><table>${ADDONS.map((a) => `<tr><td>${e(a.label)}</td><td class="num">+${money(a.addRegular)}</td></tr>`).join('')}<tr><td>Web removal &amp; prevention</td><td class="num">$${WEB_REMOVAL.perSqft.toFixed(2)}/sq ft · ${money(WEB_REMOVAL.minimum)} min</td></tr></table>
-      <h3 style="margin:22px 0 10px">Single-pest treatments</h3><table>${ODD_JOBS.map((o) => `<tr><td>${e(o.label)} <span style="color:var(--muted)">· ${o.treatments} treatment${o.treatments > 1 ? 's' : ''}</span></td><td class="num">${money(o.total)}</td></tr>`).join('')}</table></div>
-  </div>
-  <p class="note" style="margin-top:22px">Pay by card or bank account in our secure app or through an emailed payment link. ${c.cardSurchargePercent > 0 ? `Credit card payments carry a ${e(String(c.cardSurchargePercent))}% processing surcharge; bank, cash and check payments have none.` : ''} Card details are entered only in our payment processor's secure form and never stored on ${e(c.name)} systems.</p>
-</div></section>
 
 ${REVIEWS.length ? `
 <section class="reviews"><div class="wrap">
@@ -281,7 +268,7 @@ function contact(ctx: SiteContext) {
     <div class="card"><h3>Office</h3>${c.addressLines.length ? c.addressLines.map((l) => `<p>${e(l)}</p>`).join('') : '<p>Serving Miami-Dade and Broward counties</p>'}<p>${e(c.license)}</p></div>
   </div>
   <h2>Request a quote</h2>
-  <p>Use the form below, or call or email us with your address, approximate home size and the pests you are seeing. A technician will confirm pricing from the <a href="${ctx.base}/#pricing">price sheet</a> and schedule your initial service.</p>
+  <p>Use the form below, or call or email us with your address, approximate home size and the pests you are seeing. A technician will quote your plan on site and schedule your initial service.</p>
 </div></section>
 ${estimateSection(ctx)}
 <section><div class="wrap legal">
@@ -324,7 +311,7 @@ function terms(ctx: SiteContext) {
   <h2>Right to cancel</h2>
   <p>You may cancel a service agreement at any time before midnight of the third business day after the date you signed it by giving written notice to ${e(c.name)}. See our <a href="${ctx.base}/refund-policy">Refund &amp; Cancellation Policy</a>.</p>
   <h2>Pricing and payment</h2>
-  <p>Prices are stated on your agreement and on our published price sheet. The initial service is due upon completion of the initial treatment. Regular service is due at each scheduled treatment. Invoices are payable by card or bank (ACH) in our app, by emailed payment link, or by check. By saving a payment method or signing an ACH authorization you authorize us to charge the amounts due under your agreement.</p>
+  <p>Prices are stated on your agreement. The initial service is due upon completion of the initial treatment. Regular service is due at each scheduled treatment. Invoices are payable by card or bank (ACH) in our app, by emailed payment link, or by check. By saving a payment method or signing an ACH authorization you authorize us to charge the amounts due under your agreement.</p>
   <h2>Recurring billing</h2>
   <p>Regular service under an agreement is billed per treatment at the frequency you chose. The full terms, including amounts, timing, authorization and how to cancel, are in our <a href="${ctx.base}/recurring-billing">Recurring Billing Terms</a>.</p>
   <h2>Card processing surcharge</h2>
@@ -369,7 +356,7 @@ function recurringBilling(ctx: SiteContext) {
   <h1>Recurring Billing Terms</h1>
   <p class="sub">These terms apply to customers who sign a service agreement with ${e(c.name)} for regular pest control service.</p>
   <h2>What is billed</h2>
-  <p>Your service agreement lists two prices: a one-time <b>initial service</b> charge, and a <b>regular service</b> charge billed each time we perform a scheduled treatment. Both amounts, and the service frequency you selected (weekly, every two weeks, monthly, or every two months), are printed on the agreement together with a schedule of the charges across the ${TERM_MONTHS}-month term. Published starting prices are on our <a href="${ctx.base}/#pricing">price sheet</a>.</p>
+  <p>Your service agreement lists two prices: a one-time <b>initial service</b> charge, and a <b>regular service</b> charge billed each time we perform a scheduled treatment. Both amounts, and the service frequency you selected (weekly, every two weeks, monthly, or every two months), are printed on the agreement together with a schedule of the charges across the ${TERM_MONTHS}-month term.</p>
   <h2>When you are charged</h2>
   <p>The initial service charge is due when the initial treatment is completed. Each regular service charge is due when that treatment is completed; it is never charged in advance. If a visit is skipped or cancelled, you are not charged for it. Prices do not change during the term of your agreement.</p>
   <h2>Card surcharge</h2>
