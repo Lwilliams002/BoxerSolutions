@@ -74,7 +74,7 @@ export default function CustomerPortalHomeScreen() {
       <ScrollView contentContainerStyle={styles.content}>
         <Card>
           <Text style={styles.title}>Welcome, {fullName}</Text>
-          {isTestMode ? <Text style={styles.badge}>TEST MODE · OTP BYPASSED</Text> : null}
+          {isTestMode ? <Text style={styles.badge}>DEMO ACCOUNT</Text> : null}
           <Text style={styles.meta}>{customer.email ?? 'No email on file'}</Text>
           <Text style={styles.balanceLabel}>Current Balance</Text>
           <Text style={styles.balance}>{money(openBalance)}</Text>
