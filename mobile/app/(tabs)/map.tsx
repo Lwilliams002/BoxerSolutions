@@ -31,10 +31,11 @@ interface Territory {
 // Fallback only — the map recenters on the device's location once permission
 // is granted (applies to technicians and owners alike).
 const FALLBACK_REGION = {
-  latitude: 30.2672,
-  longitude: -97.7431,
-  latitudeDelta: 0.23,
-  longitudeDelta: 0.23,
+  // South Florida service area (Miami-Dade / Broward), matching the web map.
+  latitude: 25.94,
+  longitude: -80.24,
+  latitudeDelta: 0.6,
+  longitudeDelta: 0.6,
 };
 
 export default function TerritoryMapScreen() {
