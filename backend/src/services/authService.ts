@@ -327,7 +327,9 @@ export const authService = {
   },
 
   async testCustomerPortalLogin(email?: string) {
-    const normalizedEmail = normalizeEmail(email ?? DEFAULT_TEST_CUSTOMER_EMAIL);
+    let normalizedEmail = normalizeEmail(email ?? DEFAULT_TEST_CUSTOMER_EMAIL);
+    // Older app builds ask for the dev test address; in production that maps to the demo customer.
+    if (config.env === 'production' && normalizedEmail === DEFAULT_TEST_CUSTOMER_EMAIL) normalizedEmail = PRODUCTION_DEMO_PORTAL_EMAILS[0];
     // In production the no-code login only works for the designated demo
     // customer (App Review / sales demos); nothing is auto-created there.
     if (config.env === 'production' && !PRODUCTION_DEMO_PORTAL_EMAILS.includes(normalizedEmail)) {
