@@ -10,7 +10,9 @@ async function main() {
   app.listen(config.port, () => {
     logger.info({ port: config.port, env: config.env }, 'ServiceFinanceAnt API listening');
   });
-  startJobScheduler();
+  // Local previews against the production database must not run the hourly jobs.
+  if (process.env.JOBS_DISABLED === 'true') logger.warn('background jobs disabled (JOBS_DISABLED=true)');
+  else startJobScheduler();
 }
 
 main().catch((err) => {

@@ -1,0 +1,21 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "backend",
+      "runtimeExecutable": "env",
+      "runtimeArgs": [
+        "JOBS_DISABLED=true",
+        "DATABASE_URL=postgres://localhost:5432/boxer_dev",
+        "EMAIL_PROVIDER=mock",
+        "PAYMENT_PROVIDER=mock",
+        "COGNITO_EMPLOYEE_AUTH_ENABLED=false",
+        "npm",
+        "run",
+        "dev"
+      ],
+      "cwd": "backend",
+      "port": 4000
+    }
+  ]
+}

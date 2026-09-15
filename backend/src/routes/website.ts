@@ -12,7 +12,7 @@ import { logger } from '../utils/logger';
  * and also under /site on the API host so it can be previewed before DNS
  * points at this server.
  */
-const SITE_CSP = "default-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; script-src 'none'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'";
+const SITE_CSP = "default-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com data:; img-src 'self' data:; script-src 'none'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'";
 
 function siteHeaders(res: Response) {
   res.setHeader('Content-Security-Policy', SITE_CSP);
