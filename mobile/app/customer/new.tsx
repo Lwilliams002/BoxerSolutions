@@ -56,12 +56,12 @@ export default function NewCustomerScreen() {
   const [commercial, setCommercial] = useState(false);
   const [address1, setAddress1] = useState(typeof params.address1 === 'string' ? params.address1 : '');
   const [city, setCity] = useState(typeof params.city === 'string' ? params.city : '');
-  const [state, setState] = useState(typeof params.state === 'string' && params.state ? params.state : 'TX');
+  const [state, setState] = useState(typeof params.state === 'string' && params.state ? params.state : 'FL');
   const [postal, setPostal] = useState(typeof params.postal === 'string' ? params.postal : '');
   const [sameBilling, setSameBilling] = useState(true);
   const [billing1, setBilling1] = useState('');
   const [billingCity, setBillingCity] = useState('');
-  const [billingState, setBillingState] = useState('TX');
+  const [billingState, setBillingState] = useState('FL');
   const [billingPostal, setBillingPostal] = useState('');
 
   const save = async () => {
