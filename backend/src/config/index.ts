@@ -83,6 +83,8 @@ export const config = {
     sesRegion: process.env.EMAIL_SES_REGION ?? process.env.AWS_REGION ?? 'us-east-1',
     sesAccessKeyId: process.env.EMAIL_SES_ACCESS_KEY_ID ?? process.env.AWS_ACCESS_KEY_ID ?? '',
     sesSecretAccessKey: process.env.EMAIL_SES_SECRET_ACCESS_KEY ?? process.env.AWS_SECRET_ACCESS_KEY ?? '',
+    /** Resend (https://resend.com) API key; used when EMAIL_PROVIDER=resend. */
+    resendApiKey: process.env.RESEND_API_KEY ?? '',
   },
   north: {
     functionsBaseUrl: normalizedOptional('NORTH_FUNCTIONS_BASE_URL', 'https://proxy.payanywhere.com'),

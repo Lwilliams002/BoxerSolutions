@@ -226,14 +226,51 @@ class MockPushProvider implements OutboundMessageProvider {
 const mockSmsProvider = new MockSmsProvider();
 const mockEmailProvider = new MockEmailProvider();
 const mockPushProvider = new MockPushProvider();
+/**
+ * Resend (https://resend.com): plain HTTPS API, domain verifies from DNS alone
+ * with no manual account review. Attachments go as base64.
+ */
+class ResendEmailProvider implements OutboundMessageProvider {
+  name = 'resend';
+
+  async send(payload: OutboundMessagePayload): Promise<void> {
+    if (!payload.to) throw new Error('Missing recipient email address for Resend send');
+    if (!config.email.from) throw new Error('Missing EMAIL_FROM configuration for Resend send');
+    if (!config.email.resendApiKey) throw new Error('Missing RESEND_API_KEY configuration');
+    const body: Record<string, unknown> = {
+      from: config.email.from,
+      to: [payload.to],
+      subject: payload.subject ?? 'Service Update',
+      text: payload.body,
+      ...(payload.html ? { html: payload.html } : {}),
+      ...(config.email.replyTo ? { reply_to: config.email.replyTo } : {}),
+      ...(payload.attachments?.length
+        ? { attachments: payload.attachments.map((a) => ({ filename: a.filename, content: a.content.toString('base64'), content_type: a.contentType })) }
+        : {}),
+      headers: { 'X-Entity-Ref-ID': payload.communicationId },
+    };
+    const res = await fetch('https://api.resend.com/emails', {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${config.email.resendApiKey}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+    if (!res.ok) {
+      let detail = '';
+      try { detail = JSON.stringify(await res.json()); } catch { detail = await res.text().catch(() => ''); }
+      throw new Error(`Resend rejected the email (${res.status}): ${detail.slice(0, 300)}`);
+    }
+  }
+}
+
 const sesEmailProvider = new SesEmailProvider();
+const resendEmailProvider = new ResendEmailProvider();
 
 export function getOutboundMessageProvider(channel: 'sms' | 'email' | 'push'): OutboundMessageProvider {
   switch (channel) {
     case 'sms':
       return mockSmsProvider;
     case 'email':
-      return config.email.provider === 'ses' ? sesEmailProvider : mockEmailProvider;
+      return config.email.provider === 'ses' ? sesEmailProvider : config.email.provider === 'resend' ? resendEmailProvider : mockEmailProvider;
     case 'push':
       return mockPushProvider;
   }
