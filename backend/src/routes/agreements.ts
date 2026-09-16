@@ -9,6 +9,7 @@ import { technicianScope, assertCustomerAccess } from '../middleware/scope';
 import { applyNorthCheckoutPageHeaders } from '../utils/northCheckoutCsp';
 import { agreementSigningService } from '../services/agreementSigningService';
 import { getCompanyInfo } from '../services/settingsService';
+import { paymentMethodLinkService } from '../services/paymentMethodLinkService';
 import { computeSurcharge } from '../utils/surcharge';
 import { communicationService, safelyQueueCommunication } from '../services/communicationService';
 import { logger } from '../utils/logger';
@@ -897,68 +898,32 @@ router.post(
       ? 'This agreement was already signed previously.'
       : 'Thank you. Your agreement has been signed successfully.';
 
-    const paymentToken = !result.alreadySigned ? (result.initialPaymentToken ?? null) : null;
-    const amountDue = !result.alreadySigned ? (result.initialAmountDue ?? null) : null;
-    const surchargePercent = (await getCompanyInfo()).cardSurchargePercent;
-    const receipt = !result.alreadySigned && result.initialInvoiceCharged
-      ? (result.initialReceipt as { receiptNumber?: string; amount?: number; brand?: string | null; last4?: string | null } | null)
-      : null;
+    const paymentToken: string | null = null;
+    const company = await getCompanyInfo();
+    const fmtLong = (iso: string) => { const [yy, mm, dd] = iso.split('-').map(Number); return new Date(Date.UTC(yy, mm - 1, dd, 12)).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric', timeZone: 'UTC' }); };
+    const forwardedProto = req.header('x-forwarded-proto');
+    const proto = (forwardedProto ? forwardedProto.split(',')[0] : req.protocol).trim();
+    const apiBaseUrl = `${proto}://${req.get('host')}`;
 
     let paymentSection = '';
-    if (receipt) {
-      const detailParts = [
-        receipt.amount != null ? `Amount paid: ${money(Number(receipt.amount))}` : null,
-        receipt.receiptNumber ? `Receipt: ${htmlEscape(receipt.receiptNumber)}` : null,
-        receipt.brand && receipt.last4 ? `${htmlEscape(String(receipt.brand))} ending in ${htmlEscape(String(receipt.last4))}` : null,
-      ].filter(Boolean).join('  ·  ');
+    if (!result.alreadySigned && result.initialInvoiceId) {
+      const amount = result.initialAmountDue != null ? money(Number(result.initialAmountDue)) : null;
+      const due = result.initialDueDate ? fmtLong(String(result.initialDueDate)) : null;
+      const storeLink = result.hasPaymentMethod ? null : await paymentMethodLinkService.buildLink(result.customerId, apiBaseUrl);
       paymentSection = `
       <div style="margin-top:16px;border:1px solid #BFE8DF;background:#EAF8F5;border-radius:10px;padding:14px;">
-        <h3 style="margin:0 0 6px 0;color:#0D0D0D;font-size:15px;">Initial payment received</h3>
-        <p style="margin:0;color:#30433F;font-size:13px;">Your initial service charge was paid with your saved payment method. A copy of the invoice and receipt is available in your account.</p>
-        ${detailParts ? `<p style="margin:8px 0 0 0;color:#30433F;font-size:13px;">${detailParts}</p>` : ''}
-      </div>`;
-    } else if (paymentToken) {
-      paymentSection = `
-      <div style="margin-top:16px;border-top:1px solid #D5EDE9;padding-top:14px;">
-        <h3 style="margin:0 0 6px 0;color:#0D0D0D;font-size:16px;">Pay Your Initial Service Charge</h3>
-        <p style="margin:0 0 10px 0;color:#30433F;font-size:14px;">
-          Enter your card or bank account below to pay${amountDue != null ? ` <strong>${money(Number(amountDue))}</strong>` : ''}. Your details are tokenized by our payment processor and never touch our systems; the method is saved on file for your recurring service charges.
-          ${surchargePercent > 0 && amountDue != null ? `<br><span style="color:#8A5A00;font-weight:700;">Paying by credit card adds a ${surchargePercent}% processing surcharge (${money(computeSurcharge(Number(amountDue), surchargePercent))}), for a total of ${money(Number(amountDue) + computeSurcharge(Number(amountDue), surchargePercent))}. Bank payments have no surcharge.</span>` : ''}
-        </p>
-        <input id="payToken" type="hidden" value="${htmlEscape(paymentToken)}" />
-        <div id="payBreakdown" style="border:1px solid #E3EEEB;border-radius:10px;padding:10px 12px;margin:0 0 12px 0;font-size:14px;color:#30433F;"></div>
-        <p id="payStatus" style="color:#607D78;font-size:14px;margin:10px 0;">Loading secure payment form…</p>
-        <p id="payError" style="color:#B3261E;font-size:14px;margin:10px 0;display:none;"></p>
-        <button type="button" id="payRetry" style="display:none;margin:0 0 12px 0;padding:8px 12px;border:1px solid #CBD7D4;border-radius:8px;background:#fff;cursor:pointer;">Try Again</button>
-        <div id="checkoutWrap" style="border:1px solid #D5EDE9;border-radius:14px;background:#fff;padding:12px;">
-          <div id="checkout-root" style="width:100%;background:#FFFFFF;"></div>
-        </div>
-        <div id="achConsentWrap" style="display:none;margin-top:12px;border:1px solid #F0E3C4;background:#FDF8EC;border-radius:10px;padding:12px;">
-          <h4 id="achConsentTitle" style="margin:0 0 6px 0;color:#0D0D0D;font-size:15px;">Authorize your bank account</h4>
-          <p style="margin:0 0 10px 0;color:#30433F;font-size:13px;">Your bank account has been securely stored. Confirm the account type and authorize the debit to complete this payment.</p>
-          <div style="display:flex;gap:16px;margin:0 0 10px 0;font-size:14px;color:#0D0D0D;">
-            <span style="font-weight:600;">Account type:</span>
-            <label style="display:flex;gap:6px;align-items:center;cursor:pointer;"><input type="radio" name="achAccountType" value="checking" checked /> Checking</label>
-            <label style="display:flex;gap:6px;align-items:center;cursor:pointer;"><input type="radio" name="achAccountType" value="savings" /> Savings</label>
-          </div>
-          <pre id="achTermsText" style="white-space:pre-wrap;font-family:inherit;font-size:13px;color:#4A4A4A;margin:0 0 10px 0;"></pre>
-          <label style="display:flex;gap:8px;align-items:flex-start;font-size:14px;color:#0D0D0D;cursor:pointer;">
-            <input id="achConsent" type="checkbox" style="margin-top:3px;" />
-            <span>I have read the ACH authorization above and authorize Boxer Solutions Pest Control to debit my bank account for this payment and, where I have recurring services, for future amounts due as described in those terms.</span>
-          </label>
-        </div>
-        <button type="button" id="payNow" disabled style="display:inline-block;margin-top:12px;padding:12px 18px;background:#2DC4A2;color:#0D0D0D;border:none;border-radius:8px;font-weight:700;font-size:15px;cursor:pointer;">Pay ${amountDue != null ? money(Number(amountDue)) : 'Now'}</button>
-        <div id="paySuccess" style="display:none;border:1px solid #BFE8DF;background:#EAF8F5;border-radius:10px;padding:14px;margin-top:12px;">
-          <h3 style="margin:0 0 6px 0;color:#0D0D0D;font-size:15px;">Payment received — thank you!</h3>
-          <p style="margin:0;color:#30433F;font-size:13px;">Your initial service charge has been paid and your payment method was securely saved on file for future service charges. A copy of the invoice and receipt is available in your account.</p>
-          <p id="paySuccessDetail" style="margin:8px 0 0 0;color:#30433F;font-size:13px;"></p>
-        </div>
-      </div>`;
-    } else if (!result.alreadySigned && result.initialInvoiceId) {
-      paymentSection = `
-      <div style="margin-top:16px;border:1px solid #F0E3C4;background:#FDF8EC;border-radius:10px;padding:14px;">
-        <p style="margin:0;color:#7A5C00;font-size:13px;">Your initial service invoice has been created and added to your account. Our team will follow up to collect payment.</p>
-      </div>`;
+        <h3 style="margin:0 0 6px 0;color:#0D0D0D;font-size:15px;">Your initial service${amount ? ` · ${amount}` : ''}</h3>
+        <p style="margin:0;color:#30433F;font-size:13px;">${due ? `Your initial flush-out is scheduled for <strong>${htmlEscape(due)}</strong>. ` : ''}Nothing is charged today. The initial service charge is collected after that visit, using the payment method on your account.</p>
+      </div>
+      ${storeLink ? `
+      <div style="margin-top:12px;border:1px solid #D5EDE9;border-radius:10px;padding:14px;">
+        <h3 style="margin:0 0 6px 0;color:#0D0D0D;font-size:15px;">Add a payment method for your account</h3>
+        <p style="margin:0 0 12px 0;color:#30433F;font-size:13px;">Save a card or bank account now so your service charges can be collected automatically after each visit. Your details are tokenized by our payment processor and never touch our systems. You will not be charged until service is performed.</p>
+        <a href="${htmlEscape(storeLink)}" style="display:inline-block;padding:12px 18px;background:#2DC4A2;color:#0D0D0D;border-radius:8px;font-weight:700;text-decoration:none;">Add payment method</a>
+      </div>` : `
+      <div style="margin-top:12px;border:1px solid #D5EDE9;border-radius:10px;padding:14px;">
+        <p style="margin:0;color:#30433F;font-size:13px;">A payment method is already saved on your account. Questions? Call ${htmlEscape(company.phone)}.</p>
+      </div>`}`;
     }
 
     res

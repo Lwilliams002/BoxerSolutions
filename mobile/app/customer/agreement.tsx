@@ -508,19 +508,8 @@ export default function AgreementScreen() {
                 },
               });
               initialInvoiceId = invoice.id;
-
-              try {
-                const methods = await api<any[]>(`/payment-methods?customerId=${targetCustomerId}`);
-                const defaultMethod = methods.find((method: any) => method.isDefault) ?? methods[0];
-                if (defaultMethod) {
-                  await api('/payments/charge', {
-                    method: 'POST',
-                    body: { invoiceId: invoice.id, paymentMethodId: defaultMethod.id },
-                  });
-                }
-              } catch {
-                // Keep the agreement flow successful and let the customer complete the card setup later.
-              }
+              // Not charged here: the initial charge is due on the initial service
+              // date and is collected after that visit (AutoPay or the technician).
             }
           } catch {
             // Keep signed-agreement flow successful even if invoice generation fails.
@@ -585,7 +574,7 @@ export default function AgreementScreen() {
           });
         confirmAction({
           title: 'Agreement Signed',
-          message: `${name} has been added and the signed agreement was saved.\n\nNext, set the visit days and times for the plan. You can add a payment method${initialInvoiceId ? ' and collect the initial service charge' : ''} from the Payment Methods tab afterward.`,
+          message: `${name} has been added and the signed agreement was saved.\n\nNext, set the visit days and times for the plan. ${initialInvoiceId ? `The initial charge is due on ${fmtDate(initialDate)} and is collected after that visit, not today. ` : ''}You can save a payment method on file from the Payment Methods tab.`,
           confirmText: 'Schedule Visits',
           onConfirm: goToSchedule,
           onCancel: goToPaymentMethods,

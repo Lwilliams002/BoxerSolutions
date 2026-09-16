@@ -506,19 +506,26 @@ async function assertInvoiceBelongsToCustomer(invoiceId: string, customerId: str
 }
 
 interface InitialChargeResult {
+  /** Always false now: the initial charge is collected when the initial service happens, never at signing. */
   charged: boolean;
   invoiceId: string | null;
   amountDue?: number;
-  paymentToken?: string;
+  /** When the initial invoice is due (the initial service date). */
+  dueDate?: string | null;
+  /** Whether the customer already has a payment method on file. */
+  hasPaymentMethod?: boolean;
   paymentMethodId?: string;
   receipt?: unknown;
   reason?: string;
 }
 
+/**
+ * Create the initial-service invoice for a signed agreement. It is due on the
+ * initial service date and is charged later (AutoPay once due, or by the
+ * technician after the visit) — never at the moment of signing, because the
+ * initial visit may be days or weeks out.
+ */
 async function chargeSignedAgreementInitial(customerId: string, agreement: AgreementSnapshot | null): Promise<InitialChargeResult> {
-  // An update charges only the items that are new versus the previous
-  // agreement (the builder records that as "Initial Due Now"); a first
-  // agreement charges its full initial total.
   const chargeAmount = agreement
     ? (agreement.isUpdate ? (agreement.initialDueNow ?? 0) : (agreement.initialDueNow ?? agreement.initialTotal ?? 0))
     : 0;
@@ -532,65 +539,31 @@ async function chargeSignedAgreementInitial(customerId: string, agreement: Agree
   }
 
   const amountDue = Number(chargeAmount.toFixed(2));
+  const dueDate = (!agreement.isUpdate && agreement.initialServiceDate) || todayIso();
   try {
     const invoice = await invoiceService.create({
-     customerId,
-     // Initial charge is due on the initial service date chosen on the agreement.
-     dueDate: (!agreement.isUpdate && agreement.initialServiceDate) || todayIso(),
-     taxRate: 0,
-     notes: agreement.isUpdate ? 'Agreement update charge (new services)' : 'Initial agreement charge',
-     items: [{
-       description: agreement.isUpdate ? 'Added services (initial charge)' : 'Initial service agreement charge',
-       quantity: 1,
-       unitPrice: amountDue,
-       taxable: false,
-     }],
+      customerId,
+      dueDate,
+      taxRate: 0,
+      notes: agreement.isUpdate ? 'Agreement update charge (new services)' : 'Initial agreement charge',
+      items: [{
+        description: agreement.isUpdate ? 'Added services (initial charge)' : 'Initial service agreement charge',
+        quantity: 1,
+        unitPrice: amountDue,
+        taxable: false,
+      }],
     }, ownerUserId);
     const invoiceId = String((invoice as { id?: unknown })?.id ?? '');
     if (!invoiceId) {
       return { charged: false, invoiceId: null, reason: 'Initial agreement invoice was created without an id.' };
     }
-    const paymentToken = issueInitialPaymentToken({
-      type: 'agreement_initial_payment',
-      customerId,
-      invoiceId,
-    });
-
-    const methods = (await paymentService.listMethods(customerId)) as Array<{ id: string; isDefault?: boolean }>;
-    const method = methods.find((item) => item.isDefault) ?? methods[0];
-    if (!method) {
-     return {
-       charged: false,
-       invoiceId,
-       amountDue,
-       paymentToken,
-       reason: 'No saved payment method is available to charge the initial agreement.',
-     };
-    }
-
-    try {
-     const result = await paymentService.chargeInvoice(invoiceId, method.id, null, ownerUserId, null);
-     return {
-       charged: true,
-       invoiceId,
-       amountDue,
-       paymentMethodId: method.id,
-       receipt: result.receipt,
-     };
-    } catch (error) {
-     return {
-       charged: false,
-       invoiceId,
-       amountDue,
-       paymentToken,
-       reason: error instanceof Error ? error.message : 'Initial agreement charge failed.',
-     };
-    }
+    const methods = (await paymentService.listMethods(customerId)) as Array<{ id: string }>;
+    return { charged: false, invoiceId, amountDue, dueDate, hasPaymentMethod: methods.length > 0 };
   } catch (error) {
     return {
-     charged: false,
-     invoiceId: null,
-     reason: error instanceof Error ? error.message : 'Initial agreement invoice could not be created.',
+      charged: false,
+      invoiceId: null,
+      reason: error instanceof Error ? error.message : 'Initial agreement invoice could not be created.',
     };
   }
 }
@@ -879,11 +852,13 @@ export const agreementSigningService = {
       customerId: row.customer_id,
       signedFileId: row.id,
       initialInvoiceId: initialCharge.invoiceId,
-      initialInvoiceCharged: initialCharge.charged,
+      initialInvoiceCharged: false,
       initialInvoiceChargeError: initialCharge.reason ?? null,
       initialAmountDue: initialCharge.amountDue ?? null,
-      initialPaymentToken: initialCharge.charged ? null : (initialCharge.paymentToken ?? null),
-      initialReceipt: initialCharge.receipt ?? null,
+      initialDueDate: initialCharge.dueDate ?? null,
+      hasPaymentMethod: initialCharge.hasPaymentMethod ?? false,
+      initialPaymentToken: null,
+      initialReceipt: null,
     };
   },
 
