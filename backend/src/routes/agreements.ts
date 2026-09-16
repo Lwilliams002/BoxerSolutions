@@ -13,7 +13,7 @@ import { computeSurcharge } from '../utils/surcharge';
 import { communicationService, safelyQueueCommunication } from '../services/communicationService';
 import { logger } from '../utils/logger';
 import { EGG_CYCLE_TITLE, EGG_CYCLE_BADGE, EGG_CYCLE_TEXT, INSECT_ACTIVITY_TITLE, insectActivityText, scheduleNote, agreementPestLists } from '../content/agreementTerms';
-import { SERVICE_FREQUENCY_LABELS, DEFAULT_SERVICE_FREQUENCY, buildChargeSchedule } from '../utils/serviceSchedule';
+import { SERVICE_FREQUENCY_LABELS, DEFAULT_SERVICE_FREQUENCY, buildChargeSchedule, scheduleForDisplay } from '../utils/serviceSchedule';
 import { todayIso } from '../utils/dates';
 
 const router = Router();
@@ -218,7 +218,7 @@ function renderAgreementDocument(ctx: Awaited<ReturnType<typeof agreementSigning
   const frequency = ctx.agreement?.frequency ?? DEFAULT_SERVICE_FREQUENCY;
   const frequencyLabel = SERVICE_FREQUENCY_LABELS[frequency];
   const isUpdate = Boolean(ctx.agreement?.isUpdate);
-  const schedule = ctx.agreement
+  const fullSchedule = ctx.agreement
     ? buildChargeSchedule({
         startDate: ctx.agreement?.initialServiceDate ?? todayIso(),
         frequency,
@@ -227,6 +227,7 @@ function renderAgreementDocument(ctx: Awaited<ReturnType<typeof agreementSigning
         recurringAmount: ctx.agreement.recurringTotal ?? 0,
       })
     : [];
+  const { entries: schedule, truncated: scheduleTruncated } = scheduleForDisplay(fullSchedule);
   const cellLabel = (dateIso: string) => {
     const [yy, mm, dd] = dateIso.split('-').map(Number);
     const d = new Date(Date.UTC(yy, mm - 1, dd, 12));
@@ -245,10 +246,10 @@ function renderAgreementDocument(ctx: Awaited<ReturnType<typeof agreementSigning
       </div>`).join('');
   const scheduleBlock = schedule.length
     ? `
-    <h4 style="background:#2DC4A2;color:#0D0D0D;font-weight:800;font-size:12px;text-align:center;padding:4px;border-radius:4px;margin:14px 0 8px 0;">${htmlEscape(frequencyLabel)} Service Schedule</h4>
+    <h4 style="background:#2DC4A2;color:#0D0D0D;font-weight:800;font-size:12px;text-align:center;padding:4px;border-radius:4px;margin:14px 0 8px 0;">${htmlEscape(frequencyLabel)} Service Schedule · ${termMonths}-month term</h4>
     <p style="margin:0 0 8px 0;font-size:12px;color:#0D0D0D;"><b>Initial service:</b> ${htmlEscape(cellLabelLong(ctx.agreement?.initialServiceDate ?? todayIso()))} &nbsp;·&nbsp; <b>Service frequency:</b> ${htmlEscape(frequencyLabel)} &nbsp;·&nbsp; <b>Regular service:</b> ${recurringTotal}</p>
     <div class="sched-grid">${scheduleCells}</div>
-    <p style="margin:6px 0 0 0;font-size:10.5px;color:#607D78;line-height:1.45;">${htmlEscape(scheduleNote(frequencyLabel, termMonths, isUpdate))}</p>`
+    <p style="margin:6px 0 0 0;font-size:10.5px;color:#607D78;line-height:1.45;">${scheduleTruncated ? htmlEscape(`Showing the first ${schedule.length} charges; the same cadence continues through the full ${termMonths}-month term (${fullSchedule.length} charges). `) : ''}${htmlEscape(scheduleNote(frequencyLabel, termMonths, isUpdate))}</p>`
     : '';
   const eggCycleBlock = `
     <h4 style="background:#2DC4A2;color:#0D0D0D;font-weight:800;font-size:12px;text-align:center;padding:4px;border-radius:4px;margin:14px 0 8px 0;">What to Expect</h4>

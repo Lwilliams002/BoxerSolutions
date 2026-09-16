@@ -10,7 +10,7 @@ import { recurringChargeService } from './recurringChargeService';
 import { CompanyInfo, getCompanyInfo } from './settingsService';
 import { EGG_CYCLE_TITLE, EGG_CYCLE_BADGE, EGG_CYCLE_TEXT, INSECT_ACTIVITY_TITLE, insectActivityText, scheduleNote, agreementPestLists } from '../content/agreementTerms';
 import { todayIso } from '../utils/dates';
-import { DEFAULT_SERVICE_FREQUENCY, SERVICE_FREQUENCY_LABELS, ServiceFrequency, buildChargeSchedule, parseServiceFrequency } from '../utils/serviceSchedule';
+import { DEFAULT_SERVICE_FREQUENCY, SERVICE_FREQUENCY_LABELS, ServiceFrequency, buildChargeSchedule, parseServiceFrequency, scheduleForDisplay } from '../utils/serviceSchedule';
 import { northGatewayService } from './northGatewayService';
 import { logger } from '../utils/logger';
 import { northFieldsPaymentService, type ConsentMeta } from './northFieldsPaymentService';
@@ -239,15 +239,16 @@ async function buildSignedAgreementPdf(input: {
     doc.text(`Recurring Total: ${formatMoney(recurringTotal)} ${SERVICE_FREQUENCY_LABELS[frequency].toLowerCase()}`);
 
     // Charge schedule across the term, like the customer saw when signing.
-    const schedule = buildChargeSchedule({
+    const fullSchedule = buildChargeSchedule({
       startDate: input.agreement?.initialServiceDate ?? todayIso(),
       frequency,
       termMonths,
       initialAmount: input.agreement?.isUpdate ? (input.agreement.initialDueNow ?? 0) : initialTotal,
       recurringAmount: recurringTotal,
     });
+    const { entries: schedule, truncated: scheduleTruncated } = scheduleForDisplay(fullSchedule);
     doc.moveDown(0.9);
-    doc.font('Helvetica-Bold').fontSize(11).fillColor('#0D0D0D').text(`Charge Schedule (${SERVICE_FREQUENCY_LABELS[frequency]})`);
+    doc.font('Helvetica-Bold').fontSize(11).fillColor('#0D0D0D').text(`Charge Schedule (${SERVICE_FREQUENCY_LABELS[frequency]} · ${termMonths}-month term)`);
     doc.moveDown(0.3);
     const cols = 6;
     const cellW = (doc.page.width - doc.page.margins.left - doc.page.margins.right) / cols;
@@ -277,7 +278,7 @@ async function buildSignedAgreementPdf(input: {
     });
     doc.x = doc.page.margins.left;
     doc.y = y + cellH + 6;
-    doc.font('Helvetica').fontSize(8).fillColor('#30433F').text(scheduleNote(SERVICE_FREQUENCY_LABELS[frequency], termMonths, Boolean(input.agreement?.isUpdate)));
+    doc.font('Helvetica').fontSize(8).fillColor('#30433F').text(`${scheduleTruncated ? `Showing the first ${schedule.length} charges; the same cadence continues through the full ${termMonths}-month term (${fullSchedule.length} charges). ` : ''}${scheduleNote(SERVICE_FREQUENCY_LABELS[frequency], termMonths, Boolean(input.agreement?.isUpdate))}`);
 
     // Egg cycle + insect activity explanation (same copy as the in-app document).
     doc.moveDown(0.9);
@@ -864,6 +865,7 @@ export const agreementSigningService = {
         await recurringChargeService.upsertFromAgreement(row.customer_id, recurringTotal, row.id, {
           frequency: agreement?.frequency ?? null,
           startDate: agreement?.initialServiceDate ?? null,
+          termMonths: agreement?.termMonths ?? null,
           isUpdate: agreement?.isUpdate ?? false,
           createdBy: null,
         });

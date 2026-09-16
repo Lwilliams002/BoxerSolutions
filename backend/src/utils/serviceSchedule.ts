@@ -112,7 +112,7 @@ export function buildChargeSchedule(input: ChargeScheduleInput): ScheduledCharge
   let cursor = input.firstRegularDate && input.firstRegularDate > input.startDate
     ? input.firstRegularDate
     : firstRegularServiceDate(input.startDate);
-  while (cursor < termEnd && out.length < 120) {
+  while (cursor < termEnd && out.length < 400) {
     out.push({ date: cursor, amount: round2(input.recurringAmount), kind: 'regular' });
     cursor = addServiceInterval(cursor, input.frequency);
   }
@@ -121,4 +121,14 @@ export function buildChargeSchedule(input: ChargeScheduleInput): ScheduledCharge
 
 function round2(n: number) {
   return Number((Number.isFinite(n) ? n : 0).toFixed(2));
+}
+
+/** Agreement term choices, shown in months on the document. */
+export const TERM_MONTH_OPTIONS = [12, 24, 36, 48, 60, 72] as const;
+
+/** Long terms print only the first two years of the grid; the note says it continues. */
+export const SCHEDULE_DISPLAY_MAX = 24;
+export function scheduleForDisplay(entries: ScheduledCharge[]) {
+  if (entries.length <= SCHEDULE_DISPLAY_MAX) return { entries, truncated: false };
+  return { entries: entries.slice(0, SCHEDULE_DISPLAY_MAX), truncated: true };
 }

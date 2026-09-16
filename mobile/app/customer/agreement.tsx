@@ -40,7 +40,7 @@ import { pestImage } from '../../src/lib/pestImages';
 import { useCompanyInfo } from '../../src/lib/companyInfo';
 import {
   DEFAULT_SERVICE_FREQUENCY, SERVICE_FREQUENCIES, SERVICE_FREQUENCY_LABELS, SERVICE_FREQUENCY_SHORT,
-  ServiceFrequency, buildChargeSchedule, parseServiceFrequency, scheduleCellLabel, todayIso,
+  ServiceFrequency, buildChargeSchedule, parseServiceFrequency, scheduleCellLabel, todayIso, TERM_MONTH_OPTIONS, scheduleForDisplay,
 } from '../../src/lib/serviceSchedule';
 import { EGG_CYCLE_TITLE, EGG_CYCLE_BADGE, EGG_CYCLE_TEXT, INSECT_ACTIVITY_TITLE, insectActivityText, scheduleNote } from '../../src/lib/agreementContent';
 
@@ -152,6 +152,8 @@ export default function AgreementScreen() {
   const [priceOverrides, setPriceOverrides] = useState<Record<string, PriceOverride>>({});
   const [initialDiscountInput, setInitialDiscountInput] = useState('');
   const [frequency, setFrequency] = useState<ServiceFrequency>(DEFAULT_SERVICE_FREQUENCY);
+  /** Agreement term; chosen in years, printed in months. */
+  const [termMonths, setTermMonths] = useState<number>(TERM_MONTHS);
   /** Date of the initial (flush-out) service; the schedule and the plan start here. */
   const [initialDate, setInitialDate] = useState<string>(todayIso());
   const [showDatePicker, setShowDatePicker] = useState(false);
@@ -169,6 +171,8 @@ export default function AgreementScreen() {
       ?? parseServiceFrequency(baseAgreement?.frequency)
       ?? parseServiceFrequency(baseAgreement?.selections?.frequency);
     if (cadence) setFrequency(cadence);
+    const baseTerm = Number((baseAgreement as { termMonths?: unknown } | null | undefined)?.termMonths);
+    if (Number.isFinite(baseTerm) && baseTerm >= 1) setTermMonths(baseTerm);
     const sel = baseAgreement?.selections;
     if (!sel) return;
     if (typeof sel.homeSize === 'string') {
@@ -303,13 +307,14 @@ export default function AgreementScreen() {
     () => buildChargeSchedule({
       startDate: isUpdate ? todayIso() : initialDate,
       frequency,
-      termMonths: TERM_MONTHS,
+      termMonths,
       initialAmount: isUpdate ? chargeTotal : initialTotal,
       recurringAmount: regularTotal,
       firstRegularDate: isUpdate ? baseAgreement?.nextDueDate ?? null : null,
     }),
-    [frequency, isUpdate, chargeTotal, initialTotal, regularTotal, baseAgreement, initialDate],
+    [frequency, isUpdate, chargeTotal, initialTotal, regularTotal, baseAgreement, initialDate, termMonths],
   );
+  const scheduleShown = useMemo(() => scheduleForDisplay(chargeSchedule), [chargeSchedule]);
 
   if (!data) {
     return (
@@ -407,7 +412,7 @@ export default function AgreementScreen() {
           ]
           : []),
         `Selections: ${JSON.stringify(selections)}`,
-        `Term: ${TERM_MONTHS} months`,
+        `Term: ${termMonths} months`,
         `Covered pests: ${coveredPests.join(', ')}`,
         `Signed: ${signedDate}`,
       ].join('\n');
@@ -528,7 +533,7 @@ export default function AgreementScreen() {
           try {
             await api('/recurring-charges', {
               method: 'POST',
-              body: { customerId: targetCustomerId, amount: Number(regularTotal.toFixed(2)), frequency, startDate: isUpdate ? todayIso() : initialDate, isUpdate },
+              body: { customerId: targetCustomerId, amount: Number(regularTotal.toFixed(2)), frequency, startDate: isUpdate ? todayIso() : initialDate, isUpdate, termMonths },
             });
           } catch {
             // Non-fatal; the recurring charge can be corrected from the invoices screen.
@@ -659,6 +664,21 @@ export default function AgreementScreen() {
             return (
               <TouchableOpacity key={f} style={[styles.freqChip, active && styles.freqChipActive]} onPress={() => setFrequency(f)} activeOpacity={0.85}>
                 <Text style={[styles.freqChipText, active && styles.freqChipTextActive]}>{SERVICE_FREQUENCY_LABELS[f]}</Text>
+              </TouchableOpacity>
+            );
+          })}
+        </View>
+
+        {/* ---------- Agreement term ---------- */}
+        <Text style={styles.pickHeader}>Agreement Term</Text>
+        <Text style={styles.pickSub}>Printed on the contract in months.</Text>
+        <View style={styles.freqRow}>
+          {TERM_MONTH_OPTIONS.map((m) => {
+            const active = termMonths === m;
+            const years = m / 12;
+            return (
+              <TouchableOpacity key={m} style={[styles.freqChip, active && styles.freqChipActive]} onPress={() => setTermMonths(m)} activeOpacity={0.85}>
+                <Text style={[styles.freqChipText, active && styles.freqChipTextActive]}>{years} {years === 1 ? 'year' : 'years'} · {m} mo</Text>
               </TouchableOpacity>
             );
           })}
@@ -972,7 +992,7 @@ export default function AgreementScreen() {
           <Text style={styles.schedNote}>✓ = added to this agreement. Other pests are available as add-on or single-pest services.</Text>
 
           {/* Charge schedule across the term */}
-          <Text style={styles.sectionBarFull}>{SERVICE_FREQUENCY_LABELS[frequency]} Service Schedule</Text>
+          <Text style={styles.sectionBarFull}>{SERVICE_FREQUENCY_LABELS[frequency]} Service Schedule · {termMonths}-Month Term</Text>
           {!isUpdate ? (
             <Text style={styles.schedNote}>Initial service: <Text style={{ fontWeight: '800', color: colors.text }}>{fmtDate(initialDate)}</Text> · Service frequency: {SERVICE_FREQUENCY_LABELS[frequency]} · Regular service {money(regularTotal)}</Text>
           ) : null}
@@ -981,7 +1001,7 @@ export default function AgreementScreen() {
           ) : (
             <>
               <View style={styles.schedGrid}>
-                {chargeSchedule.map((entry) => (
+                {scheduleShown.entries.map((entry) => (
                   <View key={entry.date} style={styles.schedCell}>
                     <Text style={[styles.schedHead, entry.kind === 'initial' && styles.schedHeadInitial]}>{scheduleCellLabel(entry.date, frequency)}</Text>
                     <Text style={styles.schedAmount}>{entry.kind === 'initial' ? '(I) ' : ''}{money(entry.amount)}</Text>
@@ -989,7 +1009,7 @@ export default function AgreementScreen() {
                 ))}
               </View>
               <Text style={styles.schedNote}>
-                {scheduleNote(SERVICE_FREQUENCY_LABELS[frequency], TERM_MONTHS, isUpdate)} Regular service {money(regularTotal)}.
+                {scheduleShown.truncated ? `Showing the first ${scheduleShown.entries.length} charges; the same cadence continues through the full ${termMonths}-month term (${chargeSchedule.length} charges). ` : ''}{scheduleNote(SERVICE_FREQUENCY_LABELS[frequency], termMonths, isUpdate)} Regular service {money(regularTotal)}.
               </Text>
             </>
           )}
@@ -1016,13 +1036,13 @@ export default function AgreementScreen() {
           {/* Terms */}
           <Text style={styles.sectionBarFull}>Terms &amp; Conditions</Text>
           <Text style={styles.terms}>
-            This agreement is for an initial period of {TERM_MONTHS} month(s). You, the customer, may cancel this
+            This agreement is for an initial period of {termMonths} month(s). You, the customer, may cancel this
             transaction any time prior to midnight of the third business day after the date of this transaction by
             giving written notice of cancellation to {company.name}. Upon completion of the initial service, the
             customer agrees to pay the full initial service charge. Recurring treatments continue at the agreed
             frequency until canceled by the customer. {company.name} will re-treat at no additional charge between
             scheduled visits if covered pest activity persists. If this agreement is terminated before the end of
-            the {TERM_MONTHS}-month term, the customer agrees to repay any initial service discount applied under
+            the {termMonths}-month term, the customer agrees to repay any initial service discount applied under
             this agreement.
           </Text>
           <Text style={styles.terms}>

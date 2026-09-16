@@ -20,6 +20,8 @@ export interface RecurringChargeUpsertOptions {
   isUpdate?: boolean;
   /** User performing the signing (falls back to the owner) — recorded on generated visits. */
   createdBy?: string | null;
+  /** Agreement term in months (12–72); drives how far ahead visits are built. */
+  termMonths?: number | null;
 }
 
 async function ownerUserId(): Promise<string> {
@@ -73,6 +75,7 @@ export const recurringChargeService = {
     const frequency = options.frequency
       ?? (options.isUpdate && current ? parseServiceFrequency(current.frequency) : null)
       ?? DEFAULT_SERVICE_FREQUENCY;
+    const termMonths = Math.min(120, Math.max(1, Math.round(options.termMonths ?? 12)));
     const firstRegular = firstRegularServiceDate(startDate);
     let nextDueDate = firstRegular;
     if (current && options.isUpdate) {
@@ -82,20 +85,21 @@ export const recurringChargeService = {
     }
 
     const { rows } = await pool.query(
-      `INSERT INTO recurring_charges (customer_id, description, amount, source_agreement_file_id, active, frequency, next_due_date)
-       VALUES ($1, 'Regular recurring service', $2, $3, true, $4, $5)
+      `INSERT INTO recurring_charges (customer_id, description, amount, source_agreement_file_id, active, frequency, next_due_date, term_months)
+       VALUES ($1, 'Regular recurring service', $2, $3, true, $4, $5, $6)
        ON CONFLICT (customer_id) WHERE active
        DO UPDATE SET
          amount = EXCLUDED.amount,
          source_agreement_file_id = EXCLUDED.source_agreement_file_id,
          frequency = EXCLUDED.frequency,
          next_due_date = EXCLUDED.next_due_date,
+         term_months = EXCLUDED.term_months,
          last_notified_due_date = CASE
            WHEN recurring_charges.next_due_date IS DISTINCT FROM EXCLUDED.next_due_date THEN NULL
            ELSE recurring_charges.last_notified_due_date END,
          updated_at = now()
        RETURNING *`,
-      [customerId, normalized, sourceAgreementFileId, frequency, nextDueDate],
+      [customerId, normalized, sourceAgreementFileId, frequency, nextDueDate, termMonths],
     );
     const row = rows[0] ?? null;
     // Put the customer's visits for the agreement term on the calendar. A new
@@ -109,7 +113,7 @@ export const recurringChargeService = {
         if (!options.isUpdate) {
           await createInitialVisit(row.id, startDate, actorId).catch((err) => logger.warn({ err, recurringChargeId: row.id }, 'could not create the initial visit'));
         }
-        const built = await buildTermVisits(row.id, actorId, 12);
+        const built = await buildTermVisits(row.id, actorId, termMonths);
         if (built.created) {
           const unassigned = await pool.query('SELECT count(*)::int AS n FROM appointments WHERE recurring_charge_id = $1 AND technician_id IS NULL AND status = $2 AND deleted_at IS NULL', [row.id, 'scheduled']);
           if (unassigned.rows[0].n > 0) {
@@ -152,7 +156,8 @@ export const recurringChargeService = {
   /** Rebuild the future schedule (owner action after fixing address/technician). */
   async rebuildSchedule(id: string, userId: string) {
     const cancelled = await cancelFutureVisits(id);
-    const built = await buildTermVisits(id, userId, 12);
+    const term = await pool.query('SELECT term_months FROM recurring_charges WHERE id = $1', [id]);
+    const built = await buildTermVisits(id, userId, Number(term.rows[0]?.term_months ?? 12));
     return { cancelled, created: built.created };
   },
 

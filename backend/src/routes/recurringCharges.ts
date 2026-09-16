@@ -22,6 +22,8 @@ const upsertSchema = z.object({
   /** Initial service date (YYYY-MM-DD); defaults to today. */
   startDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).nullish(),
   isUpdate: z.boolean().optional(),
+  /** Agreement term in months (12–72). */
+  termMonths: z.number().int().min(1).max(120).nullish(),
 });
 
 router.post(
@@ -40,6 +42,7 @@ router.post(
         startDate: body.startDate ?? null,
         isUpdate: body.isUpdate ?? false,
         createdBy: req.user!.id,
+        termMonths: body.termMonths ?? null,
       },
     );
     ok(res, row ? { id: row.id, amount: Number(row.amount), frequency: row.frequency, nextDueDate: row.next_due_date } : null, 'Recurring charge saved');

@@ -155,7 +155,7 @@ export async function buildTermVisits(recurringChargeId: string, systemUserId: s
   const base = planRecurringVisits([{ ...plan, hasVisitForDueDate: false }], territories, today, { ignoreHorizon: true })[0];
   const dates: string[] = [];
   let cursor = plan.nextDueDate < today ? today : plan.nextDueDate;
-  while (cursor <= end && dates.length < 60) {
+  while (cursor <= end && dates.length < 400) {
     if (!taken.has(cursor) && base) {
       await insertVisit({ ...base, scheduledDate: cursor }, systemUserId);
       dates.push(cursor);
