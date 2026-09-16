@@ -126,9 +126,10 @@ function round2(n: number) {
 /** Agreement term choices, shown in months on the document. */
 export const TERM_MONTH_OPTIONS = [12, 24, 36, 48, 60, 72] as const;
 
-/** Long terms print only the first two years of the grid; the note says it continues. */
-export const SCHEDULE_DISPLAY_MAX = 24;
+/** The document prints the first 12 months of charges; longer terms say the same schedule continues. */
 export function scheduleForDisplay(entries: ScheduledCharge[]) {
-  if (entries.length <= SCHEDULE_DISPLAY_MAX) return { entries, truncated: false };
-  return { entries: entries.slice(0, SCHEDULE_DISPLAY_MAX), truncated: true };
+  if (!entries.length) return { entries, truncated: false };
+  const firstYearEnd = toIso(addMonthsClamped(parseIso(entries[0].date), 12));
+  const shown = entries.filter((en) => en.date < firstYearEnd);
+  return { entries: shown, truncated: shown.length < entries.length };
 }

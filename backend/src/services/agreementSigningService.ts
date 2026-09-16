@@ -278,7 +278,7 @@ async function buildSignedAgreementPdf(input: {
     });
     doc.x = doc.page.margins.left;
     doc.y = y + cellH + 6;
-    doc.font('Helvetica').fontSize(8).fillColor('#30433F').text(`${scheduleTruncated ? `Showing the first ${schedule.length} charges; the same cadence continues through the full ${termMonths}-month term (${fullSchedule.length} charges). ` : ''}${scheduleNote(SERVICE_FREQUENCY_LABELS[frequency], termMonths, Boolean(input.agreement?.isUpdate))}`);
+    doc.font('Helvetica').fontSize(8).fillColor('#30433F').text(`${scheduleTruncated ? `First 12 months shown; the same schedule and price continue for the rest of the ${termMonths}-month term. ` : ''}${scheduleNote(SERVICE_FREQUENCY_LABELS[frequency], termMonths, Boolean(input.agreement?.isUpdate))}`);
 
     // Egg cycle + insect activity explanation (same copy as the in-app document).
     doc.moveDown(0.9);

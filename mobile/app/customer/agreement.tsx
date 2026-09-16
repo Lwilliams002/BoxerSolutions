@@ -1009,7 +1009,7 @@ export default function AgreementScreen() {
                 ))}
               </View>
               <Text style={styles.schedNote}>
-                {scheduleShown.truncated ? `Showing the first ${scheduleShown.entries.length} charges; the same cadence continues through the full ${termMonths}-month term (${chargeSchedule.length} charges). ` : ''}{scheduleNote(SERVICE_FREQUENCY_LABELS[frequency], termMonths, isUpdate)} Regular service {money(regularTotal)}.
+                {scheduleShown.truncated ? `First 12 months shown; the same schedule and price continue for the rest of the ${termMonths}-month term. ` : ''}{scheduleNote(SERVICE_FREQUENCY_LABELS[frequency], termMonths, isUpdate)} Regular service {money(regularTotal)}.
               </Text>
             </>
           )}

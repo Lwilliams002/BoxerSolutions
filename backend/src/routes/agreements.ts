@@ -249,7 +249,7 @@ function renderAgreementDocument(ctx: Awaited<ReturnType<typeof agreementSigning
     <h4 style="background:#2DC4A2;color:#0D0D0D;font-weight:800;font-size:12px;text-align:center;padding:4px;border-radius:4px;margin:14px 0 8px 0;">${htmlEscape(frequencyLabel)} Service Schedule · ${termMonths}-month term</h4>
     <p style="margin:0 0 8px 0;font-size:12px;color:#0D0D0D;"><b>Initial service:</b> ${htmlEscape(cellLabelLong(ctx.agreement?.initialServiceDate ?? todayIso()))} &nbsp;·&nbsp; <b>Service frequency:</b> ${htmlEscape(frequencyLabel)} &nbsp;·&nbsp; <b>Regular service:</b> ${recurringTotal}</p>
     <div class="sched-grid">${scheduleCells}</div>
-    <p style="margin:6px 0 0 0;font-size:10.5px;color:#607D78;line-height:1.45;">${scheduleTruncated ? htmlEscape(`Showing the first ${schedule.length} charges; the same cadence continues through the full ${termMonths}-month term (${fullSchedule.length} charges). `) : ''}${htmlEscape(scheduleNote(frequencyLabel, termMonths, isUpdate))}</p>`
+    <p style="margin:6px 0 0 0;font-size:10.5px;color:#607D78;line-height:1.45;">${scheduleTruncated ? htmlEscape(`First 12 months shown; the same schedule and price continue for the rest of the ${termMonths}-month term. `) : ''}${htmlEscape(scheduleNote(frequencyLabel, termMonths, isUpdate))}</p>`
     : '';
   const eggCycleBlock = `
     <h4 style="background:#2DC4A2;color:#0D0D0D;font-weight:800;font-size:12px;text-align:center;padding:4px;border-radius:4px;margin:14px 0 8px 0;">What to Expect</h4>
