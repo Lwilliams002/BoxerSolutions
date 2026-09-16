@@ -712,8 +712,12 @@ export default function CustomerScreen() {
                             {v.technicianName ?? 'No technician assigned'}{v.onRoute ? ' · on route' : ''}{v.invoiceId ? ' · invoiced' : ''}
                           </Text>
                           {hasPermission('appointments:write') && v.status === 'scheduled' ? (
-                            <TouchableOpacity onPress={() => { setResched({ id: v.id, date: v.scheduledDate, start: String(v.windowStart).slice(0, 5) }); setReschedDateText(v.scheduledDate); setShowReschedPicker(false); }}>
-                              <Text style={styles.link}>Reschedule</Text>
+                            <TouchableOpacity
+                              hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+                              style={[styles.chip, { paddingVertical: 8, paddingHorizontal: 14, borderColor: colors.primary }]}
+                              onPress={() => { setResched({ id: v.id, date: v.scheduledDate, start: String(v.windowStart).slice(0, 5) }); setReschedDateText(v.scheduledDate); setShowReschedPicker(false); }}
+                            >
+                              <Text style={[styles.chipText, { color: colors.primaryDark }]}>Reschedule</Text>
                             </TouchableOpacity>
                           ) : null}
                         </Row>
@@ -1118,6 +1122,7 @@ export default function CustomerScreen() {
         <Modal transparent animationType="fade" visible onRequestClose={() => setResched(null)}>
           <Pressable style={styles.commBackdrop} onPress={() => setResched(null)}>
             <Pressable style={styles.commSheet} onPress={() => undefined}>
+              <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 8 }} keyboardShouldPersistTaps="handled">
               <Value style={{ fontWeight: '800', fontSize: 17 }}>Reschedule visit</Value>
               <Text style={styles.metaText}>Pick the day and arrival window. The customer gets a reschedule notice.</Text>
               <Label>Day</Label>
@@ -1127,8 +1132,9 @@ export default function CustomerScreen() {
                     <Text style={[styles.chipText, resched.date === iso && styles.chipTextOn]}>{d === 0 ? fmtDate(iso) : `+${d}d · ${fmtDate(iso)}`}</Text>
                   </TouchableOpacity>
                 ); })}
-                <TouchableOpacity onPress={() => setShowReschedPicker(true)} style={[styles.chip]}><Text style={styles.chipText}>Pick a date…</Text></TouchableOpacity>
+                <TouchableOpacity onPress={() => setShowReschedPicker((v) => !v)} style={[styles.chip, showReschedPicker && styles.chipOn]}><Text style={[styles.chipText, showReschedPicker && styles.chipTextOn]}>{showReschedPicker ? 'Hide calendar' : 'Pick a date…'}</Text></TouchableOpacity>
               </View>
+              <Text style={[styles.metaText, { marginTop: 6 }]}>Selected: <Text style={{ fontWeight: '800', color: colors.text }}>{fmtDate(resched.date)}</Text></Text>
               {showReschedPicker && Platform.OS === 'web' ? (
                 <View style={{ flexDirection: 'row', gap: 8, alignItems: 'center', marginTop: 8 }}>
                   <TextInput value={reschedDateText} onChangeText={setReschedDateText} placeholder="YYYY-MM-DD" placeholderTextColor={colors.textMuted} style={styles.inputBox} />
@@ -1136,7 +1142,10 @@ export default function CustomerScreen() {
                 </View>
               ) : null}
               {showReschedPicker && Platform.OS !== 'web' ? (
-                <DateTimePicker value={dateFromIso(resched.date)} mode="date" display={Platform.OS === 'ios' ? 'inline' : 'default'} minimumDate={new Date()} onChange={(_e, v) => { if (Platform.OS !== 'ios') setShowReschedPicker(false); if (v) setResched({ ...resched, date: isoFromDate(v) }); }} />
+                <View style={{ marginTop: 6 }}>
+                  <DateTimePicker value={dateFromIso(resched.date)} mode="date" display={Platform.OS === 'ios' ? 'inline' : 'default'} minimumDate={new Date()} onChange={(_e, v) => { if (Platform.OS !== 'ios') setShowReschedPicker(false); if (v) setResched({ ...resched, date: isoFromDate(v) }); }} />
+                  {Platform.OS === 'ios' ? <Button title="Done" variant="outline" onPress={() => setShowReschedPicker(false)} style={{ paddingVertical: 8, marginTop: 4 }} /> : null}
+                </View>
               ) : null}
               <Label>Arrival window</Label>
               <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
@@ -1146,7 +1155,8 @@ export default function CustomerScreen() {
                   </TouchableOpacity>
                 ))}
               </View>
-              <View style={{ flexDirection: 'row', gap: 8, marginTop: 16 }}>
+              </ScrollView>
+              <View style={{ flexDirection: 'row', gap: 8, marginTop: 12 }}>
                 <Button title="Cancel" variant="outline" onPress={() => setResched(null)} style={{ flex: 1 }} />
                 <Button title="Save" onPress={() => saveReschedule(false)} loading={rescheduling} style={{ flex: 1 }} />
               </View>
