@@ -59,6 +59,19 @@ router.get(
   }),
 );
 
+router.post(
+  '/:id/visit-schedule',
+  authorize('appointments:write'),
+  asyncHandler(async (req, res) => {
+    const body = z.object({
+      windowStart: z.string().regex(/^\d{2}:\d{2}(:\d{2})?$/),
+      technicianId: z.string().uuid().nullable().optional(),
+      durationMinutes: z.number().int().min(15).max(480).optional(),
+    }).parse(req.body ?? {});
+    ok(res, await recurringChargeService.setVisitSchedule(req.params.id, body, req.user!.id), 'Visit schedule updated');
+  }),
+);
+
 router.get(
   '/:id/visits',
   authorize('invoices:read', 'invoices:read_assigned', 'appointments:read', 'appointments:read_assigned'),

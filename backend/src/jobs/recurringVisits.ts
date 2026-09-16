@@ -19,6 +19,8 @@ export interface RecurringPlanRow {
   latitude: number | null;
   longitude: number | null;
   lastVisitStart: string | null;
+  /** Office-chosen visit start (HH:MM) for this plan; wins over the last visit's time. */
+  preferredWindowStart: string | null;
   hasVisitForDueDate: boolean;
 }
 
@@ -69,7 +71,7 @@ export function planRecurringVisits(plans: RecurringPlanRow[], territories: Terr
     const scheduledDate = due < today ? today : due;
     const point = plan.latitude != null && plan.longitude != null ? { latitude: plan.latitude, longitude: plan.longitude } : null;
     const technicianId = plan.assignedTechnicianId ?? technicianForPoint(point, territories);
-    const windowStart = plan.lastVisitStart?.slice(0, 5) || DEFAULT_VISIT_START;
+    const windowStart = plan.preferredWindowStart?.slice(0, 5) || plan.lastVisitStart?.slice(0, 5) || DEFAULT_VISIT_START;
     const frequency = parseServiceFrequency(plan.frequency) ?? DEFAULT_SERVICE_FREQUENCY;
     out.push({
       recurringChargeId: plan.id,
@@ -88,7 +90,7 @@ export function planRecurringVisits(plans: RecurringPlanRow[], territories: Terr
 
 async function loadPlans(today: string, onlyId?: string): Promise<RecurringPlanRow[]> {
   const { rows } = await pool.query(
-    `SELECT rc.id, rc.customer_id, rc.next_due_date, rc.frequency, c.assigned_technician_id,
+    `SELECT rc.id, rc.customer_id, rc.next_due_date, rc.frequency, COALESCE(rc.preferred_technician_id, c.assigned_technician_id) AS assigned_technician_id, rc.preferred_window_start::text AS preferred_window_start,
             sl.id AS location_id, sl.latitude, sl.longitude,
             (SELECT a.window_start::text FROM appointments a WHERE a.customer_id = c.id AND a.status = 'completed' AND a.deleted_at IS NULL
                ORDER BY a.scheduled_date DESC LIMIT 1) AS last_visit_start,
@@ -116,6 +118,7 @@ async function loadPlans(today: string, onlyId?: string): Promise<RecurringPlanR
     latitude: r.latitude == null ? null : Number(r.latitude),
     longitude: r.longitude == null ? null : Number(r.longitude),
     lastVisitStart: r.last_visit_start ?? null,
+    preferredWindowStart: r.preferred_window_start ?? null,
     hasVisitForDueDate: !!r.has_visit_for_due_date,
   }));
 }

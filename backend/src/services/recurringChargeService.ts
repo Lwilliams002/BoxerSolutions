@@ -1,3 +1,4 @@
+import { recordAudit } from './auditService';
 import { pool } from '../config/db';
 import { ApiError } from '../utils/errors';
 import { invoiceService } from './invoiceService';
@@ -9,7 +10,7 @@ import {
 } from '../utils/serviceSchedule';
 
 import { todayIso, toIsoDate } from '../utils/dates';
-import { buildTermVisits, cancelFutureVisits, createInitialVisit } from '../jobs/recurringVisits';
+import { buildTermVisits, cancelFutureVisits, createInitialVisit, addMinutes } from '../jobs/recurringVisits';
 import { dispatchService } from './dispatchService';
 
 export interface RecurringChargeUpsertOptions {
@@ -151,6 +152,35 @@ export const recurringChargeService = {
       id: r.id, scheduledDate: toIsoDate(r.scheduled_date), windowStart: String(r.window_start).slice(0, 5), windowEnd: String(r.window_end).slice(0, 5),
       status: r.status, technicianId: r.technician_id, technicianName: r.technician_name, onRoute: !!r.on_route, invoiceId: r.invoice_id,
     }));
+  },
+
+  /**
+   * Office sets the visit time (and optionally the technician) for a plan after
+   * the agreement is signed: stored on the plan for future visits and applied
+   * to every upcoming scheduled visit that is not completed.
+   */
+  async setVisitSchedule(id: string, input: { windowStart: string; technicianId?: string | null; durationMinutes?: number }, userId: string) {
+    const plan = await pool.query('SELECT id, customer_id FROM recurring_charges WHERE id = $1', [id]);
+    if (!plan.rows[0]) throw ApiError.notFound('Plan not found');
+    const start = input.windowStart.slice(0, 5);
+    const end = addMinutes(start, input.durationMinutes ?? 60);
+    const setTech = input.technicianId !== undefined;
+    await pool.query(
+      `UPDATE recurring_charges SET preferred_window_start = $2, preferred_technician_id = CASE WHEN $3::boolean THEN $4::uuid ELSE preferred_technician_id END, updated_at = now() WHERE id = $1`,
+      [id, start, setTech, input.technicianId ?? null],
+    );
+    const updated = await pool.query(
+      `UPDATE appointments SET window_start = $2, window_end = $3,
+         technician_id = CASE WHEN $4::boolean THEN $5::uuid ELSE technician_id END, updated_at = now()
+       WHERE recurring_charge_id = $1 AND deleted_at IS NULL AND status = 'scheduled' AND scheduled_date >= CURRENT_DATE
+       RETURNING id`,
+      [id, start, end, setTech, input.technicianId ?? null],
+    );
+    if (setTech && input.technicianId) {
+      await pool.query('UPDATE customers SET assigned_technician_id = $2, updated_at = now() WHERE id = $1 AND assigned_technician_id IS NULL', [plan.rows[0].customer_id, input.technicianId]);
+    }
+    await recordAudit({ userId, action: 'recurring_charge.visit_schedule_set', entityType: 'recurring_charge', entityId: id, newValue: { windowStart: start, windowEnd: end, technicianId: input.technicianId ?? null, visitsUpdated: updated.rowCount } });
+    return { updated: updated.rowCount ?? 0, windowStart: start, windowEnd: end };
   },
 
   /** Rebuild the future schedule (owner action after fixing address/technician). */

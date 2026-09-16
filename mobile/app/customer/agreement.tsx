@@ -565,9 +565,9 @@ export default function AgreementScreen() {
           'Agreement Signed',
           isUpdate
             ? `${name}'s agreement was updated.${initialInvoiceId ? ` ${money(chargeTotal)} for the added services was invoiced.` : ' No new initial charges.'} Recurring is now ${money(regularTotal)}/service.`
-            : `${name}'s updated signed agreement was saved.`,
+            : `${name}'s updated signed agreement was saved. Next: set the visit days and times.`,
         );
-        router.replace(`/customer/${targetCustomerId}?tab=Documents`);
+        router.replace(`/customer/${targetCustomerId}?tab=Plan&schedule=1`);
       } else {
         const goToPaymentMethods = () =>
           router.replace({
@@ -576,12 +576,19 @@ export default function AgreementScreen() {
               ? { id: targetCustomerId, tab: 'Payment Methods', promptPayment: '1', promptInitialCharge: '1', initialInvoiceId }
               : { id: targetCustomerId, tab: 'Payment Methods', promptPayment: '1' },
           });
+        const goToSchedule = () =>
+          router.replace({
+            pathname: '/customer/[id]',
+            params: initialInvoiceId
+              ? { id: targetCustomerId, tab: 'Plan', schedule: '1', promptPayment: '1', promptInitialCharge: '1', initialInvoiceId }
+              : { id: targetCustomerId, tab: 'Plan', schedule: '1', promptPayment: '1' },
+          });
         confirmAction({
           title: 'Agreement Signed',
-          message: `${name} has been added and the signed agreement was saved.\n\nAdd a payment method now to save it on file${initialInvoiceId ? ' and collect the initial service charge' : ''}? (Cancel = later)`,
-          confirmText: 'Add Payment Method',
-          onConfirm: goToPaymentMethods,
-          onCancel: () => router.replace(`/customer/${targetCustomerId}`),
+          message: `${name} has been added and the signed agreement was saved.\n\nNext, set the visit days and times for the plan. You can add a payment method${initialInvoiceId ? ' and collect the initial service charge' : ''} from the Payment Methods tab afterward.`,
+          confirmText: 'Schedule Visits',
+          onConfirm: goToSchedule,
+          onCancel: goToPaymentMethods,
         });
       }
     } catch (e) {

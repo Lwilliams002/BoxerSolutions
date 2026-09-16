@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { View, Text, ScrollView, StyleSheet, TouchableOpacity, Alert, TextInput, Linking, RefreshControl, Modal, Pressable, Platform, Share } from 'react-native';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useLocalSearchParams, useRouter } from 'expo-router';
+import DateTimePicker from '@react-native-community/datetimepicker';
 import { api, newIdempotencyKey } from '../../src/lib/api';
 import { confirmAction, notify } from '../../src/lib/confirm';
 import { useAuth } from '../../src/lib/authStore';
@@ -18,7 +19,8 @@ function maskedLast4(value: unknown) {
 }
 
 export default function CustomerScreen() {
-  const { id, tab: tabParam, promptPayment, promptInitialCharge, initialInvoiceId } = useLocalSearchParams<{
+  const { id, tab: tabParam, promptPayment, promptInitialCharge, initialInvoiceId, schedule: schedulePrompt } = useLocalSearchParams<{
+    schedule?: string;
     id: string;
     tab?: string;
     promptPayment?: string;
@@ -158,6 +160,58 @@ export default function CustomerScreen() {
     enabled: tab === 'Plan' && !!activePlan?.id,
   });
   const [rebuilding, setRebuilding] = useState(false);
+  // ---- Visit times & technician for the plan (set by the office after signing)
+  const VISIT_STARTS = ['08:00', '09:00', '10:00', '11:00', '12:00', '13:00', '14:00', '15:00', '16:00', '17:00'];
+  const { data: technicians } = useQuery({
+    queryKey: ['technicians'],
+    queryFn: () => api<{ employeeId: string; firstName: string; lastName: string }[]>('/users/technicians'),
+    enabled: tab === 'Plan' && hasPermission('appointments:write'),
+  });
+  const [visitStart, setVisitStart] = useState<string>('09:00');
+  const [visitTech, setVisitTech] = useState<string | null | undefined>(undefined);
+  const [applyingVisits, setApplyingVisits] = useState(false);
+  const applyVisitSchedule = async () => {
+    if (!activePlan?.id) return;
+    setApplyingVisits(true);
+    try {
+      const r = await api<{ updated: number; windowStart: string; windowEnd: string }>(`/recurring-charges/${activePlan.id}/visit-schedule`, {
+        method: 'POST',
+        body: { windowStart: visitStart, ...(visitTech !== undefined ? { technicianId: visitTech } : {}) },
+      });
+      notify('Visit times set', `${r.updated} upcoming visit(s) moved to ${fmtTime(r.windowStart)}–${fmtTime(r.windowEnd)}. New visits will use this time too.`);
+      void qc.invalidateQueries({ queryKey: ['recurring-visits'] });
+      void qc.invalidateQueries({ queryKey: ['schedule'] });
+      void qc.invalidateQueries({ queryKey: ['customer', id] });
+    } catch (e) { notify('Could not update visits', (e as Error).message); } finally { setApplyingVisits(false); }
+  };
+  // ---- Reschedule one visit
+  const [resched, setResched] = useState<{ id: string; date: string; start: string } | null>(null);
+  const [reschedDateText, setReschedDateText] = useState('');
+  const [showReschedPicker, setShowReschedPicker] = useState(false);
+  const [rescheduling, setRescheduling] = useState(false);
+  const isoFromDate = (dt: Date) => `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, '0')}-${String(dt.getDate()).padStart(2, '0')}`;
+  const dateFromIso = (iso: string) => { const [y, m, d] = iso.split('-').map(Number); const dt = new Date(); dt.setFullYear(y, m - 1, d); dt.setHours(12, 0, 0, 0); return dt; };
+  const shiftIso = (iso: string, days: number) => { const dt = dateFromIso(iso); dt.setDate(dt.getDate() + days); return isoFromDate(dt); };
+  const addHour = (hhmm: string) => `${String((Number(hhmm.slice(0, 2)) + 1) % 24).padStart(2, '0')}:${hhmm.slice(3, 5)}`;
+  const saveReschedule = async (allowConflict = false) => {
+    if (!resched) return;
+    setRescheduling(true);
+    try {
+      await api(`/appointments/${resched.id}/reschedule`, {
+        method: 'POST',
+        body: { scheduledDate: resched.date, windowStart: resched.start, windowEnd: addHour(resched.start), allowConflict },
+      });
+      notify('Visit rescheduled', `${fmtDate(resched.date)} at ${fmtTime(resched.start)}. The customer is notified.`);
+      setResched(null);
+      void qc.invalidateQueries({ queryKey: ['recurring-visits'] });
+      void qc.invalidateQueries({ queryKey: ['schedule'] });
+    } catch (e) {
+      const msg = (e as Error).message;
+      if (/conflict/i.test(msg) && !allowConflict) {
+        confirmAction({ title: 'Technician is booked', message: `${msg}\n\nSchedule this visit anyway?`, confirmText: 'Schedule anyway', onConfirm: () => saveReschedule(true) });
+      } else notify('Could not reschedule', msg);
+    } finally { setRescheduling(false); }
+  };
   const rebuildSchedule = () =>
     confirmAction({
       title: 'Rebuild schedule',
@@ -611,8 +665,34 @@ export default function CustomerScreen() {
                   ) : null}
                 </Card>
 
+                {hasPermission('appointments:write') ? (
+                  <Card style={schedulePrompt === '1' ? { borderColor: colors.primary, borderWidth: 2 } : undefined}>
+                    {schedulePrompt === '1' ? <Text style={[styles.metaText, { color: colors.primaryDark, fontWeight: '800', marginBottom: 6 }]}>Agreement signed · set the visit days and times</Text> : null}
+                    <Value style={{ fontWeight: '800' }}>Visit time &amp; technician</Value>
+                    <Text style={styles.metaText}>Applies to every upcoming visit on this plan and to visits created later. Individual visits can still be moved below.</Text>
+                    <Label>Arrival window</Label>
+                    <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
+                      {VISIT_STARTS.map((t) => (
+                        <TouchableOpacity key={t} onPress={() => setVisitStart(t)} style={[styles.chip, visitStart === t && styles.chipOn]}>
+                          <Text style={[styles.chipText, visitStart === t && styles.chipTextOn]}>{fmtTime(t)}–{fmtTime(addHour(t))}</Text>
+                        </TouchableOpacity>
+                      ))}
+                    </View>
+                    <Label>Technician</Label>
+                    <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
+                      <TouchableOpacity onPress={() => setVisitTech(undefined)} style={[styles.chip, visitTech === undefined && styles.chipOn]}><Text style={[styles.chipText, visitTech === undefined && styles.chipTextOn]}>Keep current</Text></TouchableOpacity>
+                      {(technicians ?? []).map((t) => (
+                        <TouchableOpacity key={t.employeeId} onPress={() => setVisitTech(t.employeeId)} style={[styles.chip, visitTech === t.employeeId && styles.chipOn]}>
+                          <Text style={[styles.chipText, visitTech === t.employeeId && styles.chipTextOn]}>{t.firstName} {t.lastName}</Text>
+                        </TouchableOpacity>
+                      ))}
+                    </View>
+                    <Button title="Apply to upcoming visits" onPress={applyVisitSchedule} loading={applyingVisits} style={{ marginTop: 12 }} />
+                  </Card>
+                ) : null}
+
                 <Row style={{ marginTop: 6, marginBottom: 6, alignItems: 'center' }}>
-                  <Text style={styles.sectionLabel}>Upcoming visits · next 12 months</Text>
+                  <Text style={styles.sectionLabel}>Upcoming visits · full term</Text>
                   {hasPermission('appointments:write') ? (
                     <TouchableOpacity onPress={rebuildSchedule} disabled={rebuilding}><Text style={styles.link}>{rebuilding ? 'Rebuilding…' : 'Rebuild'}</Text></TouchableOpacity>
                   ) : null}
@@ -627,9 +707,16 @@ export default function CustomerScreen() {
                           <Value style={{ fontWeight: '700' }}>{fmtDate(v.scheduledDate)} · {fmtTime(v.windowStart)}</Value>
                           <StatusBadge status={v.status} />
                         </Row>
-                        <Text style={[styles.metaText, !v.technicianName && { color: colors.warning, fontWeight: '800' }]}>
-                          {v.technicianName ?? 'No technician assigned'}{v.onRoute ? ' · on route' : ''}{v.invoiceId ? ' · invoiced' : ''}
-                        </Text>
+                        <Row>
+                          <Text style={[styles.metaText, !v.technicianName && { color: colors.warning, fontWeight: '800' }]}>
+                            {v.technicianName ?? 'No technician assigned'}{v.onRoute ? ' · on route' : ''}{v.invoiceId ? ' · invoiced' : ''}
+                          </Text>
+                          {hasPermission('appointments:write') && v.status === 'scheduled' ? (
+                            <TouchableOpacity onPress={() => { setResched({ id: v.id, date: v.scheduledDate, start: String(v.windowStart).slice(0, 5) }); setReschedDateText(v.scheduledDate); setShowReschedPicker(false); }}>
+                              <Text style={styles.link}>Reschedule</Text>
+                            </TouchableOpacity>
+                          ) : null}
+                        </Row>
                       </Card>
                     </TouchableOpacity>
                   ))
@@ -1027,6 +1114,47 @@ export default function CustomerScreen() {
           )}
       </ScrollView>
 
+      {resched ? (
+        <Modal transparent animationType="fade" visible onRequestClose={() => setResched(null)}>
+          <Pressable style={styles.commBackdrop} onPress={() => setResched(null)}>
+            <Pressable style={styles.commSheet} onPress={() => undefined}>
+              <Value style={{ fontWeight: '800', fontSize: 17 }}>Reschedule visit</Value>
+              <Text style={styles.metaText}>Pick the day and arrival window. The customer gets a reschedule notice.</Text>
+              <Label>Day</Label>
+              <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
+                {[0, 1, 2, 3, 7].map((d) => { const iso = shiftIso(resched.date, d); return (
+                  <TouchableOpacity key={d} onPress={() => setResched({ ...resched, date: iso })} style={[styles.chip, resched.date === iso && styles.chipOn]}>
+                    <Text style={[styles.chipText, resched.date === iso && styles.chipTextOn]}>{d === 0 ? fmtDate(iso) : `+${d}d · ${fmtDate(iso)}`}</Text>
+                  </TouchableOpacity>
+                ); })}
+                <TouchableOpacity onPress={() => setShowReschedPicker(true)} style={[styles.chip]}><Text style={styles.chipText}>Pick a date…</Text></TouchableOpacity>
+              </View>
+              {showReschedPicker && Platform.OS === 'web' ? (
+                <View style={{ flexDirection: 'row', gap: 8, alignItems: 'center', marginTop: 8 }}>
+                  <TextInput value={reschedDateText} onChangeText={setReschedDateText} placeholder="YYYY-MM-DD" placeholderTextColor={colors.textMuted} style={styles.inputBox} />
+                  <Button title="Use" variant="outline" onPress={() => { if (/^\d{4}-\d{2}-\d{2}$/.test(reschedDateText.trim())) { setResched({ ...resched, date: reschedDateText.trim() }); setShowReschedPicker(false); } else notify('Enter the date as YYYY-MM-DD'); }} style={{ paddingVertical: 10 }} />
+                </View>
+              ) : null}
+              {showReschedPicker && Platform.OS !== 'web' ? (
+                <DateTimePicker value={dateFromIso(resched.date)} mode="date" display={Platform.OS === 'ios' ? 'inline' : 'default'} minimumDate={new Date()} onChange={(_e, v) => { if (Platform.OS !== 'ios') setShowReschedPicker(false); if (v) setResched({ ...resched, date: isoFromDate(v) }); }} />
+              ) : null}
+              <Label>Arrival window</Label>
+              <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
+                {VISIT_STARTS.map((t) => (
+                  <TouchableOpacity key={t} onPress={() => setResched({ ...resched, start: t })} style={[styles.chip, resched.start === t && styles.chipOn]}>
+                    <Text style={[styles.chipText, resched.start === t && styles.chipTextOn]}>{fmtTime(t)}–{fmtTime(addHour(t))}</Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
+              <View style={{ flexDirection: 'row', gap: 8, marginTop: 16 }}>
+                <Button title="Cancel" variant="outline" onPress={() => setResched(null)} style={{ flex: 1 }} />
+                <Button title="Save" onPress={() => saveReschedule(false)} loading={rescheduling} style={{ flex: 1 }} />
+              </View>
+            </Pressable>
+          </Pressable>
+        </Modal>
+      ) : null}
+
       {commDetailId ? (
         <Modal transparent animationType="fade" visible onRequestClose={() => setCommDetailId(null)}>
           <Pressable style={styles.commBackdrop} onPress={() => setCommDetailId(null)}>
@@ -1125,6 +1253,11 @@ const styles = StyleSheet.create({
   noteInput: { minHeight: 60, fontSize: 15, color: colors.text, textAlignVertical: 'top', marginBottom: 8 },
   link: { color: colors.primaryDark, fontWeight: '700', fontSize: 14 },
   commTitle: { fontSize: 15, fontWeight: '800', color: colors.text },
+  inputBox: { flex: 1, borderWidth: 1.5, borderColor: colors.border, borderRadius: 10, paddingVertical: 9, paddingHorizontal: 12, fontSize: 14, color: colors.text, backgroundColor: '#fff' },
+  chip: { borderWidth: 1.5, borderColor: colors.border, borderRadius: 20, paddingVertical: 7, paddingHorizontal: 12, backgroundColor: '#fff' },
+  chipOn: { borderColor: colors.primary, backgroundColor: colors.primary },
+  chipText: { fontSize: 13, fontWeight: '700', color: colors.text },
+  chipTextOn: { color: '#0D0D0D' },
   commBackdrop: { flex: 1, backgroundColor: 'rgba(0,0,0,0.45)', justifyContent: 'flex-end' },
   commSheet: { backgroundColor: colors.card, borderTopLeftRadius: 18, borderTopRightRadius: 18, padding: 18, maxHeight: '88%' },
   commWarn: { marginTop: 10, fontSize: 13, color: colors.danger, fontWeight: '700' },
