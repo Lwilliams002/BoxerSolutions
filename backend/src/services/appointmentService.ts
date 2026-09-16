@@ -165,6 +165,12 @@ export const appointmentService = {
          status = 'scheduled', updated_at = now() WHERE id = $5 RETURNING *`,
       [data.scheduledDate, data.windowStart, data.windowEnd, technicianId ?? null, id],
     );
+    // An initial-service invoice that is charged when due follows the visit date.
+    await pool.query(
+      `UPDATE invoices SET due_date = $1::date, next_autopay_retry_date = NULL, updated_at = now()
+       WHERE appointment_id = $2 AND charge_on_due = true AND deleted_at IS NULL AND status IN ('open','sent','past_due')`,
+      [data.scheduledDate, id],
+    );
     await recordAudit({
       userId, action: 'appointment.rescheduled', entityType: 'appointment', entityId: id,
       previousValue: { date: existing.scheduledDate, windowStart: existing.windowStart, windowEnd: existing.windowEnd },

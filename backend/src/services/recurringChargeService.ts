@@ -112,7 +112,15 @@ export const recurringChargeService = {
         const actorId = options.createdBy ?? (await ownerUserId());
         // The initial flush-out visit goes on the date chosen on the agreement.
         if (!options.isUpdate) {
-          await createInitialVisit(row.id, startDate, actorId).catch((err) => logger.warn({ err, recurringChargeId: row.id }, 'could not create the initial visit'));
+          const initial = await createInitialVisit(row.id, startDate, actorId).catch((err) => { logger.warn({ err, recurringChargeId: row.id }, 'could not create the initial visit'); return null; });
+          // The initial-service invoice follows the initial visit: due on that
+          // date, charged automatically when due if a payment method is on file.
+          await pool.query(
+            `UPDATE invoices SET appointment_id = COALESCE($3::uuid, appointment_id), due_date = $2::date, charge_on_due = true, updated_at = now()
+             WHERE customer_id = $1 AND deleted_at IS NULL AND status IN ('open','sent','past_due')
+               AND notes = 'Initial agreement charge' AND created_at > now() - interval '1 day'`,
+            [customerId, startDate, initial?.appointmentId ?? null],
+          ).catch((err) => logger.warn({ err, customerId }, 'could not link the initial invoice to the initial visit'));
         }
         const built = await buildTermVisits(row.id, actorId, termMonths);
         if (built.created) {

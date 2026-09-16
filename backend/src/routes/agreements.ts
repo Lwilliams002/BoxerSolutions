@@ -913,12 +913,12 @@ router.post(
       paymentSection = `
       <div style="margin-top:16px;border:1px solid #BFE8DF;background:#EAF8F5;border-radius:10px;padding:14px;">
         <h3 style="margin:0 0 6px 0;color:#0D0D0D;font-size:15px;">Your initial service${amount ? ` · ${amount}` : ''}</h3>
-        <p style="margin:0;color:#30433F;font-size:13px;">${due ? `Your initial flush-out is scheduled for <strong>${htmlEscape(due)}</strong>. ` : ''}Nothing is charged today. The initial service charge is collected after that visit, using the payment method on your account.</p>
+        <p style="margin:0;color:#30433F;font-size:13px;">${due ? `Your initial flush-out is scheduled for <strong>${htmlEscape(due)}</strong>. ` : ''}Nothing is charged today. The initial service charge is collected automatically on that date using the payment method on your account. If the visit is rescheduled, the charge moves with it.</p>
       </div>
       ${storeLink ? `
       <div style="margin-top:12px;border:1px solid #D5EDE9;border-radius:10px;padding:14px;">
         <h3 style="margin:0 0 6px 0;color:#0D0D0D;font-size:15px;">Add a payment method for your account</h3>
-        <p style="margin:0 0 12px 0;color:#30433F;font-size:13px;">Save a card or bank account now so your service charges can be collected automatically after each visit. Your details are tokenized by our payment processor and never touch our systems. You will not be charged until service is performed.</p>
+        <p style="margin:0 0 12px 0;color:#30433F;font-size:13px;">Save a card or bank account now so the initial charge and your regular service charges can be collected automatically when due. Your details are tokenized by our payment processor and never touch our systems. Nothing is charged before your initial service date.</p>
         <a href="${htmlEscape(storeLink)}" style="display:inline-block;padding:12px 18px;background:#2DC4A2;color:#0D0D0D;border-radius:8px;font-weight:700;text-decoration:none;">Add payment method</a>
       </div>` : `
       <div style="margin-top:12px;border:1px solid #D5EDE9;border-radius:10px;padding:14px;">

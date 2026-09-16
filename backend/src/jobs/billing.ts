@@ -20,7 +20,8 @@ function addDaysIso(days: number) {
 
 /**
  * AutoPay job: charge default payment methods for customers with AutoPay
- * enabled and due invoices. Idempotence is per invoice/day.
+ * enabled and due invoices, plus any invoice flagged charge_on_due (the
+ * agreed initial service charge). Idempotence is per invoice/day.
  */
 export async function processAutopay(systemUserId: string) {
   const attemptDate = todayIso();
@@ -28,7 +29,7 @@ export async function processAutopay(systemUserId: string) {
     `SELECT i.id AS invoice_id, i.customer_id, i.autopay_retry_count,
             COALESCE(ap.payment_method_id, pm.id) AS payment_method_id
      FROM invoices i
-     JOIN customers c ON c.id = i.customer_id AND c.autopay_enabled = true
+     JOIN customers c ON c.id = i.customer_id AND (c.autopay_enabled = true OR i.charge_on_due = true)
      LEFT JOIN autopay_settings ap ON ap.customer_id = c.id AND ap.enabled = true
      LEFT JOIN payment_methods pm ON pm.customer_id = c.id AND pm.is_default = true AND pm.deleted_at IS NULL
      WHERE i.deleted_at IS NULL

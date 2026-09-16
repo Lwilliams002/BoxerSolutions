@@ -574,7 +574,7 @@ export default function AgreementScreen() {
           });
         confirmAction({
           title: 'Agreement Signed',
-          message: `${name} has been added and the signed agreement was saved.\n\nNext, set the visit days and times for the plan. ${initialInvoiceId ? `The initial charge is due on ${fmtDate(initialDate)} and is collected after that visit, not today. ` : ''}You can save a payment method on file from the Payment Methods tab.`,
+          message: `${name} has been added and the signed agreement was saved.\n\nNext, set the visit days and times for the plan. ${initialInvoiceId ? `The initial charge is due on ${fmtDate(initialDate)} and is charged automatically that day if a payment method is on file, not today. ` : ''}You can save a payment method on file from the Payment Methods tab.`,
           confirmText: 'Schedule Visits',
           onConfirm: goToSchedule,
           onCancel: goToPaymentMethods,

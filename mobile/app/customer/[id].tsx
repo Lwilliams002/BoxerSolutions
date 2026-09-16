@@ -960,7 +960,7 @@ export default function CustomerScreen() {
                 <Text style={styles.setupBannerTitle}>Set up billing</Text>
                 <Text style={styles.setupBannerText}>
                   {promptInitialCharge === '1' && initialInvoiceId
-                    ? 'Add a card or bank account now to save it on file. Nothing is charged today: the initial service charge is collected after the initial visit.'
+                    ? 'Add a card or bank account now to save it on file. Nothing is charged today: the initial service charge runs automatically on the initial service date, and moves if that visit is rescheduled.'
                     : 'This customer has no payment method on file. Add a card or bank account below to enable payment collection and AutoPay.'}
                 </Text>
               </View>

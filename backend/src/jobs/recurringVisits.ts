@@ -175,19 +175,23 @@ export async function buildTermVisits(recurringChargeId: string, systemUserId: s
  */
 export async function createInitialVisit(recurringChargeId: string, dateIso: string, systemUserId: string) {
   const today = todayIso();
-  if (dateIso < today) return { created: false, reason: 'past' as const };
+  if (dateIso < today) return { created: false, reason: 'past' as const, appointmentId: undefined };
   const [plans, territories] = await Promise.all([loadPlans(today, recurringChargeId), loadTerritories()]);
   const plan = plans[0];
-  if (!plan || !plan.locationId) return { created: false, reason: 'no_location' as const };
+  if (!plan || !plan.locationId) return { created: false, reason: 'no_location' as const, appointmentId: undefined };
   const existing = await pool.query(
-    `SELECT 1 FROM appointments WHERE customer_id = $1 AND scheduled_date = $2::date AND deleted_at IS NULL AND status <> 'cancelled' LIMIT 1`,
+    `SELECT id FROM appointments WHERE customer_id = $1 AND scheduled_date = $2::date AND deleted_at IS NULL AND status <> 'cancelled' LIMIT 1`,
     [plan.customerId, dateIso],
   );
-  if (existing.rows[0]) return { created: false, reason: 'exists' as const };
+  if (existing.rows[0]) return { created: false, reason: 'exists' as const, appointmentId: existing.rows[0].id as string };
   const base = planRecurringVisits([{ ...plan, nextDueDate: dateIso, hasVisitForDueDate: false }], territories, today, { ignoreHorizon: true })[0];
-  if (!base) return { created: false, reason: 'no_location' as const };
+  if (!base) return { created: false, reason: 'no_location' as const, appointmentId: undefined };
   await insertVisit({ ...base, scheduledDate: dateIso, notes: 'Initial service (flush-out) · agreement' }, systemUserId);
-  return { created: true, reason: null };
+  const created = await pool.query(
+    `SELECT id FROM appointments WHERE recurring_charge_id = $1 AND scheduled_date = $2::date AND deleted_at IS NULL ORDER BY created_at DESC LIMIT 1`,
+    [recurringChargeId, dateIso],
+  );
+  return { created: true, reason: null, appointmentId: created.rows[0]?.id as string | undefined };
 }
 
 /** Drop future, untouched visits of a plan (used before rebuilding after a cadence change). */
