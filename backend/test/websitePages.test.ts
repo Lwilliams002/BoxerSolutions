@@ -15,11 +15,12 @@ test('every page carries the underwriting essentials', () => {
   }
 });
 
-test('home page lists services and prices; policies state cancellation and refunds', () => {
+test('home page lists plans without prices; policies state cancellation and refunds', () => {
   const home = SITE_PAGES.find((p) => p.path === '/')!.render(ctx);
-  assert.ok(home.includes('Standard Four Point Service') && home.includes('$340') && home.includes('$139'));
+  // Pricing is always quoted per property, so no dollar amounts appear on the site.
+  assert.ok(home.includes('Standard Four Point Service') && !/\$\d/.test(home));
   assert.ok(home.includes('never stored'));
-  for (const section of ['Cities served', 'Miami Gardens', "This season's hotspots", 'Mosquito season is here.', 'South Florida pest programs', 'Termite Control', 'Signs you have them', 'Tell us about the pest.', 'action="/estimate"']) {
+  for (const section of ['From the 305 to the 561.', 'Miami Gardens', 'Egg-cycle follow-up', 'Mosquito season is here.', 'South Florida pest programs', 'Termites', 'Signs you have them', 'Tell us about the pest.', 'action="/estimate"']) {
     assert.ok(home.includes(section), `home missing ${section}`);
   }
   const refunds = SITE_PAGES.find((p) => p.path === '/refund-policy')!.render(ctx);
@@ -46,5 +47,5 @@ test('preview base prefixes links when served under /site', () => {
   assert.ok(html.includes('href="/site/privacy"'));
   assert.ok(html.includes('src="/site/assets/logo-mark.png"'));
   assert.ok(html.includes('action="/site/estimate"'));
-  assert.ok(html.includes("url('/site/assets/hero-miami.jpg')"));
+  assert.ok(html.includes("url('/site/assets/hero-miami.jpg"));
 });

@@ -24,6 +24,8 @@ const upsertSchema = z.object({
   isUpdate: z.boolean().optional(),
   /** Agreement term in months (12–72). */
   termMonths: z.number().int().min(1).max(120).nullish(),
+  /** 30-day egg-cycle follow-up (default true). False: the cadence starts one interval after the initial. */
+  eggCycle: z.boolean().nullish(),
 });
 
 router.post(
@@ -43,6 +45,7 @@ router.post(
         isUpdate: body.isUpdate ?? false,
         createdBy: req.user!.id,
         termMonths: body.termMonths ?? null,
+        eggCycle: body.eggCycle ?? true,
       },
     );
     ok(res, row ? { id: row.id, amount: Number(row.amount), frequency: row.frequency, nextDueDate: row.next_due_date } : null, 'Recurring charge saved');

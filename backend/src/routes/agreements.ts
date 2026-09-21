@@ -13,8 +13,8 @@ import { paymentMethodLinkService } from '../services/paymentMethodLinkService';
 import { computeSurcharge } from '../utils/surcharge';
 import { communicationService, safelyQueueCommunication } from '../services/communicationService';
 import { logger } from '../utils/logger';
-import { EGG_CYCLE_TITLE, EGG_CYCLE_BADGE, EGG_CYCLE_TEXT, INSECT_ACTIVITY_TITLE, insectActivityText, scheduleNote, agreementPestLists } from '../content/agreementTerms';
-import { SERVICE_FREQUENCY_LABELS, DEFAULT_SERVICE_FREQUENCY, buildChargeSchedule, scheduleForDisplay } from '../utils/serviceSchedule';
+import { EGG_CYCLE_TITLE, EGG_CYCLE_BADGE, EGG_CYCLE_TEXT, EGG_CYCLE_SKIPPED_TEXT, INSECT_ACTIVITY_TITLE, insectActivityText, scheduleNote, agreementPestLists } from '../content/agreementTerms';
+import { SERVICE_FREQUENCY_LABELS, DEFAULT_SERVICE_FREQUENCY, buildChargeSchedule, scheduleByMonth } from '../utils/serviceSchedule';
 import { todayIso } from '../utils/dates';
 
 const router = Router();
@@ -136,7 +136,9 @@ function signPageStyles() {
   .sched-grid { display:grid; grid-template-columns:repeat(6, minmax(0,1fr)); gap:4px; }
   .sched-head { background:#2DC4A2; color:#0D0D0D; font-weight:800; font-size:10px; text-align:center; padding:3px 2px; border-radius:3px 3px 0 0; white-space:nowrap; overflow:hidden; }
   .sched-head-initial { background:#0D0D0D; color:#FFFFFF; }
-  .sched-amount { font-size:10px; color:#0D0D0D; text-align:center; padding:4px 2px; border:1px solid #D5EDE9; border-top:0; border-radius:0 0 3px 3px; white-space:nowrap; }
+  .sched-amount { font-size:10px; color:#0D0D0D; text-align:center; padding:4px 2px; border:1px solid #D5EDE9; border-top:0; border-radius:0 0 3px 3px; white-space:nowrap; min-height:14px; }
+  .sched-amount.empty { color:#8A9C98; background:#F3F6F5; }
+  .sched-amount div + div { margin-top:2px; }
   .egg-grid { display:grid; grid-template-columns:1fr 1fr; gap:14px; }
   .egg-col { display:flex; gap:10px; align-items:flex-start; min-width:0; }
   .egg-badge { flex:0 0 74px; text-align:center; border:1px solid #D5EDE9; border-radius:8px; padding:6px 4px; background:#F6FCFA; }
@@ -219,45 +221,45 @@ function renderAgreementDocument(ctx: Awaited<ReturnType<typeof agreementSigning
   const frequency = ctx.agreement?.frequency ?? DEFAULT_SERVICE_FREQUENCY;
   const frequencyLabel = SERVICE_FREQUENCY_LABELS[frequency];
   const isUpdate = Boolean(ctx.agreement?.isUpdate);
+  const eggCycle = ctx.agreement?.eggCycle ?? true;
+  const scheduleStart = ctx.agreement?.initialServiceDate ?? todayIso();
   const fullSchedule = ctx.agreement
     ? buildChargeSchedule({
-        startDate: ctx.agreement?.initialServiceDate ?? todayIso(),
+        startDate: scheduleStart,
         frequency,
         termMonths,
         initialAmount: isUpdate ? (ctx.agreement.initialDueNow ?? 0) : (ctx.agreement.initialTotal ?? 0),
         recurringAmount: ctx.agreement.recurringTotal ?? 0,
+        eggCycleFollowUp: eggCycle,
       })
     : [];
-  const { entries: schedule, truncated: scheduleTruncated } = scheduleForDisplay(fullSchedule);
-  const cellLabel = (dateIso: string) => {
-    const [yy, mm, dd] = dateIso.split('-').map(Number);
-    const d = new Date(Date.UTC(yy, mm - 1, dd, 12));
-    return frequency === 'monthly' || frequency === 'bimonthly' || frequency === 'quarterly'
-      ? d.toLocaleDateString('en-US', { month: 'short', year: '2-digit', timeZone: 'UTC' }).replace(' ', " '")
-      : d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', timeZone: 'UTC' });
-  };
+  // Twelve calendar months from the initial service; a month with nothing due stays blank.
+  const { months: schedule, truncated: scheduleTruncated } = scheduleByMonth(fullSchedule, scheduleStart);
   const cellLabelLong = (dateIso: string) => {
     const [yy, mm, dd] = dateIso.split('-').map(Number);
     return new Date(Date.UTC(yy, mm - 1, dd, 12)).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric', timeZone: 'UTC' });
   };
-  const scheduleCells = schedule.map((entry) => `
+  const scheduleCells = schedule.map((month) => `
       <div class="sched-cell">
-        <div class="sched-head${entry.kind === 'initial' ? ' sched-head-initial' : ''}">${htmlEscape(cellLabel(entry.date))}</div>
-        <div class="sched-amount">${entry.kind === 'initial' ? '(I) ' : ''}${money(entry.amount)}</div>
+        <div class="sched-head${month.entries.some((en) => en.kind === 'initial') ? ' sched-head-initial' : ''}">${htmlEscape(month.label)}</div>
+        <div class="sched-amount${month.entries.length ? '' : ' empty'}">${month.entries.length ? month.entries.map((entry) => `<div>${entry.kind === 'initial' ? '(I) ' : ''}${money(entry.amount)}</div>`).join('') : '&mdash;'}</div>
       </div>`).join('');
-  const scheduleBlock = schedule.length
+  const scheduleBlock = fullSchedule.length
     ? `
     <h4 style="background:#2DC4A2;color:#0D0D0D;font-weight:800;font-size:12px;text-align:center;padding:4px;border-radius:4px;margin:14px 0 8px 0;">${htmlEscape(frequencyLabel)} Service Schedule · ${termMonths}-month term</h4>
     <p style="margin:0 0 8px 0;font-size:12px;color:#0D0D0D;"><b>Initial service:</b> ${htmlEscape(cellLabelLong(ctx.agreement?.initialServiceDate ?? todayIso()))} &nbsp;·&nbsp; <b>Service frequency:</b> ${htmlEscape(frequencyLabel)} &nbsp;·&nbsp; <b>Regular service:</b> ${recurringTotal}</p>
     <div class="sched-grid">${scheduleCells}</div>
-    <p style="margin:6px 0 0 0;font-size:10.5px;color:#607D78;line-height:1.45;">${scheduleTruncated ? htmlEscape(`First 12 months shown; the same schedule and price continue for the rest of the ${termMonths}-month term. `) : ''}${htmlEscape(scheduleNote(frequencyLabel, termMonths, isUpdate))}</p>`
+    <p style="margin:6px 0 0 0;font-size:10.5px;color:#607D78;line-height:1.45;">${scheduleTruncated ? htmlEscape(`First 12 months shown; the same schedule and price continue for the rest of the ${termMonths}-month term. `) : ''}${htmlEscape(scheduleNote(frequencyLabel, termMonths, isUpdate, eggCycle))}</p>`
     : '';
   const eggCycleBlock = `
     <h4 style="background:#2DC4A2;color:#0D0D0D;font-weight:800;font-size:12px;text-align:center;padding:4px;border-radius:4px;margin:14px 0 8px 0;">What to Expect</h4>
     <div class="egg-grid">
       <div class="egg-col">
-        <div class="egg-badge"><div class="egg-badge-title">${htmlEscape(EGG_CYCLE_TITLE)}</div><div class="egg-badge-num">30</div><div class="egg-badge-sub">${htmlEscape(EGG_CYCLE_BADGE)}</div></div>
-        <p class="egg-text">${htmlEscape(EGG_CYCLE_TEXT)}</p>
+        ${eggCycle
+          ? `<div class="egg-badge"><div class="egg-badge-title">${htmlEscape(EGG_CYCLE_TITLE)}</div><div class="egg-badge-num">30</div><div class="egg-badge-sub">${htmlEscape(EGG_CYCLE_BADGE)}</div></div>
+        <p class="egg-text">${htmlEscape(EGG_CYCLE_TEXT)}</p>`
+          : `<div class="egg-badge"><div class="egg-badge-title">${htmlEscape(EGG_CYCLE_TITLE)}</div><div class="egg-badge-num">&mdash;</div><div class="egg-badge-sub">Not included</div></div>
+        <p class="egg-text">${htmlEscape(EGG_CYCLE_SKIPPED_TEXT)}</p>`}
       </div>
       <div class="egg-col">
         <div class="egg-badge"><div class="egg-badge-title">${htmlEscape(INSECT_ACTIVITY_TITLE)}</div><div class="egg-badge-num">&#8600;</div><div class="egg-badge-sub">Declines over time</div></div>

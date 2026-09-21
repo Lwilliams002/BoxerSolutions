@@ -84,11 +84,15 @@ export const ODD_JOBS: OddJob[] = [
 ];
 
 /** Every pest an add-on or odd job can cover, in price-sheet order (always printed on the agreement). */
+/** Mosquito treatment is always quoted per property: no set price, the initial and recurring amounts are typed on the agreement. */
+export const MOSQUITO_TREATMENT = { key: 'mosquito', label: 'Mosquito Treatment', pest: 'Mosquitoes' };
+
 export const ADDITIONAL_PESTS: string[] = [
   ...YARD_ANT_PESTS,
   ...ADDONS.flatMap((a) => a.pests),
   WEB_REMOVAL.pest,
   ...ODD_JOBS.map((o) => o.pest),
+  MOSQUITO_TREATMENT.pest,
 ];
 
 export const AGREEMENT_TERM_MONTHS = 12;

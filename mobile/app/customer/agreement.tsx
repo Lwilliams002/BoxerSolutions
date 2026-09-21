@@ -10,6 +10,7 @@ import {
   Modal,
   KeyboardAvoidingView,
   Platform,
+  Switch,
 } from 'react-native';
 import { useLocalSearchParams, useRouter, Stack } from 'expo-router';
 import { useQueryClient } from '@tanstack/react-query';
@@ -33,6 +34,7 @@ import {
   WEB_REMOVAL,
   webRemovalFee,
   ODD_JOBS,
+  MOSQUITO_TREATMENT,
   AGREEMENT_TERM_MONTHS as TERM_MONTHS,
   SizeTier,
 } from '../../src/lib/pricing';
@@ -40,9 +42,9 @@ import { pestImage } from '../../src/lib/pestImages';
 import { useCompanyInfo } from '../../src/lib/companyInfo';
 import {
   DEFAULT_SERVICE_FREQUENCY, SERVICE_FREQUENCIES, SERVICE_FREQUENCY_LABELS, SERVICE_FREQUENCY_SHORT,
-  ServiceFrequency, buildChargeSchedule, parseServiceFrequency, scheduleCellLabel, todayIso, TERM_MONTH_OPTIONS, scheduleForDisplay,
+  ServiceFrequency, buildChargeSchedule, parseServiceFrequency, todayIso, TERM_MONTH_OPTIONS, scheduleByMonth,
 } from '../../src/lib/serviceSchedule';
-import { EGG_CYCLE_TITLE, EGG_CYCLE_BADGE, EGG_CYCLE_TEXT, INSECT_ACTIVITY_TITLE, insectActivityText, scheduleNote } from '../../src/lib/agreementContent';
+import { EGG_CYCLE_TITLE, EGG_CYCLE_BADGE, EGG_CYCLE_TEXT, EGG_CYCLE_SKIPPED_TEXT, INSECT_ACTIVITY_TITLE, insectActivityText, scheduleNote } from '../../src/lib/agreementContent';
 
 interface ServiceLocation {
   addressLine1: string;
@@ -88,6 +90,8 @@ interface BaseAgreement {
     overrides?: unknown;
     itemKeys?: unknown;
     frequency?: unknown;
+    mosquito?: unknown;
+    eggCycle?: unknown;
   } | null;
 }
 
@@ -149,6 +153,12 @@ export default function AgreementScreen() {
   const [webOn, setWebOn] = useState(false);
   const [webSqft, setWebSqft] = useState('');
   const [oddKeys, setOddKeys] = useState<string[]>([]);
+  /** Mosquito treatment: custom-quoted, so both amounts are typed here. */
+  const [mosquitoOn, setMosquitoOn] = useState(false);
+  const [mosquitoInitial, setMosquitoInitial] = useState('');
+  const [mosquitoRegular, setMosquitoRegular] = useState('');
+  /** 30-day egg-cycle follow-up visit; on by default, off starts the regular cadence right after the initial. */
+  const [eggCycle, setEggCycle] = useState(true);
   const [priceOverrides, setPriceOverrides] = useState<Record<string, PriceOverride>>({});
   const [initialDiscountInput, setInitialDiscountInput] = useState('');
   const [frequency, setFrequency] = useState<ServiceFrequency>(DEFAULT_SERVICE_FREQUENCY);
@@ -190,6 +200,13 @@ export default function AgreementScreen() {
       if (typeof web.sqft === 'string') setWebSqft(web.sqft);
     }
     if (Array.isArray(sel.odd)) setOddKeys(sel.odd.filter((k): k is string => typeof k === 'string'));
+    if (sel.mosquito && typeof sel.mosquito === 'object') {
+      const m = sel.mosquito as { on?: boolean; initial?: string; regular?: string };
+      setMosquitoOn(!!m.on);
+      if (typeof m.initial === 'string') setMosquitoInitial(m.initial);
+      if (typeof m.regular === 'string') setMosquitoRegular(m.regular);
+    }
+    if (typeof sel.eggCycle === 'boolean') setEggCycle(sel.eggCycle);
     if (sel.overrides && typeof sel.overrides === 'object') setPriceOverrides(sel.overrides as Record<string, PriceOverride>);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [baseAgreement]);
@@ -248,9 +265,18 @@ export default function AgreementScreen() {
         pests.add(o.pest);
       }
     });
+    if (mosquitoOn) {
+      items.push({
+        key: MOSQUITO_TREATMENT.key,
+        label: MOSQUITO_TREATMENT.label,
+        initial: parseOverride(mosquitoInitial) ?? 0,
+        regular: parseOverride(mosquitoRegular) ?? 0,
+      });
+      pests.add(MOSQUITO_TREATMENT.pest);
+    }
 
     return { baseLineItems: items, coveredPests: Array.from(pests) };
-  }, [homeSize, yardTier, addonKeys, webOn, webSqft, webFee, oddKeys]);
+  }, [homeSize, yardTier, addonKeys, webOn, webSqft, webFee, oddKeys, mosquitoOn, mosquitoInitial, mosquitoRegular]);
 
   const lineItems = useMemo(
     () =>
@@ -311,10 +337,11 @@ export default function AgreementScreen() {
       initialAmount: isUpdate ? chargeTotal : initialTotal,
       recurringAmount: regularTotal,
       firstRegularDate: isUpdate ? baseAgreement?.nextDueDate ?? null : null,
+      eggCycleFollowUp: eggCycle,
     }),
-    [frequency, isUpdate, chargeTotal, initialTotal, regularTotal, baseAgreement, initialDate, termMonths],
+    [frequency, isUpdate, chargeTotal, initialTotal, regularTotal, baseAgreement, initialDate, termMonths, eggCycle],
   );
-  const scheduleShown = useMemo(() => scheduleForDisplay(chargeSchedule), [chargeSchedule]);
+  const scheduleShown = useMemo(() => scheduleByMonth(chargeSchedule, isUpdate ? todayIso() : initialDate), [chargeSchedule, isUpdate, initialDate]);
 
   if (!data) {
     return (
@@ -360,6 +387,10 @@ export default function AgreementScreen() {
       notify('Enter square footage', 'Please enter the structure size for Web Removal.');
       return;
     }
+    if (mosquitoOn && !((parseOverride(mosquitoInitial) ?? 0) > 0 || (parseOverride(mosquitoRegular) ?? 0) > 0)) {
+      notify('Enter mosquito pricing', 'Type the initial and/or recurring price for the Mosquito Treatment.');
+      return;
+    }
     if (!agreed && !sendForSignature) {
       notify('Agreement required', 'Please check the box to accept the terms.');
       return;
@@ -390,6 +421,8 @@ export default function AgreementScreen() {
         addons: addonKeys,
         web: { on: webOn, sqft: webSqft },
         odd: oddKeys,
+        mosquito: { on: mosquitoOn, initial: mosquitoInitial, regular: mosquitoRegular },
+        eggCycle,
         overrides: priceOverrides,
         itemKeys: lineItems.map((i) => i.key),
         frequency,
@@ -403,6 +436,7 @@ export default function AgreementScreen() {
         `Initial Total: ${money(initialTotal)}`,
         `Recurring Total: ${money(regularTotal)}/service`,
         `Frequency: ${frequency}`,
+        `Egg cycle follow-up: ${eggCycle ? 'YES' : 'NO'}`,
         ...(isUpdate ? [] : [`Initial service date: ${initialDate}`]),
         ...(isUpdate
           ? [
@@ -522,7 +556,7 @@ export default function AgreementScreen() {
           try {
             await api('/recurring-charges', {
               method: 'POST',
-              body: { customerId: targetCustomerId, amount: Number(regularTotal.toFixed(2)), frequency, startDate: isUpdate ? todayIso() : initialDate, isUpdate, termMonths },
+              body: { customerId: targetCustomerId, amount: Number(regularTotal.toFixed(2)), frequency, startDate: isUpdate ? todayIso() : initialDate, isUpdate, termMonths, eggCycle },
             });
           } catch {
             // Non-fatal; the recurring charge can be corrected from the invoices screen.
@@ -684,7 +718,7 @@ export default function AgreementScreen() {
         {!isUpdate ? (
           <>
             <Text style={styles.pickHeader}>Initial Service Date</Text>
-            <Text style={styles.pickSub}>When the initial flush-out visit happens. The first regular service follows 30 days later.</Text>
+            <Text style={styles.pickSub}>When the initial flush-out visit happens.{eggCycle ? ' The first regular service follows 30 days later.' : ` Regular service starts one ${SERVICE_FREQUENCY_LABELS[frequency].toLowerCase()} interval later.`}</Text>
             <View style={styles.freqRow}>
               {[{ label: 'Today', iso: shiftDays(0) }, { label: 'Tomorrow', iso: shiftDays(1) }, { label: 'In 2 days', iso: shiftDays(2) }, { label: 'In 3 days', iso: shiftDays(3) }].map((opt) => {
                 const active = initialDate === opt.iso;
@@ -760,6 +794,17 @@ export default function AgreementScreen() {
           </>
         ) : null}
 
+        {/* ---------- Egg-cycle follow-up ---------- */}
+        {!isUpdate ? (
+          <View style={styles.eggToggleRow}>
+            <View style={{ flex: 1 }}>
+              <Text style={styles.eggToggleTitle}>30-Day Egg Cycle Follow-Up</Text>
+              <Text style={styles.eggToggleSub}>{eggCycle ? 'Scheduled: first regular service 30 days after the initial to break the egg cycle.' : 'Off: no 30-day follow-up; the regular cadence starts one interval after the initial.'}</Text>
+            </View>
+            <Switch value={eggCycle} onValueChange={setEggCycle} trackColor={{ true: colors.primary, false: colors.border }} thumbColor="#fff" />
+          </View>
+        ) : null}
+
         {/* ---------- Recurring add-ons ---------- */}
         <Text style={styles.pickHeader}>Add-Ons</Text>
         {ADDONS.map((a) => {
@@ -796,6 +841,39 @@ export default function AgreementScreen() {
             <Text style={styles.webFee}>= {money(webFee)}</Text>
           </View>
         )}
+        {/* Mosquito treatment: custom price every time */}
+        <TouchableOpacity style={[styles.addonRow, mosquitoOn && styles.addonRowActive]} onPress={() => setMosquitoOn((v) => !v)} activeOpacity={0.85}>
+          <View style={[styles.checkbox, mosquitoOn && styles.checkboxOn]}>
+            {mosquitoOn && <Ionicons name="checkmark" size={15} color="#0D0D0D" />}
+          </View>
+          <View style={{ flex: 1 }}>
+            <Text style={[styles.addonLabel, mosquitoOn && { color: '#0D0D0D' }]}>{MOSQUITO_TREATMENT.label}</Text>
+            <Text style={styles.addonMeta}>Custom pricing · enter initial and recurring</Text>
+          </View>
+          <Text style={styles.addonPrice}>{mosquitoOn ? `${money(parseOverride(mosquitoInitial) ?? 0)} / ${money(parseOverride(mosquitoRegular) ?? 0)}` : 'Custom'}</Text>
+        </TouchableOpacity>
+        {mosquitoOn && (
+          <View style={styles.webRow}>
+            <Text style={styles.webLabel}>Initial $</Text>
+            <TextInput
+              style={styles.webInput}
+              value={mosquitoInitial}
+              onChangeText={(v) => setMosquitoInitial(normalizePriceInput(v))}
+              keyboardType="decimal-pad"
+              placeholder="0.00"
+              placeholderTextColor={colors.textMuted}
+            />
+            <Text style={[styles.webLabel, { marginLeft: 12 }]}>Recurring $</Text>
+            <TextInput
+              style={styles.webInput}
+              value={mosquitoRegular}
+              onChangeText={(v) => setMosquitoRegular(normalizePriceInput(v))}
+              keyboardType="decimal-pad"
+              placeholder="0.00"
+              placeholderTextColor={colors.textMuted}
+            />
+          </View>
+        )}
 
         {/* ---------- Odd jobs ---------- */}
         <Text style={styles.pickHeader}>Single-Pest Specialized (Odd Jobs)</Text>
@@ -820,7 +898,7 @@ export default function AgreementScreen() {
           <View style={styles.ownerPriceCard}>
             <Text style={styles.ownerPriceTitle}>Owner Price Overrides</Text>
             <Text style={styles.ownerPriceHint}>Adjust initial/regular amounts before saving or sending for signature.</Text>
-            {baseLineItems.map((item) => (
+            {baseLineItems.filter((item) => item.key !== MOSQUITO_TREATMENT.key).map((item) => (
               <View key={item.key} style={styles.ownerPriceRow}>
                 <Text style={styles.ownerPriceLabel}>{item.label}</Text>
                 <View style={styles.ownerPriceInputs}>
@@ -997,29 +1075,47 @@ export default function AgreementScreen() {
           ) : (
             <>
               <View style={styles.schedGrid}>
-                {scheduleShown.entries.map((entry) => (
-                  <View key={entry.date} style={styles.schedCell}>
-                    <Text style={[styles.schedHead, entry.kind === 'initial' && styles.schedHeadInitial]}>{scheduleCellLabel(entry.date, frequency)}</Text>
-                    <Text style={styles.schedAmount}>{entry.kind === 'initial' ? '(I) ' : ''}{money(entry.amount)}</Text>
-                  </View>
-                ))}
+                {scheduleShown.months.map((m) => {
+                  const hasInitial = m.entries.some((en) => en.kind === 'initial');
+                  return (
+                    <View key={m.month} style={styles.schedCell}>
+                      <Text style={[styles.schedHead, hasInitial && styles.schedHeadInitial]}>{m.label}</Text>
+                      <View style={[styles.schedAmountBox, !m.entries.length && styles.schedAmountEmpty]}>
+                        {m.entries.length ? m.entries.map((en) => (
+                          <Text key={en.date} style={styles.schedAmount}>{en.kind === 'initial' ? '(I) ' : ''}{money(en.amount)}</Text>
+                        )) : <Text style={[styles.schedAmount, { color: colors.textMuted }]}>—</Text>}
+                      </View>
+                    </View>
+                  );
+                })}
               </View>
               <Text style={styles.schedNote}>
-                {scheduleShown.truncated ? `First 12 months shown; the same schedule and price continue for the rest of the ${termMonths}-month term. ` : ''}{scheduleNote(SERVICE_FREQUENCY_LABELS[frequency], termMonths, isUpdate)} Regular service {money(regularTotal)}.
+                {scheduleShown.truncated ? `First 12 months shown; the same schedule and price continue for the rest of the ${termMonths}-month term. ` : ''}{scheduleNote(SERVICE_FREQUENCY_LABELS[frequency], termMonths, isUpdate, eggCycle)} Regular service {money(regularTotal)}.
               </Text>
             </>
           )}
 
           {/* Egg cycle + insect activity */}
           <Text style={styles.sectionBarFull}>What to Expect</Text>
-          <View style={styles.eggRow}>
-            <View style={styles.eggBadge}>
-              <Text style={styles.eggBadgeTitle}>{EGG_CYCLE_TITLE}</Text>
-              <Text style={styles.eggBadgeNum}>30</Text>
-              <Text style={styles.eggBadgeSub}>{EGG_CYCLE_BADGE}</Text>
+          {eggCycle ? (
+            <View style={styles.eggRow}>
+              <View style={styles.eggBadge}>
+                <Text style={styles.eggBadgeTitle}>{EGG_CYCLE_TITLE}</Text>
+                <Text style={styles.eggBadgeNum}>30</Text>
+                <Text style={styles.eggBadgeSub}>{EGG_CYCLE_BADGE}</Text>
+              </View>
+              <Text style={styles.eggText}>{EGG_CYCLE_TEXT}</Text>
             </View>
-            <Text style={styles.eggText}>{EGG_CYCLE_TEXT}</Text>
-          </View>
+          ) : (
+            <View style={styles.eggRow}>
+              <View style={styles.eggBadge}>
+                <Text style={styles.eggBadgeTitle}>{EGG_CYCLE_TITLE}</Text>
+                <Text style={styles.eggBadgeNum}>—</Text>
+                <Text style={styles.eggBadgeSub}>Not included</Text>
+              </View>
+              <Text style={styles.eggText}>{EGG_CYCLE_SKIPPED_TEXT}</Text>
+            </View>
+          )}
           <View style={styles.eggRow}>
             <View style={styles.eggBadge}>
               <Text style={styles.eggBadgeTitle}>{INSECT_ACTIVITY_TITLE}</Text>
@@ -1347,7 +1443,12 @@ const styles = StyleSheet.create({
   schedCell: { width: '16.66%', paddingHorizontal: 2, marginBottom: 4 },
   schedHead: { backgroundColor: colors.primary, color: '#0D0D0D', fontWeight: '800', fontSize: 9, textAlign: 'center', paddingVertical: 2, borderTopLeftRadius: 3, borderTopRightRadius: 3 },
   schedHeadInitial: { backgroundColor: '#0D0D0D', color: '#fff' },
-  schedAmount: { fontSize: 9, color: colors.text, textAlign: 'center', paddingVertical: 3, borderWidth: 1, borderTopWidth: 0, borderColor: colors.border, borderBottomLeftRadius: 3, borderBottomRightRadius: 3 },
+  schedAmountBox: { borderWidth: 1, borderTopWidth: 0, borderColor: colors.border, borderBottomLeftRadius: 3, borderBottomRightRadius: 3, paddingVertical: 2, minHeight: 20, justifyContent: 'center' },
+  schedAmountEmpty: { backgroundColor: '#F6F8F8' },
+  schedAmount: { fontSize: 9, color: colors.text, textAlign: 'center', paddingVertical: 1 },
+  eggToggleRow: { flexDirection: 'row', alignItems: 'center', gap: 12, borderWidth: 1.5, borderColor: colors.border, borderRadius: 10, padding: 12, marginTop: 14, backgroundColor: '#fff' },
+  eggToggleTitle: { fontSize: 14, fontWeight: '800', color: colors.text },
+  eggToggleSub: { fontSize: 12, color: colors.textMuted, marginTop: 2, lineHeight: 16 },
   schedNote: { fontSize: 10, color: colors.textMuted, marginTop: 4, lineHeight: 14 },
   eggRow: { flexDirection: 'row', alignItems: 'flex-start', gap: 10, marginBottom: 10 },
   eggBadge: { width: 74, alignItems: 'center', borderWidth: 1, borderColor: colors.border, borderRadius: 8, paddingVertical: 6, paddingHorizontal: 4, backgroundColor: '#F6FCFA' },

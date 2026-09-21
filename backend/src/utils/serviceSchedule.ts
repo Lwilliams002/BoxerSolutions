@@ -99,6 +99,8 @@ export interface ChargeScheduleInput {
   recurringAmount: number;
   /** First regular service date; defaults to 30 days after `startDate` (egg-cycle follow-up). */
   firstRegularDate?: string | null;
+  /** Schedule the 30-day egg-cycle follow-up (default). When false the regular cadence starts one interval after the initial. */
+  eggCycleFollowUp?: boolean;
 }
 
 /**
@@ -111,7 +113,9 @@ export function buildChargeSchedule(input: ChargeScheduleInput): ScheduledCharge
   const out: ScheduledCharge[] = [{ date: input.startDate, amount: round2(input.initialAmount), kind: 'initial' }];
   let cursor = input.firstRegularDate && input.firstRegularDate > input.startDate
     ? input.firstRegularDate
-    : firstRegularServiceDate(input.startDate);
+    : input.eggCycleFollowUp === false
+      ? addServiceInterval(input.startDate, input.frequency)
+      : firstRegularServiceDate(input.startDate);
   while (cursor < termEnd && out.length < 400) {
     out.push({ date: cursor, amount: round2(input.recurringAmount), kind: 'regular' });
     cursor = addServiceInterval(cursor, input.frequency);
@@ -126,10 +130,34 @@ function round2(n: number) {
 /** Agreement term choices, shown in months on the document. */
 export const TERM_MONTH_OPTIONS = [12, 24, 36, 48, 60, 72] as const;
 
-/** The document prints the first 12 months of charges; longer terms say the same schedule continues. */
-export function scheduleForDisplay(entries: ScheduledCharge[]) {
-  if (!entries.length) return { entries, truncated: false };
-  const firstYearEnd = toIso(addMonthsClamped(parseIso(entries[0].date), 12));
-  const shown = entries.filter((en) => en.date < firstYearEnd);
-  return { entries: shown, truncated: shown.length < entries.length };
+const MONTH_SHORT = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+
+export interface ScheduleMonth {
+  /** YYYY-MM */
+  month: string;
+  /** "Sep '26" */
+  label: string;
+  /** Charges falling in this month; empty when nothing is charged. */
+  entries: ScheduledCharge[];
+}
+
+/**
+ * The document prints the first 12 calendar months from the initial service,
+ * one cell per month, so a month without a charge shows as blank. Longer
+ * terms say the same schedule continues.
+ */
+export function scheduleByMonth(entries: ScheduledCharge[], startDate: string): { months: ScheduleMonth[]; truncated: boolean } {
+  const start = parseIso(startDate);
+  const months: ScheduleMonth[] = [];
+  for (let i = 0; i < 12; i += 1) {
+    const d = new Date(Date.UTC(start.getUTCFullYear(), start.getUTCMonth() + i, 1, 12));
+    const month = d.toISOString().slice(0, 7);
+    months.push({
+      month,
+      label: `${MONTH_SHORT[d.getUTCMonth()]} '${String(d.getUTCFullYear()).slice(2)}`,
+      entries: entries.filter((en) => en.date.slice(0, 7) === month),
+    });
+  }
+  const lastMonth = months[months.length - 1].month;
+  return { months, truncated: entries.some((en) => en.date.slice(0, 7) > lastMonth) };
 }

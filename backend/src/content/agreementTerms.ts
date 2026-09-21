@@ -13,14 +13,21 @@ export function insectActivityText(phone: string) {
   return `Initially you may see a slight increase in pest activity as pest populations are disrupted. Within a few weeks you should see this activity drastically decline as our products take effect. Over time, these pest levels will continually decrease as regular services are performed. Regular treatments are critical in maintaining protective barriers and preventing infestations from reoccurring. If you see more than the occasional pest around your home, please call ${phone} at any time for a complimentary retreat!`;
 }
 
+/** Shown in place of the egg-cycle explanation when the follow-up was turned off on the agreement. */
+export const EGG_CYCLE_SKIPPED_TEXT =
+  'The 30-day egg-cycle follow-up is not included in this agreement. Regular service starts one interval after the initial service.';
+
 /** Note under the charge schedule grid. */
-export function scheduleNote(frequencyLabel: string, termMonths: number, isUpdate: boolean) {
-  return `(I) ${isUpdate ? 'due now for the added services' : 'initial flush-out service'}. First regular service 30 days after the initial to break the egg cycle, then ${frequencyLabel.toLowerCase()} through the ${termMonths}-month term, continuing at the same cadence until canceled.`;
+export function scheduleNote(frequencyLabel: string, termMonths: number, isUpdate: boolean, eggCycle = true) {
+  const first = eggCycle
+    ? `First regular service 30 days after the initial to break the egg cycle, then ${frequencyLabel.toLowerCase()}`
+    : `Regular service ${frequencyLabel.toLowerCase()} starting one interval after the initial (no 30-day egg-cycle follow-up)`;
+  return `(I) ${isUpdate ? 'due now for the added services' : 'initial flush-out service'}. ${first} through the ${termMonths}-month term, continuing at the same cadence until canceled. Months without a charge are left blank.`;
 }
 
 /** Price-sheet pest lists, always printed on the agreement (mirrors mobile/src/lib/pricing.ts). */
 export const INCLUDED_PESTS = ['Box Elder Bugs', 'Asian Beetles', 'Centipedes', 'Clovermites', 'Crickets', 'Sow / Pill Bug', 'Spiders', 'Household Ants', 'Palmetto Bugs'];
-export const ADDITIONAL_PESTS = ['Yard Ants', 'Fire Ants', 'Carpenter Ants', 'Fleas', 'Ticks', 'Black Widow', 'Brown Recluse', 'Spider Web Removal', 'Wasps / Hornets', 'Millipedes', 'Silverfish', 'Earwigs'];
+export const ADDITIONAL_PESTS = ['Yard Ants', 'Fire Ants', 'Carpenter Ants', 'Fleas', 'Ticks', 'Black Widow', 'Brown Recluse', 'Spider Web Removal', 'Wasps / Hornets', 'Millipedes', 'Silverfish', 'Earwigs', 'Mosquitoes'];
 
 function pestKey(name: string) {
   const k = name.toLowerCase().replace(/[^a-z]/g, '');

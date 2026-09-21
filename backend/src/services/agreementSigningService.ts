@@ -8,9 +8,9 @@ import { invoiceService } from './invoiceService';
 import { paymentService } from './paymentService';
 import { recurringChargeService } from './recurringChargeService';
 import { CompanyInfo, getCompanyInfo } from './settingsService';
-import { EGG_CYCLE_TITLE, EGG_CYCLE_BADGE, EGG_CYCLE_TEXT, INSECT_ACTIVITY_TITLE, insectActivityText, scheduleNote, agreementPestLists } from '../content/agreementTerms';
+import { EGG_CYCLE_TITLE, EGG_CYCLE_BADGE, EGG_CYCLE_TEXT, EGG_CYCLE_SKIPPED_TEXT, INSECT_ACTIVITY_TITLE, insectActivityText, scheduleNote, agreementPestLists } from '../content/agreementTerms';
 import { todayIso } from '../utils/dates';
-import { DEFAULT_SERVICE_FREQUENCY, SERVICE_FREQUENCY_LABELS, ServiceFrequency, buildChargeSchedule, parseServiceFrequency, scheduleForDisplay } from '../utils/serviceSchedule';
+import { DEFAULT_SERVICE_FREQUENCY, SERVICE_FREQUENCY_LABELS, ServiceFrequency, buildChargeSchedule, parseServiceFrequency, scheduleByMonth } from '../utils/serviceSchedule';
 import { northGatewayService } from './northGatewayService';
 import { logger } from '../utils/logger';
 import { northFieldsPaymentService, type ConsentMeta } from './northFieldsPaymentService';
@@ -59,6 +59,8 @@ interface AgreementSnapshot {
   frequency: ServiceFrequency;
   /** Date of the initial service chosen on the agreement (YYYY-MM-DD), or null for signing day. */
   initialServiceDate: string | null;
+  /** 30-day egg-cycle follow-up scheduled (default). False: regular cadence starts one interval after the initial. */
+  eggCycle: boolean;
 }
 
 const AGREEMENT_TERM_MONTHS_DEFAULT = 12;
@@ -239,23 +241,29 @@ async function buildSignedAgreementPdf(input: {
     doc.text(`Recurring Total: ${formatMoney(recurringTotal)} ${SERVICE_FREQUENCY_LABELS[frequency].toLowerCase()}`);
 
     // Charge schedule across the term, like the customer saw when signing.
+    const eggCycle = input.agreement?.eggCycle ?? true;
+    const scheduleStart = input.agreement?.initialServiceDate ?? todayIso();
     const fullSchedule = buildChargeSchedule({
-      startDate: input.agreement?.initialServiceDate ?? todayIso(),
+      startDate: scheduleStart,
       frequency,
       termMonths,
       initialAmount: input.agreement?.isUpdate ? (input.agreement.initialDueNow ?? 0) : initialTotal,
       recurringAmount: recurringTotal,
+      eggCycleFollowUp: eggCycle,
     });
-    const { entries: schedule, truncated: scheduleTruncated } = scheduleForDisplay(fullSchedule);
+    // Twelve calendar months from the initial service, one cell each; a month
+    // with nothing due stays blank, like the document the customer signed.
+    const { months: schedule, truncated: scheduleTruncated } = scheduleByMonth(fullSchedule, scheduleStart);
     doc.moveDown(0.9);
     doc.font('Helvetica-Bold').fontSize(11).fillColor('#0D0D0D').text(`Charge Schedule (${SERVICE_FREQUENCY_LABELS[frequency]} · ${termMonths}-month term)`);
     doc.moveDown(0.3);
     const cols = 6;
     const cellW = (doc.page.width - doc.page.margins.left - doc.page.margins.right) / cols;
-    const cellH = 30;
+    const maxPerMonth = Math.max(1, ...schedule.map((m) => m.entries.length));
+    const cellH = 17 + maxPerMonth * 10;
     let x = doc.page.margins.left;
     let y = doc.y;
-    schedule.forEach((entry, index) => {
+    schedule.forEach((month, index) => {
       if (index > 0 && index % cols === 0) {
         x = doc.page.margins.left;
         y += cellH + 4;
@@ -264,26 +272,35 @@ async function buildSignedAgreementPdf(input: {
           y = doc.page.margins.top;
         }
       }
-      const [yy, mm, dd] = entry.date.split('-').map(Number);
-      const label = frequency === 'monthly' || frequency === 'bimonthly' || frequency === 'quarterly'
-        ? new Date(Date.UTC(yy, mm - 1, dd, 12)).toLocaleDateString('en-US', { month: 'short', year: '2-digit', timeZone: 'UTC' }).replace(' ', " '")
-        : new Date(Date.UTC(yy, mm - 1, dd, 12)).toLocaleDateString('en-US', { month: 'short', day: 'numeric', timeZone: 'UTC' });
-      doc.rect(x, y, cellW - 4, 13).fill(entry.kind === 'initial' ? '#0D0D0D' : '#2DC4A2');
-      doc.font('Helvetica-Bold').fontSize(8).fillColor(entry.kind === 'initial' ? '#FFFFFF' : '#0D0D0D')
-        .text(label, x, y + 3, { width: cellW - 4, align: 'center' });
+      const hasInitial = month.entries.some((en) => en.kind === 'initial');
+      doc.rect(x, y, cellW - 4, 13).fill(hasInitial ? '#0D0D0D' : '#2DC4A2');
+      doc.font('Helvetica-Bold').fontSize(8).fillColor(hasInitial ? '#FFFFFF' : '#0D0D0D')
+        .text(month.label, x, y + 3, { width: cellW - 4, align: 'center' });
+      if (!month.entries.length) doc.rect(x, y + 13, cellW - 4, cellH - 13).fill('#F3F6F5');
       doc.rect(x, y + 13, cellW - 4, cellH - 13).stroke('#B9C9C5');
-      doc.font('Helvetica').fontSize(8).fillColor('#0D0D0D')
-        .text(`${entry.kind === 'initial' ? '(I) ' : ''}${formatMoney(entry.amount)}`, x, y + 17, { width: cellW - 4, align: 'center' });
+      if (month.entries.length) {
+        month.entries.forEach((entry, row) => {
+          doc.font('Helvetica').fontSize(8).fillColor('#0D0D0D')
+            .text(`${entry.kind === 'initial' ? '(I) ' : ''}${formatMoney(entry.amount)}`, x, y + 17 + row * 10, { width: cellW - 4, align: 'center' });
+        });
+      } else {
+        doc.font('Helvetica').fontSize(8).fillColor('#8A9C98').text('—', x, y + 17, { width: cellW - 4, align: 'center' });
+      }
       x += cellW;
     });
     doc.x = doc.page.margins.left;
     doc.y = y + cellH + 6;
-    doc.font('Helvetica').fontSize(8).fillColor('#30433F').text(`${scheduleTruncated ? `First 12 months shown; the same schedule and price continue for the rest of the ${termMonths}-month term. ` : ''}${scheduleNote(SERVICE_FREQUENCY_LABELS[frequency], termMonths, Boolean(input.agreement?.isUpdate))}`);
+    doc.font('Helvetica').fontSize(8).fillColor('#30433F').text(`${scheduleTruncated ? `First 12 months shown; the same schedule and price continue for the rest of the ${termMonths}-month term. ` : ''}${scheduleNote(SERVICE_FREQUENCY_LABELS[frequency], termMonths, Boolean(input.agreement?.isUpdate), eggCycle)}`);
 
     // Egg cycle + insect activity explanation (same copy as the in-app document).
     doc.moveDown(0.9);
-    doc.font('Helvetica-Bold').fontSize(11).fillColor('#0D0D0D').text(`${EGG_CYCLE_TITLE} — ${EGG_CYCLE_BADGE}`);
-    doc.font('Helvetica').fontSize(9).fillColor('#30433F').text(EGG_CYCLE_TEXT, { lineGap: 2 });
+    if (eggCycle) {
+      doc.font('Helvetica-Bold').fontSize(11).fillColor('#0D0D0D').text(`${EGG_CYCLE_TITLE} — ${EGG_CYCLE_BADGE}`);
+      doc.font('Helvetica').fontSize(9).fillColor('#30433F').text(EGG_CYCLE_TEXT, { lineGap: 2 });
+    } else {
+      doc.font('Helvetica-Bold').fontSize(11).fillColor('#0D0D0D').text(`${EGG_CYCLE_TITLE} — Not included`);
+      doc.font('Helvetica').fontSize(9).fillColor('#30433F').text(EGG_CYCLE_SKIPPED_TEXT, { lineGap: 2 });
+    }
     doc.moveDown(0.5);
     doc.font('Helvetica-Bold').fontSize(11).fillColor('#0D0D0D').text(INSECT_ACTIVITY_TITLE);
     doc.font('Helvetica').fontSize(9).fillColor('#30433F').text(insectActivityText(input.company.phone), { lineGap: 2 });
@@ -381,8 +398,13 @@ function parseAgreementSnapshot(noteBody: string): AgreementSnapshot | null {
   let previousRecurringTotal: number | null = null;
   let frequency: ServiceFrequency | null = null;
   let initialServiceDate: string | null = null;
+  let eggCycle: boolean | null = null;
 
   for (const line of lines) {
+    if (line.startsWith('Egg cycle follow-up:')) {
+      eggCycle = !/\bno\b/i.test(line.replace('Egg cycle follow-up:', ''));
+      continue;
+    }
     if (line.startsWith('Initial service date:')) {
       const v = line.replace('Initial service date:', '').trim();
       if (/^\d{4}-\d{2}-\d{2}$/.test(v)) initialServiceDate = v;
@@ -453,7 +475,8 @@ function parseAgreementSnapshot(noteBody: string): AgreementSnapshot | null {
   }
 
   if (!frequency && selections) frequency = parseServiceFrequency(selections.frequency);
-  return { lineItems, initialDiscount, initialTotal, recurringTotal, termMonths, coveredPests, status, selections, isUpdate, initialDueNow, previousRecurringTotal, frequency: frequency ?? DEFAULT_SERVICE_FREQUENCY, initialServiceDate };
+  if (eggCycle == null && selections && typeof selections.eggCycle === 'boolean') eggCycle = selections.eggCycle;
+  return { lineItems, initialDiscount, initialTotal, recurringTotal, termMonths, coveredPests, status, selections, isUpdate, initialDueNow, previousRecurringTotal, frequency: frequency ?? DEFAULT_SERVICE_FREQUENCY, initialServiceDate, eggCycle: eggCycle ?? true };
 }
 
 async function loadAgreementSnapshot(customerId: string) {
@@ -839,6 +862,7 @@ export const agreementSigningService = {
           frequency: agreement?.frequency ?? null,
           startDate: agreement?.initialServiceDate ?? null,
           termMonths: agreement?.termMonths ?? null,
+          eggCycle: agreement?.eggCycle ?? true,
           isUpdate: agreement?.isUpdate ?? false,
           createdBy: null,
         });

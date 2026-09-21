@@ -23,6 +23,8 @@ export interface RecurringChargeUpsertOptions {
   createdBy?: string | null;
   /** Agreement term in months (12–72); drives how far ahead visits are built. */
   termMonths?: number | null;
+  /** Schedule the 30-day egg-cycle follow-up (default). False: first regular service one interval after the initial. */
+  eggCycle?: boolean | null;
 }
 
 async function ownerUserId(): Promise<string> {
@@ -77,7 +79,7 @@ export const recurringChargeService = {
       ?? (options.isUpdate && current ? parseServiceFrequency(current.frequency) : null)
       ?? DEFAULT_SERVICE_FREQUENCY;
     const termMonths = Math.min(120, Math.max(1, Math.round(options.termMonths ?? 12)));
-    const firstRegular = firstRegularServiceDate(startDate);
+    const firstRegular = options.eggCycle === false ? addServiceInterval(startDate, frequency) : firstRegularServiceDate(startDate);
     let nextDueDate = firstRegular;
     if (current && options.isUpdate) {
       const currentDue = toIsoDate(current.next_due_date);

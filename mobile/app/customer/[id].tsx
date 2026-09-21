@@ -66,6 +66,39 @@ export default function CustomerScreen() {
     });
   const [noteText, setNoteText] = useState('');
   const [busy, setBusy] = useState(false);
+  /** Edit the customer's contact details (name, company, email, phone). */
+  const [edit, setEdit] = useState<{ firstName: string; lastName: string; company: string; email: string; phone: string } | null>(null);
+  const [savingEdit, setSavingEdit] = useState(false);
+  const openEdit = () => setEdit({
+    firstName: String(cust?.firstName ?? ''),
+    lastName: String(cust?.lastName ?? ''),
+    company: String(cust?.company ?? ''),
+    email: String(cust?.email ?? ''),
+    phone: String(cust?.phone ?? ''),
+  });
+  const saveEdit = async () => {
+    if (!edit) return;
+    const firstName = edit.firstName.trim();
+    const lastName = edit.lastName.trim();
+    const email = edit.email.trim();
+    if (!firstName || !lastName) { notify('Name required', 'Enter the customer\'s first and last name.'); return; }
+    if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) { notify('Check the email', 'That email address does not look right.'); return; }
+    setSavingEdit(true);
+    try {
+      await api(`/customers/${id}`, {
+        method: 'PATCH',
+        body: { firstName, lastName, company: edit.company.trim() || null, email: email || null, phone: edit.phone.trim() || null },
+      });
+      void qc.invalidateQueries({ queryKey: ['customer', id] });
+      void qc.invalidateQueries({ queryKey: ['customers'] });
+      setEdit(null);
+      notify('Customer updated');
+    } catch (e) {
+      notify('Could not save', (e as Error).message);
+    } finally {
+      setSavingEdit(false);
+    }
+  };
   const [customInvoiceDescription, setCustomInvoiceDescription] = useState('Additional service');
   const [customInvoiceAmount, setCustomInvoiceAmount] = useState('');
   const [creatingCustomInvoice, setCreatingCustomInvoice] = useState(false);
@@ -556,7 +589,14 @@ export default function CustomerScreen() {
   return (
     <View style={{ flex: 1 }}>
       <View style={styles.headerCard}>
-        <Text style={styles.name}>{name}</Text>
+        <Row>
+          <Text style={[styles.name, { flex: 1 }]} numberOfLines={2}>{name}</Text>
+          {hasPermission('customers:write') ? (
+            <TouchableOpacity onPress={openEdit} style={styles.editBtn} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }} accessibilityLabel="Edit customer">
+              <Text style={styles.editBtnText}>✎ Edit</Text>
+            </TouchableOpacity>
+          ) : null}
+        </Row>
         <Row style={{ marginTop: 6 }}>
           <StatusBadge status={cust.status} />
           <Text style={[styles.balance, parseFloat(cust.balance) > 0 && { color: '#FF7A6E' }]}>
@@ -1165,6 +1205,33 @@ export default function CustomerScreen() {
         </Modal>
       ) : null}
 
+      {edit ? (
+        <Modal transparent animationType="fade" visible onRequestClose={() => setEdit(null)}>
+          <Pressable style={styles.commBackdrop} onPress={() => setEdit(null)}>
+            <Pressable style={styles.commSheet} onPress={() => undefined}>
+              <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 8 }} keyboardShouldPersistTaps="handled">
+                <Value style={{ fontWeight: '800', fontSize: 17 }}>Edit customer</Value>
+                <Text style={styles.metaText}>Update the name, company, email or phone. Emails and receipts go to the new address from now on.</Text>
+                <Label>First name</Label>
+                <TextInput style={styles.editInput} value={edit.firstName} onChangeText={(v) => setEdit({ ...edit, firstName: v })} autoCapitalize="words" />
+                <Label>Last name</Label>
+                <TextInput style={styles.editInput} value={edit.lastName} onChangeText={(v) => setEdit({ ...edit, lastName: v })} autoCapitalize="words" />
+                <Label>Company</Label>
+                <TextInput style={styles.editInput} value={edit.company} onChangeText={(v) => setEdit({ ...edit, company: v })} placeholder="Optional" placeholderTextColor={colors.textMuted} />
+                <Label>Email</Label>
+                <TextInput style={styles.editInput} value={edit.email} onChangeText={(v) => setEdit({ ...edit, email: v })} keyboardType="email-address" autoCapitalize="none" autoCorrect={false} placeholder="name@example.com" placeholderTextColor={colors.textMuted} />
+                <Label>Phone</Label>
+                <TextInput style={styles.editInput} value={edit.phone} onChangeText={(v) => setEdit({ ...edit, phone: v })} keyboardType="phone-pad" placeholder="(305) 555-0100" placeholderTextColor={colors.textMuted} />
+              </ScrollView>
+              <View style={{ flexDirection: 'row', gap: 10, marginTop: 8 }}>
+                <Button title="Cancel" variant="outline" onPress={() => setEdit(null)} style={{ flex: 1 }} />
+                <Button title="Save" onPress={() => void saveEdit()} loading={savingEdit} style={{ flex: 1 }} />
+              </View>
+            </Pressable>
+          </Pressable>
+        </Modal>
+      ) : null}
+
       {commDetailId ? (
         <Modal transparent animationType="fade" visible onRequestClose={() => setCommDetailId(null)}>
           <Pressable style={styles.commBackdrop} onPress={() => setCommDetailId(null)}>
@@ -1241,6 +1308,9 @@ const styles = StyleSheet.create({
   setupBannerText: { fontSize: 13, color: colors.text, lineHeight: 18 },
   headerCard: { backgroundColor: '#0D0D0D', padding: 18, paddingBottom: 16 },
   name: { fontSize: 21, fontWeight: '900', color: '#FFFFFF' },
+  editBtn: { borderWidth: 1.5, borderColor: '#2DC4A2', borderRadius: 16, paddingVertical: 5, paddingHorizontal: 12, marginLeft: 10 },
+  editBtnText: { color: '#2DC4A2', fontWeight: '800', fontSize: 13 },
+  editInput: { borderWidth: 1.5, borderColor: colors.border, borderRadius: 10, paddingVertical: 10, paddingHorizontal: 12, fontSize: 15, color: colors.text, backgroundColor: '#fff', marginBottom: 10 },
   balance: { fontSize: 15, fontWeight: '800', color: '#2DC4A2' },
   // Explicit height: a horizontal ScrollView inside a flex column has no
   // intrinsic height on web and gets squeezed, cropping the labels.
