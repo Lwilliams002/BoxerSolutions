@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { View, Text, ScrollView, StyleSheet, Image, TextInput, TouchableOpacity } from 'react-native';
+import { View, Text, ScrollView, StyleSheet, Image, TextInput, TouchableOpacity, Modal, Pressable } from 'react-native';
 import * as ImagePicker from 'expo-image-picker';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useLocalSearchParams, useRouter } from 'expo-router';
@@ -10,6 +10,12 @@ import { colors, fmtTime, money, statusLabel } from '../../src/lib/theme';
 import { confirmAction, notify } from '../../src/lib/confirm';
 import { Card, Button, StatusBadge, Loading, SectionTitle, Row, Value } from '../../src/components/ui';
 import { SyncBanner } from '../../src/components/SyncBanner';
+import { ServiceMediaGrid } from '../../src/components/ServiceMediaGrid';
+import { ServiceMediaItem, MEDIA_LABEL_TEXT } from '../../src/lib/types';
+
+/** Proof videos are kept short so they upload on cell service. */
+const MAX_VIDEO_SECONDS = 30;
+type MediaLabel = 'before' | 'after' | 'proof';
 import { openNavigation } from '../route/[id]';
 
 interface ApptDetail {
@@ -53,6 +59,10 @@ export default function StopScreen() {
   const [used, setUsed] = useState<UsedProduct[] | null>(null);
   const catalog = useQuery({ queryKey: ['products'], queryFn: () => api<{ items: CatalogProduct[]; applicationMethods: string[] }>('/products') });
   const [localPhotos, setLocalPhotos] = useState<string[]>([]);
+  /** A capture waiting for its tag (Before / After / Proof) before upload. */
+  const [pendingCapture, setPendingCapture] = useState<{ localUri: string; fileName: string; mimeType: string; kind: 'image' | 'video'; fileSize: number | null } | null>(null);
+  const [captureLabel, setCaptureLabel] = useState<MediaLabel>('proof');
+  const [captureCaption, setCaptureCaption] = useState('');
 
   const { data: appt, isLoading } = useQuery({
     queryKey: ['appointment', id],
@@ -64,7 +74,7 @@ export default function StopScreen() {
   });
   const { data: photos } = useQuery({
     queryKey: ['photos', id],
-    queryFn: () => api<{ items: { id: string; fileName: string }[] }>(`/files?appointmentId=${id}&fileType=service_photo`),
+    queryFn: () => api<{ items: ServiceMediaItem[] }>(`/files/media?appointmentId=${id}`),
   });
   const { data: signatures } = useQuery({
     queryKey: ['signatures', id],
@@ -129,44 +139,78 @@ export default function StopScreen() {
     }
   };
 
-  const takePhoto = async (fromCamera: boolean) => {
+  /**
+   * Take or pick a photo or a short video. The capture is kept locally, then
+   * tagged (Before / After / Proof of service) before it uploads, so the
+   * customer sees what each shot means.
+   */
+  const captureMedia = async (fromCamera: boolean) => {
     const perm = fromCamera
       ? await ImagePicker.requestCameraPermissionsAsync()
       : await ImagePicker.requestMediaLibraryPermissionsAsync();
     if (!perm.granted) {
-      notify('Permission required', 'Camera/library access is needed to attach photos.');
+      notify('Permission required', 'Camera/library access is needed to attach photos and videos.');
       return;
     }
     const result = fromCamera
-      ? await ImagePicker.launchCameraAsync({ quality: 0.9 })
-      : await ImagePicker.launchImageLibraryAsync({ quality: 0.9 });
+      ? await ImagePicker.launchCameraAsync({ mediaTypes: ['images', 'videos'], quality: 0.9, videoMaxDuration: MAX_VIDEO_SECONDS, videoQuality: ImagePicker.UIImagePickerControllerQualityType.Medium })
+      : await ImagePicker.launchImageLibraryAsync({ mediaTypes: ['images', 'videos'], quality: 0.9, videoMaxDuration: MAX_VIDEO_SECONDS });
     if (result.canceled || !result.assets?.[0]) return;
+    const asset = result.assets[0];
 
     setBusy('photo');
     try {
-      const compressed = await compressPhoto(result.assets[0].uri);
-      const fileName = `service-${Date.now()}.jpg`;
-      // Keep a local copy until the server confirms the upload.
-      const localUri = await persistLocally(compressed, fileName);
-      setLocalPhotos((p) => [...p, localUri]);
-      const pending: PendingPhoto = {
-        localUri,
-        fileType: 'service_photo',
-        fileName,
-        mimeType: 'image/jpeg',
-        appointmentId: id,
-        customerId: appt?.customerId,
-      };
-      try {
-        await uploadPendingPhoto(pending);
-        setLocalPhotos((p) => p.filter((u) => u !== localUri));
-        void qc.invalidateQueries({ queryKey: ['photos', id] });
-      } catch {
-        await useSync.getState().enqueuePhoto(pending);
-        notify('Saved offline', 'Photo will upload when you are back online.');
+      if (asset.type === 'video') {
+        const seconds = asset.duration ? asset.duration / 1000 : 0;
+        if (seconds > MAX_VIDEO_SECONDS + 1) {
+          notify('Video too long', `Proof videos are limited to ${MAX_VIDEO_SECONDS} seconds so they upload reliably. Trim it or record a shorter clip.`);
+          return;
+        }
+        const ext = /\.mov$/i.test(asset.uri) || asset.mimeType === 'video/quicktime' ? 'mov' : 'mp4';
+        const mimeType = ext === 'mov' ? 'video/quicktime' : 'video/mp4';
+        const fileName = `service-${Date.now()}.${ext}`;
+        const localUri = await persistLocally(asset.uri, fileName);
+        setPendingCapture({ localUri, fileName, mimeType, kind: 'video', fileSize: asset.fileSize ?? null });
+      } else {
+        const compressed = await compressPhoto(asset.uri);
+        const fileName = `service-${Date.now()}.jpg`;
+        // Keep a local copy until the server confirms the upload.
+        const localUri = await persistLocally(compressed, fileName);
+        setPendingCapture({ localUri, fileName, mimeType: 'image/jpeg', kind: 'image', fileSize: null });
       }
+      setCaptureLabel('proof');
+      setCaptureCaption('');
     } catch (e) {
       notify('Error', (e as Error).message);
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  const uploadCapture = async () => {
+    if (!pendingCapture) return;
+    const capture = pendingCapture;
+    setPendingCapture(null);
+    setLocalPhotos((p) => [...p, capture.localUri]);
+    const pending: PendingPhoto = {
+      localUri: capture.localUri,
+      fileType: 'service_photo',
+      fileName: capture.fileName,
+      mimeType: capture.mimeType,
+      appointmentId: id,
+      customerId: appt?.customerId,
+      label: captureLabel,
+      caption: captureCaption.trim() || null,
+      fileSize: capture.fileSize,
+    };
+    setBusy('photo');
+    try {
+      await uploadPendingPhoto(pending);
+      setLocalPhotos((p) => p.filter((u) => u !== capture.localUri));
+      void qc.invalidateQueries({ queryKey: ['photos', id] });
+    } catch {
+      await useSync.getState().enqueuePhoto(pending);
+      notify('Saved offline', `${capture.kind === 'video' ? 'Video' : 'Photo'} will upload when you are back online.`);
     } finally {
       setBusy(null);
     }
@@ -355,18 +399,16 @@ export default function StopScreen() {
               <Button title="Save Note" variant="outline" onPress={addNote} loading={busy === 'note'} disabled={!noteText.trim()} />
             </Card>
 
-            <SectionTitle>Photos ({(photos?.items?.length ?? 0) + localPhotos.length})</SectionTitle>
+            <SectionTitle>Photos & Video ({(photos?.items?.length ?? 0) + localPhotos.length})</SectionTitle>
+            <Text style={styles.productHint}>Proof of service for the customer: they see these in their portal once the visit is completed. Videos up to {MAX_VIDEO_SECONDS} seconds.</Text>
             <Row>
-              <Button title="Take Photo" onPress={() => takePhoto(true)} loading={busy === 'photo'} style={{ flex: 1, marginRight: 6 }} />
-              <Button title="From Library" variant="outline" onPress={() => takePhoto(false)} style={{ flex: 1, marginLeft: 6 }} />
+              <Button title="Camera" onPress={() => captureMedia(true)} loading={busy === 'photo'} style={{ flex: 1, marginRight: 6 }} />
+              <Button title="From Library" variant="outline" onPress={() => captureMedia(false)} style={{ flex: 1, marginLeft: 6 }} />
             </Row>
             {localPhotos.length > 0 && (
-              <ScrollView horizontal style={{ marginVertical: 6 }}>
-                {localPhotos.map((uri) => (
-                  <Image key={uri} source={{ uri }} style={styles.thumb} />
-                ))}
-              </ScrollView>
+              <Text style={styles.productHint}>{localPhotos.length} uploading…</Text>
             )}
+            <ServiceMediaGrid items={photos?.items ?? []} />
 
             <SectionTitle>Signature {signatures?.length ? '✓ Captured' : ''}</SectionTitle>
             <Button
@@ -385,6 +427,13 @@ export default function StopScreen() {
           <Button title="View Invoice / Collect Payment" variant="success" onPress={() => router.push(`/invoice/${appt.invoiceId}`)} />
         ) : null}
 
+        {appt.status === 'completed' && (photos?.items?.length ?? 0) > 0 ? (
+          <>
+            <SectionTitle>Photos & Video ({photos?.items?.length ?? 0})</SectionTitle>
+            <ServiceMediaGrid items={photos?.items ?? []} />
+          </>
+        ) : null}
+
         {notes?.items?.length ? (
           <>
             <SectionTitle>Notes History</SectionTitle>
@@ -397,11 +446,48 @@ export default function StopScreen() {
           </>
         ) : null}
       </ScrollView>
+
+      {pendingCapture ? (
+        <Modal transparent animationType="fade" visible onRequestClose={() => setPendingCapture(null)}>
+          <Pressable style={styles.tagBackdrop} onPress={() => undefined}>
+            <View style={styles.tagSheet}>
+              <Text style={styles.tagTitle}>Tag this {pendingCapture.kind === 'video' ? 'video' : 'photo'}</Text>
+              {pendingCapture.kind === 'image' ? <Image source={{ uri: pendingCapture.localUri }} style={styles.tagPreview} /> : <View style={[styles.tagPreview, styles.tagVideo]}><Text style={styles.tagVideoText}>▶ VIDEO</Text></View>}
+              <View style={styles.productGrid}>
+                {(['before', 'after', 'proof'] as MediaLabel[]).map((l) => (
+                  <TouchableOpacity key={l} style={[styles.productChip, captureLabel === l && styles.productChipOn]} onPress={() => setCaptureLabel(l)}>
+                    <Text style={[styles.productChipText, captureLabel === l && styles.productChipTextOn]}>{MEDIA_LABEL_TEXT[l]}</Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
+              <TextInput
+                style={styles.tagInput}
+                placeholder="Caption (optional) — e.g. Treated back patio and garage"
+                placeholderTextColor={colors.textMuted}
+                value={captureCaption}
+                onChangeText={setCaptureCaption}
+                maxLength={200}
+              />
+              <Row>
+                <Button title="Discard" variant="outline" onPress={() => setPendingCapture(null)} style={{ flex: 1, marginRight: 6 }} />
+                <Button title="Upload" onPress={() => void uploadCapture()} style={{ flex: 1, marginLeft: 6 }} />
+              </Row>
+            </View>
+          </Pressable>
+        </Modal>
+      ) : null}
     </View>
   );
 }
 
 const styles = StyleSheet.create({
+  tagBackdrop: { flex: 1, backgroundColor: 'rgba(0,0,0,0.55)', justifyContent: 'flex-end' },
+  tagSheet: { backgroundColor: '#fff', borderTopLeftRadius: 18, borderTopRightRadius: 18, padding: 18, paddingBottom: 30 },
+  tagTitle: { fontSize: 17, fontWeight: '800', color: colors.text, marginBottom: 10 },
+  tagPreview: { width: '100%', height: 180, borderRadius: 12, backgroundColor: '#E6ECEB', marginBottom: 12 },
+  tagVideo: { backgroundColor: '#1B2B28', alignItems: 'center', justifyContent: 'center' },
+  tagVideoText: { color: '#fff', fontWeight: '800', letterSpacing: 1 },
+  tagInput: { borderWidth: 1.5, borderColor: colors.border, borderRadius: 10, paddingVertical: 10, paddingHorizontal: 12, fontSize: 14, color: colors.text, marginBottom: 12, backgroundColor: '#fff' },
   productHint: { fontSize: 12, color: colors.textMuted, marginBottom: 8, lineHeight: 16 },
   productGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginBottom: 6 },
   productChip: { borderWidth: 1, borderColor: colors.border, borderRadius: 16, paddingVertical: 6, paddingHorizontal: 10, backgroundColor: '#fff' },

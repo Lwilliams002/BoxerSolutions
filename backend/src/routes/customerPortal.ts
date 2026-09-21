@@ -9,6 +9,7 @@ import { fileService } from '../services/fileService';
 import { recordAudit } from '../services/auditService';
 import { notifications } from '../integrations/notifications';
 import { logger } from '../utils/logger';
+import { serviceMediaService } from '../services/serviceMediaService';
 
 const router = Router();
 
@@ -63,7 +64,12 @@ router.get(
     const { rows } = await pool.query(
       `SELECT a.id, a.scheduled_date, a.window_start::text, a.window_end::text, a.status, a.duration_minutes, a.notes,
               sl.address_line1, sl.city, sl.state,
-              COALESCE(string_agg(DISTINCT s.name, ', ') FILTER (WHERE s.name IS NOT NULL), '') AS service_names
+              COALESCE(string_agg(DISTINCT s.name, ', ') FILTER (WHERE s.name IS NOT NULL), '') AS service_names,
+              CASE WHEN a.status = 'completed' THEN (
+                SELECT count(*)::int FROM files f LEFT JOIN photos p ON p.file_id = f.id
+                WHERE f.appointment_id = a.id AND f.file_type = 'service_photo' AND f.upload_status = 'uploaded' AND f.deleted_at IS NULL
+                  AND COALESCE(p.hidden_from_customer, false) = false
+              ) ELSE 0 END AS media_count
        FROM appointments a
        LEFT JOIN service_locations sl ON sl.id = a.service_location_id
        LEFT JOIN appointment_services aps ON aps.appointment_id = a.id
@@ -76,6 +82,25 @@ router.get(
       [session.customerId, limit, offset],
     );
     ok(res, { items: rows, page, pageSize, total: count.rows[0].total });
+  }),
+);
+
+/**
+ * Photos and videos the technician took on the customer's completed visits,
+ * with short-lived viewing links. Hidden items and unfinished visits never
+ * appear here.
+ */
+router.get(
+  '/media',
+  asyncHandler(async (req, res) => {
+    const session = portalCustomer(req);
+    const appointmentId = typeof req.query.appointmentId === 'string' && req.query.appointmentId ? req.query.appointmentId : null;
+    if (appointmentId) {
+      const owns = await pool.query('SELECT 1 FROM appointments WHERE id = $1 AND customer_id = $2 AND deleted_at IS NULL', [appointmentId, session.customerId]);
+      if (!owns.rows[0]) throw ApiError.notFound('Appointment not found');
+    }
+    const items = await serviceMediaService.list({ customerId: session.customerId, appointmentId, customerFacing: true });
+    ok(res, { items });
   }),
 );
 

@@ -13,7 +13,16 @@ const EXT_BY_MIME: Record<string, string> = {
   'image/heic': 'heic',
   'image/heif': 'heif',
   'application/pdf': 'pdf',
+  // Service videos (30-second proof clips from the technician's phone).
+  'video/mp4': 'mp4',
+  'video/quicktime': 'mov',
+  'video/x-m4v': 'm4v',
+  'video/webm': 'webm',
+  'video/3gpp': '3gp',
 };
+
+/** Largest upload the API will authorize: proof videos are capped at 30 seconds, so this is generous. */
+const MAX_UPLOAD_BYTES = 200 * 1024 * 1024;
 
 function buildObjectKey(fileType: string, fileId: string, mime: string, refs: { customerId?: string | null; appointmentId?: string | null; invoiceId?: string | null }) {
   const ext = EXT_BY_MIME[mime] ?? 'bin';
@@ -44,6 +53,8 @@ export const fileService = {
     customerId?: string | null; appointmentId?: string | null; invoiceId?: string | null;
   }, userId?: string | null) {
     if (!EXT_BY_MIME[data.mimeType]) throw ApiError.badRequest(`Unsupported mime type: ${data.mimeType}`);
+    if (data.fileSize != null && data.fileSize > MAX_UPLOAD_BYTES) throw ApiError.badRequest('File is too large (200 MB max). Keep videos to 30 seconds.');
+    if (data.mimeType.startsWith('video/') && data.fileType !== 'service_photo') throw ApiError.badRequest('Videos can only be attached to a service visit');
     if (['customer_photo', 'document'].includes(data.fileType) && !data.customerId)
       throw ApiError.badRequest('customerId is required for this file type');
     if (['service_photo', 'technician_photo', 'signature'].includes(data.fileType) && !data.appointmentId)

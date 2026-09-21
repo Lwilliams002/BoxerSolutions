@@ -66,3 +66,19 @@ test('products used table and service report without invoice', () => {
   const text = renderServiceNotificationText(ctx);
   assert.match(text, /Products Used:\n  Suspend SC — 2 oz · Crack & Crevice/);
 });
+
+test('service report links the customer to their proof-of-service photos and videos', () => {
+  const base = sample({ kind: 'service_completed' });
+  const ctx: ServiceNotificationContext = {
+    ...base,
+    appointment: { ...(base.appointment ?? { date: null, technician: null, services: [], window: null, timeIn: null, timeOut: null, comments: null }), media: { photos: 3, videos: 1, portalUrl: 'https://boxersolutionspestcontrol.com/app/customer-portal' } },
+  };
+  const html = renderServiceNotificationHtml(ctx);
+  assert.match(html, /Photos &amp; Video From This Visit/);
+  assert.match(html, /3 photos and 1 video/);
+  assert.match(html, /href="https:\/\/boxersolutionspestcontrol\.com\/app\/customer-portal"/);
+  const text = renderServiceNotificationText(ctx);
+  assert.match(text, /3 photos and 1 video/);
+  const none = renderServiceNotificationHtml({ ...ctx, appointment: { ...ctx.appointment!, media: { photos: 0, videos: 0, portalUrl: 'x' } } });
+  assert.doesNotMatch(none, /Photos &amp; Video From This Visit/);
+});

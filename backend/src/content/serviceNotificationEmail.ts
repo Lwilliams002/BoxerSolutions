@@ -70,6 +70,8 @@ export interface ServiceNotificationContext {
     timeOut: string | null;
     comments: string | null;
     products?: ServiceNotificationProduct[];
+    /** Proof-of-service captures the customer can open in the portal. */
+    media?: { photos: number; videos: number; portalUrl: string } | null;
   } | null;
   payments: ServiceNotificationPayment[];
   previousBalance: number;
@@ -80,6 +82,14 @@ const TEAL = '#2DC4A2';
 const INK = '#0D0D0D';
 const MUTED = '#5B6B68';
 const RULE = '#0D0D0D';
+
+/** "3 photos and 1 video" */
+export function mediaSummary(media: { photos: number; videos: number }) {
+  const parts: string[] = [];
+  if (media.photos) parts.push(`${media.photos} photo${media.photos === 1 ? '' : 's'}`);
+  if (media.videos) parts.push(`${media.videos} video${media.videos === 1 ? '' : 's'}`);
+  return parts.join(' and ') || 'no media';
+}
 
 export function money(n: number | null | undefined) {
   return `$${Number(n ?? 0).toFixed(2)}`;
@@ -224,6 +234,15 @@ export function renderServiceNotificationHtml(ctx: ServiceNotificationContext): 
     </table>
   </td></tr>` : ''}
 
+  ${appt?.media && (appt.media.photos + appt.media.videos) > 0 ? `
+  <tr><td style="padding:0 24px;">
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0">
+      ${sectionTitle('Photos & Video From This Visit')}
+      <tr><td colspan="2" style="padding:8px 0 0;font:12px/18px Helvetica,Arial,sans-serif;color:${INK};">Your technician attached ${mediaSummary(appt.media)} as proof of service. Open your customer portal to view them.</td></tr>
+      <tr><td colspan="2" style="padding:10px 0 2px;"><a href="${escapeHtml(appt.media.portalUrl)}" style="display:inline-block;background:${TEAL};color:${INK};font:700 12px Helvetica,Arial,sans-serif;text-decoration:none;padding:9px 16px;border-radius:6px;">View photos &amp; video</a></td></tr>
+    </table>
+  </td></tr>` : ''}
+
   ${appt?.products?.length ? `
   <tr><td style="padding:0 24px;">
     <table role="presentation" width="100%" cellpadding="0" cellspacing="0">
@@ -336,6 +355,7 @@ export function renderServiceNotificationText(ctx: ServiceNotificationContext): 
       `Service: ${ctx.appointment.services.join(', ') || '—'}`,
       ...(ctx.appointment.comments ? ['', 'Technician Comments:', ctx.appointment.comments] : []),
       ...(ctx.appointment.products?.length ? ['', 'Products Used:', ...ctx.appointment.products.map((p) => `  ${p.name} — ${p.quantity} ${p.unit}${p.applicationMethod ? ` · ${p.applicationMethod}` : ''}`)] : []),
+      ...(ctx.appointment.media && ctx.appointment.media.photos + ctx.appointment.media.videos > 0 ? ['', `Photos & video from this visit: your technician attached ${mediaSummary(ctx.appointment.media)}. View them in your customer portal: ${ctx.appointment.media.portalUrl}`] : []),
     ] : []),
     '',
     'Invoice Items:',

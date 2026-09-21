@@ -202,6 +202,8 @@ export interface CustomerPortalAppointment {
   city: string | null;
   state: string | null;
   service_names: string;
+  /** Photos/videos the customer can view (completed visits only). */
+  media_count?: number;
 }
 
 export interface CustomerPortalInvoice {
@@ -275,3 +277,25 @@ export interface OwnerServiceRequest {
   technician_last_name?: string | null;
   files: CustomerPortalServiceRequestFile[];
 }
+
+/** A technician's photo or video from a service visit, with a short-lived viewing link. */
+export interface ServiceMediaItem {
+  id: string;
+  fileId: string;
+  appointmentId: string | null;
+  customerId: string | null;
+  kind: 'image' | 'video';
+  mimeType: string;
+  fileName: string;
+  fileSize: number | null;
+  label: 'before' | 'after' | 'proof' | null;
+  caption: string | null;
+  hiddenFromCustomer: boolean;
+  takenAt: string | null;
+  technicianName: string | null;
+  scheduledDate: string | null;
+  appointmentStatus: string | null;
+  url: string;
+}
+
+export const MEDIA_LABEL_TEXT: Record<'before' | 'after' | 'proof', string> = { before: 'Before', after: 'After', proof: 'Proof of service' };

@@ -9,6 +9,7 @@ import { communicationService, safelyQueueCommunication } from '../services/comm
 import { pool } from '../config/db';
 import { toCamel, rowsToCamel } from '../services/customerService';
 import { ApiError } from '../utils/errors';
+import { serviceMediaService, MEDIA_LABELS } from '../services/serviceMediaService';
 
 const router = Router();
 router.use(authenticate);
@@ -35,10 +36,43 @@ router.post(
   }),
 );
 
+const confirmSchema = z.object({
+  label: z.enum(MEDIA_LABELS).nullish(),
+  caption: z.string().max(500).nullish(),
+});
+
+const visibilitySchema = z.object({ hidden: z.boolean() });
+
+/** Service photos/videos with viewing links, for the customer screen and the stop screen. */
+router.get(
+  '/media',
+  authorize('files:read', 'appointments:read_assigned'),
+  asyncHandler(async (req, res) => {
+    const customerId = typeof req.query.customerId === 'string' ? req.query.customerId : undefined;
+    const appointmentId = typeof req.query.appointmentId === 'string' ? req.query.appointmentId : undefined;
+    if (!customerId && !appointmentId) throw ApiError.badRequest('customerId or appointmentId is required');
+    const scope = technicianScope(req, 'files:read');
+    if (appointmentId) await assertAppointmentAccess(scope, appointmentId);
+    else if (customerId) await assertCustomerAccess(scope, customerId);
+    ok(res, { items: await serviceMediaService.list({ customerId, appointmentId }) });
+  }),
+);
+
+/** Office: hide a capture from the customer's portal (or show it again) without deleting it. */
+router.patch(
+  '/:id/customer-visibility',
+  authorize('files:write'),
+  asyncHandler(async (req, res) => {
+    const body = visibilitySchema.parse(req.body ?? {});
+    ok(res, await serviceMediaService.setHiddenFromCustomer(req.params.id, body.hidden), body.hidden ? 'Hidden from customer' : 'Visible to customer');
+  }),
+);
+
 router.post(
   '/:id/confirm',
   authorize('files:write', 'appointments:write_assigned'),
   asyncHandler(async (req, res) => {
+    const body = confirmSchema.parse(req.body ?? {});
     const file = (await fileService.confirmUpload(req.params.id)) as any;
 
     // If it's a photo, ensure a photos row exists for the gallery views.
@@ -49,6 +83,7 @@ router.post(
          WHERE NOT EXISTS (SELECT 1 FROM photos WHERE file_id = $1)`,
         [file.id, file.customerId ?? null, file.appointmentId ?? null, req.user!.employeeId],
       );
+      if (body.label || body.caption) await serviceMediaService.tag(file.id, { label: body.label ?? null, caption: body.caption?.trim() || null });
     }
     // A signed agreement captured in the rep's app: email the customer a copy.
     if (file.fileType === 'document' && file.customerId && /^service-agreement-\d+\.(png|pdf|jpe?g)$/i.test(String(file.fileName ?? ''))) {

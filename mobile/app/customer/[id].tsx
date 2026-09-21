@@ -8,8 +8,10 @@ import { confirmAction, notify } from '../../src/lib/confirm';
 import { useAuth } from '../../src/lib/authStore';
 import { colors, money, fmtDate, fmtTime } from '../../src/lib/theme';
 import { Card, Button, StatusBadge, Loading, Row, Value, Label, EmptyState } from '../../src/components/ui';
+import { ServiceMediaGrid, groupMediaByVisit } from '../../src/components/ServiceMediaGrid';
+import { ServiceMediaItem } from '../../src/lib/types';
 
-const TABS = ['Overview', 'Plan', 'Appointments', 'Invoices', 'Payments', 'Comms', 'Notes', 'Documents', 'Payment Methods', 'History'] as const;
+const TABS = ['Overview', 'Plan', 'Appointments', 'Invoices', 'Payments', 'Comms', 'Notes', 'Documents', 'Photos', 'Payment Methods', 'History'] as const;
 type Tab = (typeof TABS)[number];
 
 function maskedLast4(value: unknown) {
@@ -118,6 +120,34 @@ export default function CustomerScreen() {
     queryFn: () => api<{ items: any[] }>(`/invoices?customerId=${id}&pageSize=50`),
     enabled: tab === 'Invoices',
   });
+  const { data: media } = useQuery({
+    queryKey: ['customerMedia', id],
+    queryFn: () => api<{ items: ServiceMediaItem[] }>(`/files/media?customerId=${id}`),
+    enabled: tab === 'Photos',
+  });
+  const toggleMediaHidden = async (item: ServiceMediaItem) => {
+    try {
+      await api(`/files/${item.fileId}/customer-visibility`, { method: 'PATCH', body: { hidden: !item.hiddenFromCustomer } });
+      void qc.invalidateQueries({ queryKey: ['customerMedia', id] });
+    } catch (e) {
+      notify('Could not update', (e as Error).message);
+    }
+  };
+  const deleteMedia = (item: ServiceMediaItem) =>
+    confirmAction({
+      title: `Delete this ${item.kind}?`,
+      message: 'It is removed for the office and the customer. This cannot be undone.',
+      confirmText: 'Delete',
+      destructive: true,
+      onConfirm: async () => {
+        try {
+          await api(`/files/${item.fileId}`, { method: 'DELETE' });
+          void qc.invalidateQueries({ queryKey: ['customerMedia', id] });
+        } catch (e) {
+          notify('Could not delete', (e as Error).message);
+        }
+      },
+    });
   const { data: recurringCharges } = useQuery({
     queryKey: ['recurring-charges', id],
     queryFn: () => api<{ items: any[] }>(`/recurring-charges?customerId=${id}`),
@@ -1097,6 +1127,32 @@ export default function CustomerScreen() {
               </Card>
             ))
           ))}
+        {tab === 'Photos' && (
+          <>
+            <Card>
+              <Text style={styles.metaText}>Photos and videos technicians attach on a visit. Customers see them in their portal once the visit is completed. Hide a shot to keep it off the portal without deleting it.</Text>
+            </Card>
+            {!media?.items?.length ? (
+              <EmptyState title="No photos yet" subtitle="Technicians add them from the stop screen (Camera / From Library)." />
+            ) : (
+              groupMediaByVisit(media.items).map((g) => (
+                <Card key={g.appointmentId ?? 'none'}>
+                  <Row>
+                    <Value style={{ fontWeight: '800' }}>{g.scheduledDate ? fmtDate(g.scheduledDate) : 'Visit'}</Value>
+                    {g.status ? <StatusBadge status={g.status} /> : null}
+                  </Row>
+                  <Text style={styles.metaText}>{g.items.length} item{g.items.length === 1 ? '' : 's'}{g.status !== 'completed' ? ' · not visible to the customer until the visit is completed' : ''}</Text>
+                  <ServiceMediaGrid
+                    items={g.items}
+                    onToggleHidden={hasPermission('files:write') ? (it) => void toggleMediaHidden(it) : undefined}
+                    onDelete={hasPermission('files:write') ? deleteMedia : undefined}
+                  />
+                </Card>
+              ))
+            )}
+          </>
+        )}
+
         {tab === 'Documents' &&
           (
             <>

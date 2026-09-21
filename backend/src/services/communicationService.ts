@@ -16,6 +16,10 @@ import {
 import { getCompanyInfo } from './settingsService';
 import { parseIsoDateLocal } from '../utils/dates';
 import { escapeHtml } from '../content/serviceNotificationEmail';
+import { serviceMediaService } from './serviceMediaService';
+
+/** Where customers sign in to see their visits, invoices and service photos. */
+const CUSTOMER_PORTAL_URL = 'https://boxersolutionspestcontrol.com/app/customer-portal';
 
 export type CommunicationChannel = 'sms' | 'email' | 'push';
 export type CommunicationTemplateKey =
@@ -184,6 +188,7 @@ async function serviceNotificationContext(
   ]);
 
   const appt = appointment.rows[0];
+  const media = appt && ctx.appointment_id ? await serviceMediaService.customerVisibleCounts(String(ctx.appointment_id)).catch(() => null) : null;
   const eventAmount = extra?.amount != null ? Number(extra.amount) : null;
   return {
     kind,
@@ -226,6 +231,7 @@ async function serviceNotificationContext(
           timeOut: clockTime(appt.completed_at),
           comments: appt.comments ?? null,
           products: Array.isArray(appt.products) ? appt.products.map((p: any) => ({ name: String(p.name), quantity: Number(p.quantity), unit: String(p.unit ?? ''), applicationMethod: p.applicationMethod ?? null, targetPests: p.targetPests ?? null })) : [],
+          media: media ? { ...media, portalUrl: CUSTOMER_PORTAL_URL } : null,
         }
       : null,
     payments: payments.rows.map((p) => ({

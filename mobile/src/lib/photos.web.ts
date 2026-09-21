@@ -7,6 +7,10 @@ export interface PendingPhoto {
   mimeType: string;
   customerId?: string | null;
   appointmentId?: string | null;
+  /** Service media tag: before / after / proof of service. */
+  label?: 'before' | 'after' | 'proof' | null;
+  caption?: string | null;
+  fileSize?: number | null;
 }
 
 export async function compressPhoto(uri: string): Promise<string> {
@@ -35,6 +39,7 @@ export async function uploadPendingPhoto(photo: PendingPhoto): Promise<string> {
       mimeType: photo.mimeType,
       customerId: photo.customerId ?? null,
       appointmentId: photo.appointmentId ?? null,
+      fileSize: photo.fileSize ?? null,
     },
   });
 
@@ -51,6 +56,6 @@ export async function uploadPendingPhoto(photo: PendingPhoto): Promise<string> {
     throw new Error(`Storage upload failed (${result.status})`);
   }
 
-  await api(`/files/${auth.file.id}/confirm`, { method: 'POST', body: {} });
+  await api(`/files/${auth.file.id}/confirm`, { method: 'POST', body: { label: photo.label ?? null, caption: photo.caption ?? null } });
   return auth.file.id;
 }

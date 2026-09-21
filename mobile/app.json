@@ -12,7 +12,8 @@
       "infoPlist": {
         "NSLocationWhenInUseUsageDescription": "Used to show your position on the route map.",
         "NSCameraUsageDescription": "Used to take service photos.",
-        "NSPhotoLibraryUsageDescription": "Used to attach photos to appointments.",
+        "NSPhotoLibraryUsageDescription": "Used to attach photos and videos to appointments.",
+        "NSMicrophoneUsageDescription": "Used to record short proof-of-service videos with sound.",
         "ITSAppUsesNonExemptEncryption": false,
         "UIBackgroundModes": [
           "remote-notification"
@@ -46,7 +47,9 @@
       [
         "expo-image-picker",
         {
-          "cameraPermission": "Allow Boxer Solutions Pest Control to take service photos."
+          "cameraPermission": "Allow Boxer Solutions Pest Control to take service photos and videos.",
+          "microphonePermission": "Allow Boxer Solutions Pest Control to record sound in service videos.",
+          "photosPermission": "Allow Boxer Solutions Pest Control to attach photos and videos to appointments."
         }
       ],
       [
