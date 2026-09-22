@@ -82,3 +82,13 @@ test('service report links the customer to their proof-of-service photos and vid
   const none = renderServiceNotificationHtml({ ...ctx, appointment: { ...ctx.appointment!, media: { photos: 0, videos: 0, portalUrl: 'x' } } });
   assert.doesNotMatch(none, /Photos &amp; Video From This Visit/);
 });
+
+test('late fee notice carries a red banner with the fee and the policy line', () => {
+  const ctx = sample({ kind: 'late_fee_added', eventAmount: 50, eventReason: 'It was due on September 1, 2026 and a $25.00/day late fee now applies.', invoice: { ...sample().invoice, amountPaid: 0 }, company: { ...sample().company, lateFeePolicy: 'Invoices unpaid 7 days after the due date accrue a $25.00 late fee for each additional day until paid.' }, payments: [] });
+  const html = renderServiceNotificationHtml(ctx);
+  assert.match(html, /Late fee added — \$50\.00/);
+  assert.match(html, /due on September 1, 2026/);
+  assert.match(html, /accrue a \$25\.00 late fee/);
+  const text = renderServiceNotificationText(ctx);
+  assert.match(text, /accrue a \$25\.00 late fee/);
+});

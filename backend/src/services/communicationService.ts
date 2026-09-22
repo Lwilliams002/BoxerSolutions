@@ -35,7 +35,8 @@ export type CommunicationTemplateKey =
   | 'agreement_signed_copy'
   | 'service_completed'
   | 'service_request_declined'
-  | 'payment_method_request';
+  | 'payment_method_request'
+  | 'late_fee_added';
 
 const COMPANY = {
   name: 'Boxer Solutions Pest Control',
@@ -57,6 +58,7 @@ const DEFAULT_CHANNEL: Record<CommunicationTemplateKey, CommunicationChannel> = 
   service_completed: 'email',
   service_request_declined: 'email',
   payment_method_request: 'email',
+  late_fee_added: 'email',
 };
 
 function fmtDate(value: string | Date) {
@@ -292,6 +294,11 @@ function renderTemplate(templateKey: CommunicationTemplateKey, ctx: QueryResultR
         subject: `Payment received for invoice ${ctx.invoice_number}`,
         body: `Thank you, ${firstName(ctx)}. We received your payment of ${money(extra?.amount as number | string | undefined)} for invoice ${ctx.invoice_number}.`,
       };
+    case 'late_fee_added':
+      return {
+        subject: `Late fee added to invoice ${ctx.invoice_number} — ${String(extra?.companyName ?? COMPANY.name)}`,
+        body: `Hi ${firstName(ctx)}, invoice ${ctx.invoice_number} was due on ${String(extra?.dueDate ?? '')} and is still unpaid. A late fee of ${money(extra?.dailyFee as number | undefined)} per day has been added starting today (${money(extra?.amount as number | undefined)} so far) and continues daily until the balance is paid. Please pay through your customer portal or call ${COMPANY.phone}.`,
+      };
     case 'payment_failed':
       return {
         subject: `Payment failed for invoice ${ctx.invoice_number}`,
@@ -431,7 +438,7 @@ export const communicationService = {
 
   async sendInvoiceTemplate(
     invoiceId: string,
-    templateKey: Extract<CommunicationTemplateKey, 'invoice_created' | 'payment_received' | 'payment_failed' | 'payment_refunded'>,
+    templateKey: Extract<CommunicationTemplateKey, 'invoice_created' | 'payment_received' | 'payment_failed' | 'payment_refunded' | 'late_fee_added'>,
     sentBy?: string | null,
     extra?: Record<string, unknown>,
   ) {

@@ -5,7 +5,7 @@
  * status banner for the event that triggered it. Pure: takes a context object
  * and returns HTML + plain text, so it is unit-testable and provider-agnostic.
  */
-export type ServiceNotificationKind = 'invoice_created' | 'payment_received' | 'payment_failed' | 'payment_refunded' | 'service_completed';
+export type ServiceNotificationKind = 'invoice_created' | 'payment_received' | 'payment_failed' | 'payment_refunded' | 'service_completed' | 'late_fee_added';
 
 export interface ServiceNotificationItem {
   description: string;
@@ -117,6 +117,8 @@ export function bannerFor(ctx: ServiceNotificationContext): { title: string; det
       return { title: `Payment received — ${amount}`, detail: `Thank you, ${ctx.customer.firstName}. This payment was applied to invoice ${ctx.invoice.number}.`, color: GREEN };
     case 'payment_failed':
       return { title: `Payment could not be processed — ${amount}`, detail: `${ctx.eventReason ? `${ctx.eventReason}. ` : ''}Please call ${ctx.company.phone} or update your payment method.`, color: '#B42318' };
+    case 'late_fee_added':
+      return { title: `Late fee added — ${amount}`, detail: `${ctx.eventReason ? `${ctx.eventReason} ` : ''}Invoice ${ctx.invoice.number} is past due. The late fee grows every day until the balance is paid. Pay in your customer portal or call ${ctx.company.phone}.`, color: '#B42318' };
     case 'payment_refunded':
       return { title: `Refund processed — ${amount}`, detail: `A refund was issued to your original payment method for invoice ${ctx.invoice.number}.`, color: GREEN };
     case 'service_completed':

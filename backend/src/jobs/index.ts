@@ -15,6 +15,9 @@ import { pool } from '../config/db';
  * these run as EventBridge-scheduled ECS tasks or Lambda functions; locally a
  * simple interval keeps behavior identical without extra infrastructure.
  */
+/** Late fees change once a day, so that pass runs on the first cycle of each calendar day only. */
+let lastLateFeeDate: string | null = null;
+
 export function startJobScheduler() {
   const run = async () => {
     try {
@@ -26,7 +29,10 @@ export function startJobScheduler() {
       if (!systemUserId) return;
 
       const pastDue = await markPastDueInvoices();
-      const lateFees = await lateFeeService.applyLateFees().catch((err) => { logger.warn({ err }, 'late fee cycle failed'); return null; });
+      const today = todayIso();
+      const lateFees = lastLateFeeDate === today
+        ? 'skipped (already ran today)'
+        : await lateFeeService.applyLateFees(today).then((r) => { lastLateFeeDate = today; return r; }).catch((err) => { logger.warn({ err }, 'late fee cycle failed'); return null; });
       const reminders = await sendAppointmentReminders();
       const recurring = await generateAllRecurringAppointments(systemUserId);
       const autopay = await processAutopay(systemUserId);

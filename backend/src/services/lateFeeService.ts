@@ -5,6 +5,7 @@ import { todayIso } from '../utils/dates';
 import { getCompanySettings } from './settingsService';
 import { computeLateFee, lateFeeDescription, LateFeePolicy } from '../utils/lateFee';
 import { recordAudit } from './auditService';
+import { communicationService, safelyQueueCommunication } from './communicationService';
 
 /** Invoices that can still accrue a fee. */
 const OPEN_STATUSES = ['open', 'sent', 'past_due', 'partially_paid'];
@@ -58,8 +59,35 @@ async function syncInvoiceLateFee(invoiceId: string, today: string, policy: Late
       [invoiceId, delta, target.days, target.amount, itemId],
     );
     await tx.query('UPDATE customers SET balance = balance + $1, updated_at = now() WHERE id = $2', [delta, inv.customer_id]);
-    return { invoiceId, customerId: String(inv.customer_id), days: target.days, amount: target.amount, delta };
+    // First fee on this invoice: tell the customer once. Re-arms if the fee is
+    // later removed (paid down, waived, due date moved) and comes back.
+    let notify = false;
+    if (target.days > 0 && currentDays === 0) {
+      const marked = await tx.query(
+        'UPDATE invoices SET late_fee_notified_at = now() WHERE id = $1 AND late_fee_notified_at IS NULL RETURNING id',
+        [invoiceId],
+      );
+      notify = (marked.rowCount ?? 0) > 0;
+    } else if (target.days === 0 && currentDays > 0) {
+      await tx.query('UPDATE invoices SET late_fee_notified_at = NULL WHERE id = $1', [invoiceId]);
+    }
+    return { invoiceId, customerId: String(inv.customer_id), days: target.days, amount: target.amount, delta, notify, dueDate: String(inv.due_date).slice(0, 10) };
   });
+}
+
+function fmtDueDate(iso: string) {
+  const [y, m, d] = iso.split('-').map(Number);
+  return new Date(Date.UTC(y, m - 1, d, 12)).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric', timeZone: 'UTC' });
+}
+
+function queueLateFeeNotice(res: { invoiceId: string; amount: number; dueDate: string } | null, policy: LateFeePolicy, notify: boolean) {
+  if (!res || !notify) return;
+  safelyQueueCommunication(() => communicationService.sendInvoiceTemplate(res.invoiceId, 'late_fee_added', null, {
+    amount: res.amount,
+    dailyFee: policy.dailyFee,
+    dueDate: fmtDueDate(res.dueDate),
+    reason: `It was due on ${fmtDueDate(res.dueDate)} and a $${policy.dailyFee.toFixed(2)}/day late fee now applies.`,
+  }));
 }
 
 export const lateFeeService = {
@@ -80,7 +108,7 @@ export const lateFeeService = {
     for (const r of rows) {
       try {
         const res = await syncInvoiceLateFee(String(r.id), today, policy);
-        if (res) updated += 1;
+        if (res) { updated += 1; queueLateFeeNotice(res, policy, res.notify); }
       } catch (err) {
         logger.warn({ err, invoiceId: r.id }, 'late fee update failed');
       }
