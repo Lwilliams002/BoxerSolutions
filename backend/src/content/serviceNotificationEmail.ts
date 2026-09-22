@@ -14,7 +14,7 @@ export interface ServiceNotificationItem {
   lineTotal: number;
 }
 
-export interface ServiceNotificationProduct { name: string; quantity: number; unit: string; applicationMethod: string | null; targetPests: string | null }
+export interface ServiceNotificationProduct { name: string; activeIngredient?: string | null; quantity: number; unit: string; applicationMethod: string | null; targetPests: string | null }
 
 export interface ServiceNotificationPayment {
   amount: number;
@@ -254,7 +254,7 @@ export function renderServiceNotificationHtml(ctx: ServiceNotificationContext): 
         <th style="text-align:left;padding:6px 0;font:700 12px Helvetica,Arial,sans-serif;color:${INK};border-bottom:1px solid #E3ECEA;">Application Method</th>
       </tr>
       ${appt.products.map((p) => `<tr>
-        <td style="padding:6px 0;font:12px Helvetica,Arial,sans-serif;color:${INK};">${escapeHtml(p.name)}</td>
+        <td style="padding:6px 0;font:12px Helvetica,Arial,sans-serif;color:${INK};">${escapeHtml(p.name)}${p.activeIngredient ? `<br><span style="color:${MUTED};font-size:11px;">${escapeHtml(p.activeIngredient)}</span>` : ''}</td>
         <td style="padding:6px 0;font:12px Helvetica,Arial,sans-serif;color:${INK};">${escapeHtml(p.unit)}</td>
         <td style="padding:6px 0;font:12px Helvetica,Arial,sans-serif;color:${INK};">${p.quantity}</td>
         <td style="padding:6px 0;font:12px Helvetica,Arial,sans-serif;color:${INK};">${escapeHtml(p.applicationMethod ?? '—')}${p.targetPests ? ` <span style="color:${MUTED}">· ${escapeHtml(p.targetPests)}</span>` : ''}</td>
@@ -354,7 +354,7 @@ export function renderServiceNotificationText(ctx: ServiceNotificationContext): 
       `Service Date: ${longDate(ctx.appointment.date)}`,
       `Service: ${ctx.appointment.services.join(', ') || '—'}`,
       ...(ctx.appointment.comments ? ['', 'Technician Comments:', ctx.appointment.comments] : []),
-      ...(ctx.appointment.products?.length ? ['', 'Products Used:', ...ctx.appointment.products.map((p) => `  ${p.name} — ${p.quantity} ${p.unit}${p.applicationMethod ? ` · ${p.applicationMethod}` : ''}`)] : []),
+      ...(ctx.appointment.products?.length ? ['', 'Products Used:', ...ctx.appointment.products.map((p) => `  ${p.name}${p.activeIngredient ? ` (${p.activeIngredient})` : ''} — ${p.quantity} ${p.unit}${p.applicationMethod ? ` · ${p.applicationMethod}` : ''}`)] : []),
       ...(ctx.appointment.media && ctx.appointment.media.photos + ctx.appointment.media.videos > 0 ? ['', `Photos & video from this visit: your technician attached ${mediaSummary(ctx.appointment.media)}. View them in your customer portal: ${ctx.appointment.media.portalUrl}`] : []),
     ] : []),
     '',

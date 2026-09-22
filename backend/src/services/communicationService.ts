@@ -161,7 +161,7 @@ async function serviceNotificationContext(
       ? pool.query(
           `SELECT a.scheduled_date, a.window_start, a.window_end, a.arrived_at, a.started_at, a.completed_at,
                   tu.first_name || ' ' || tu.last_name AS technician_name,
-                  (SELECT json_agg(json_build_object('name', p.name, 'quantity', ap.quantity, 'unit', ap.unit, 'applicationMethod', ap.application_method, 'targetPests', ap.target_pests) ORDER BY p.name)
+                  (SELECT json_agg(json_build_object('name', p.name, 'activeIngredient', p.active_ingredient, 'quantity', ap.quantity, 'unit', ap.unit, 'applicationMethod', ap.application_method, 'targetPests', ap.target_pests) ORDER BY p.name)
                    FROM appointment_products ap JOIN products p ON p.id = ap.product_id WHERE ap.appointment_id = a.id) AS products,
                   (SELECT json_agg(s.name ORDER BY s.name) FROM appointment_services aps JOIN services s ON s.id = aps.service_id WHERE aps.appointment_id = a.id) AS services,
                   (SELECT n.body FROM notes n WHERE n.appointment_id = a.id AND n.deleted_at IS NULL AND n.is_internal = false ORDER BY n.created_at DESC LIMIT 1) AS comments
@@ -230,7 +230,7 @@ async function serviceNotificationContext(
           timeIn: clockTime(appt.arrived_at ?? appt.started_at),
           timeOut: clockTime(appt.completed_at),
           comments: appt.comments ?? null,
-          products: Array.isArray(appt.products) ? appt.products.map((p: any) => ({ name: String(p.name), quantity: Number(p.quantity), unit: String(p.unit ?? ''), applicationMethod: p.applicationMethod ?? null, targetPests: p.targetPests ?? null })) : [],
+          products: Array.isArray(appt.products) ? appt.products.map((p: any) => ({ name: String(p.name), activeIngredient: p.activeIngredient ?? null, quantity: Number(p.quantity), unit: String(p.unit ?? ''), applicationMethod: p.applicationMethod ?? null, targetPests: p.targetPests ?? null })) : [],
           media: media ? { ...media, portalUrl: CUSTOMER_PORTAL_URL } : null,
         }
       : null,

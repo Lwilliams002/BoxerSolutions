@@ -17,6 +17,8 @@ const productSchema = z.object({
   name: z.string().trim().min(1).max(120),
   unit: z.string().trim().min(1).max(20).default('oz'),
   epaRegistrationNo: z.string().trim().max(40).nullish(),
+  /** Active ingredient(s) and strength, printed on the service report: "Bifenthrin 7.9%". */
+  activeIngredient: z.string().trim().max(300).nullish(),
   defaultQuantity: z.number().min(0).max(10000).default(1),
   active: z.boolean().optional(),
 });
@@ -30,15 +32,15 @@ router.get('/', asyncHandler(async (req, res) => {
 router.post('/', authorize('settings:write', 'services:write'), asyncHandler(async (req, res) => {
   const body = productSchema.parse(req.body ?? {});
   const { rows } = await pool.query(
-    `INSERT INTO products (name, unit, epa_registration_no, default_quantity, active) VALUES ($1,$2,$3,$4,$5) RETURNING *`,
-    [body.name, body.unit, body.epaRegistrationNo ?? null, body.defaultQuantity, body.active ?? true],
+    `INSERT INTO products (name, unit, epa_registration_no, default_quantity, active, active_ingredient) VALUES ($1,$2,$3,$4,$5,$6) RETURNING *`,
+    [body.name, body.unit, body.epaRegistrationNo ?? null, body.defaultQuantity, body.active ?? true, body.activeIngredient ?? null],
   ).catch((err) => { if (String(err?.code) === '23505') throw ApiError.badRequest('A product with that name already exists.'); throw err; });
   ok(res, toCamel(rows[0]), 'Product added', 201);
 }));
 
 router.patch('/:id', authorize('settings:write', 'services:write'), asyncHandler(async (req, res) => {
   const body = productSchema.partial().parse(req.body ?? {});
-  const map: Record<string, string> = { name: 'name', unit: 'unit', epaRegistrationNo: 'epa_registration_no', defaultQuantity: 'default_quantity', active: 'active' };
+  const map: Record<string, string> = { name: 'name', unit: 'unit', epaRegistrationNo: 'epa_registration_no', defaultQuantity: 'default_quantity', active: 'active', activeIngredient: 'active_ingredient' };
   const sets: string[] = []; const params: unknown[] = [];
   for (const [k, col] of Object.entries(map)) if (k in body) { params.push((body as Record<string, unknown>)[k]); sets.push(`${col} = $${params.length}`); }
   if (!sets.length) throw ApiError.badRequest('No fields to update');

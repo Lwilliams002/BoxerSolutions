@@ -6,7 +6,7 @@ import { notify } from '../../src/lib/confirm';
 import { colors } from '../../src/lib/theme';
 import { Button, Card, Label, Loading, Row, Value } from '../../src/components/ui';
 
-interface Product { id: string; name: string; unit: string; epaRegistrationNo: string | null; defaultQuantity: string | number; active: boolean }
+interface Product { id: string; name: string; unit: string; epaRegistrationNo: string | null; activeIngredient?: string | null; defaultQuantity: string | number; active: boolean }
 
 /** Product / chemical catalog for the stop screen and customer service reports. */
 export default function ProductsAdminScreen() {
@@ -15,11 +15,12 @@ export default function ProductsAdminScreen() {
   const [name, setName] = useState('');
   const [unit, setUnit] = useState('oz');
   const [epa, setEpa] = useState('');
+  const [ingredient, setIngredient] = useState('');
   const [qty, setQty] = useState('1');
 
   const add = useMutation({
-    mutationFn: () => api('/products', { method: 'POST', body: { name: name.trim(), unit: unit.trim() || 'oz', epaRegistrationNo: epa.trim() || null, defaultQuantity: Number(qty) || 1 } }),
-    onSuccess: () => { setName(''); setEpa(''); setQty('1'); void qc.invalidateQueries({ queryKey: ['products'] }); notify('Product added'); },
+    mutationFn: () => api('/products', { method: 'POST', body: { name: name.trim(), unit: unit.trim() || 'oz', epaRegistrationNo: epa.trim() || null, activeIngredient: ingredient.trim() || null, defaultQuantity: Number(qty) || 1 } }),
+    onSuccess: () => { setName(''); setEpa(''); setIngredient(''); setQty('1'); void qc.invalidateQueries({ queryKey: ['products'] }); notify('Product added'); },
     onError: (e) => notify('Could not add product', (e as Error).message),
   });
   const toggle = useMutation({
@@ -43,6 +44,8 @@ export default function ProductsAdminScreen() {
           <View style={{ flex: 1, marginRight: 8 }}><Label>Unit</Label><TextInput style={styles.input} value={unit} onChangeText={setUnit} placeholder="oz" placeholderTextColor={colors.textMuted} /></View>
           <View style={{ flex: 1, marginLeft: 8 }}><Label>Default quantity</Label><TextInput style={styles.input} value={qty} onChangeText={setQty} keyboardType="decimal-pad" /></View>
         </Row>
+        <Label>Active ingredient (optional)</Label>
+        <TextInput style={styles.input} value={ingredient} onChangeText={setIngredient} placeholder="e.g. Bifenthrin 7.9%" placeholderTextColor={colors.textMuted} />
         <Label>EPA registration # (optional)</Label>
         <TextInput style={styles.input} value={epa} onChangeText={setEpa} placeholder="e.g. 432-763" placeholderTextColor={colors.textMuted} autoCapitalize="none" />
         <Button title="Add product" onPress={() => add.mutate()} loading={add.isPending} disabled={!name.trim()} />
@@ -53,6 +56,7 @@ export default function ProductsAdminScreen() {
           <Row>
             <View style={{ flex: 1, paddingRight: 10 }}>
               <Value style={{ fontWeight: '800', color: p.active ? colors.text : colors.textMuted }}>{p.name}</Value>
+              {p.activeIngredient ? <Text style={styles.meta}>{p.activeIngredient}</Text> : null}
               <Text style={styles.meta}>{Number(p.defaultQuantity)} {p.unit} default{p.epaRegistrationNo ? ` · EPA ${p.epaRegistrationNo}` : ''}</Text>
             </View>
             <Switch value={p.active} onValueChange={(active) => toggle.mutate({ id: p.id, active })} trackColor={{ true: colors.primary }} />
