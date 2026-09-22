@@ -30,6 +30,8 @@ export interface ServiceNotificationCompany {
   addressLines: string[];
   /** Already formatted, e.g. "License #: JB500216" or "License #: ---------". */
   license: string;
+  /** One-line late fee policy, empty when the fee is turned off. */
+  lateFeePolicy?: string;
 }
 
 const POISON_CONTROL = '(800) 222-1222';
@@ -272,6 +274,7 @@ export function renderServiceNotificationHtml(ctx: ServiceNotificationContext): 
       ${ctx.invoice.discount > 0 ? `<tr><td style="padding:2px 0;font:12px Helvetica,Arial,sans-serif;color:${INK};">Discount</td><td style="padding:2px 0;font:12px Helvetica,Arial,sans-serif;text-align:right;">-${money(ctx.invoice.discount)}</td></tr>` : ''}
       <tr><td style="padding:2px 0;font:12px Helvetica,Arial,sans-serif;color:${INK};">Tax ${(ctx.invoice.taxRate * 100).toFixed(3)} %</td><td style="padding:2px 0;font:12px Helvetica,Arial,sans-serif;text-align:right;">${money(ctx.invoice.taxAmount)}</td></tr>
       <tr><td style="padding:6px 0;font:700 13px Helvetica,Arial,sans-serif;color:${INK};border-top:2px solid ${RULE};">Service Total:</td><td style="padding:6px 0;font:700 13px Helvetica,Arial,sans-serif;text-align:right;border-top:2px solid ${RULE};">${money(ctx.invoice.total)}</td></tr>
+      ${ctx.company.lateFeePolicy && ctx.invoice.total - ctx.invoice.amountPaid > 0.005 ? `<tr><td colspan="2" style="padding:6px 0 0;font:11px/16px Helvetica,Arial,sans-serif;color:${MUTED};">${escapeHtml(ctx.company.lateFeePolicy)}</td></tr>` : ''}
     </table>
   </td></tr>`}
 
@@ -369,6 +372,7 @@ export function renderServiceNotificationText(ctx: ServiceNotificationContext): 
     `Previous Balance ${money(stmt.previousBalance)}`,
     `Payments ${money(stmt.payments)}`,
     `Amount Due ${money(stmt.amountDue)}`,
+    ...(ctx.company.lateFeePolicy && stmt.amountDue > 0.005 ? [ctx.company.lateFeePolicy] : []),
   ];
   return lines.join('\n');
 }

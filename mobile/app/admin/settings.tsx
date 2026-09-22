@@ -6,11 +6,11 @@ import { api } from '../../src/lib/api';
 import { colors } from '../../src/lib/theme';
 import { Button, Label, Loading } from '../../src/components/ui';
 
-type Settings = { companyName: string; phone: string; email: string; address: string; licenseNumber: string; defaultTaxRate: number; invoiceDueDays: number; chargeRecurringOnCompletion: boolean; cardSurchargePercent: number; appointmentReminderHours: number };
-type Form = Omit<Settings, 'defaultTaxRate' | 'invoiceDueDays' | 'appointmentReminderHours' | 'cardSurchargePercent'> & { defaultTaxRate: string; invoiceDueDays: string; appointmentReminderHours: string; cardSurchargePercent: string };
+type Settings = { companyName: string; phone: string; email: string; address: string; licenseNumber: string; defaultTaxRate: number; invoiceDueDays: number; chargeRecurringOnCompletion: boolean; cardSurchargePercent: number; lateFeeDaily: number; lateFeeGraceDays: number; appointmentReminderHours: number };
+type Form = Omit<Settings, 'defaultTaxRate' | 'invoiceDueDays' | 'appointmentReminderHours' | 'cardSurchargePercent' | 'lateFeeDaily' | 'lateFeeGraceDays'> & { defaultTaxRate: string; invoiceDueDays: string; appointmentReminderHours: string; cardSurchargePercent: string; lateFeeDaily: string; lateFeeGraceDays: string };
 
-function toForm(s: Settings): Form { return { ...s, defaultTaxRate: String(s.defaultTaxRate * 100), invoiceDueDays: String(s.invoiceDueDays), appointmentReminderHours: String(s.appointmentReminderHours), cardSurchargePercent: String(s.cardSurchargePercent ?? 0) }; }
-function toBody(f: Form): Settings { return { ...f, defaultTaxRate: (Number(f.defaultTaxRate) || 0) / 100, invoiceDueDays: Number(f.invoiceDueDays) || 0, appointmentReminderHours: Number(f.appointmentReminderHours) || 0, cardSurchargePercent: Math.min(4, Math.max(0, Number(f.cardSurchargePercent) || 0)) }; }
+function toForm(s: Settings): Form { return { ...s, defaultTaxRate: String(s.defaultTaxRate * 100), invoiceDueDays: String(s.invoiceDueDays), appointmentReminderHours: String(s.appointmentReminderHours), cardSurchargePercent: String(s.cardSurchargePercent ?? 0), lateFeeDaily: String(s.lateFeeDaily ?? 25), lateFeeGraceDays: String(s.lateFeeGraceDays ?? 7) }; }
+function toBody(f: Form): Settings { return { ...f, defaultTaxRate: (Number(f.defaultTaxRate) || 0) / 100, invoiceDueDays: Number(f.invoiceDueDays) || 0, appointmentReminderHours: Number(f.appointmentReminderHours) || 0, cardSurchargePercent: Math.min(4, Math.max(0, Number(f.cardSurchargePercent) || 0)), lateFeeDaily: Math.max(0, Number(f.lateFeeDaily) || 0), lateFeeGraceDays: Math.max(0, Math.round(Number(f.lateFeeGraceDays) || 0)) }; }
 
 export default function AdminSettingsScreen() {
   const qc = useQueryClient();
@@ -34,6 +34,11 @@ export default function AdminSettingsScreen() {
       <Label>Card processing surcharge (%)</Label>
       <TextInput style={styles.input} keyboardType="decimal-pad" value={form.cardSurchargePercent} onChangeText={(cardSurchargePercent) => setForm({ ...form, cardSurchargePercent })} />
       <Text style={styles.hint}>Added to credit card payments only and shown before the customer pays and on the receipt. Bank, cash and check payments are never surcharged. Card networks cap this at 3% for Visa and 4% for Mastercard; 0 turns it off.</Text>
+      <Label>Late fee per day ($)</Label>
+      <TextInput style={styles.input} keyboardType="decimal-pad" value={form.lateFeeDaily} onChangeText={(lateFeeDaily) => setForm({ ...form, lateFeeDaily })} />
+      <Label>Late fee grace period (days after due date)</Label>
+      <TextInput style={styles.input} keyboardType="number-pad" value={form.lateFeeGraceDays} onChangeText={(lateFeeGraceDays) => setForm({ ...form, lateFeeGraceDays })} />
+      <Text style={styles.hint}>An invoice still unpaid after the grace period gets this fee added for every day until it is paid. It appears as a line on the invoice, the PDF, the portal and the customer's email. 0 turns it off; the office can waive it on any single invoice.</Text>
       <View style={styles.switchRow}>
         <View style={{ flex: 1, paddingRight: 12 }}>
           <Label>Charge recurring service on completion</Label>

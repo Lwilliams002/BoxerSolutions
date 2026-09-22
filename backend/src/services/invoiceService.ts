@@ -10,6 +10,7 @@ import { rowsToCamel, toCamel } from './customerService';
 import { storage } from '../integrations/storage';
 import { notifications } from '../integrations/notifications';
 import { communicationService, safelyQueueCommunication } from './communicationService';
+import { lateFeePolicyText } from '../utils/lateFee';
 import { DEFAULT_SETTINGS, getCompanySettings } from './settingsService';
 
 const COMPANY = {
@@ -355,6 +356,12 @@ export const invoiceService = {
       if (invoice.notes) {
         doc.moveDown(2);
         doc.fontSize(9).fillColor('#444').text(`Notes: ${invoice.notes}`, startX, y + 10, { width: 500 });
+        y += 24;
+      }
+      // Late fee policy, printed while anything is still owed.
+      const policyText = lateFeePolicyText({ dailyFee: settings.lateFeeDaily, graceDays: settings.lateFeeGraceDays });
+      if (policyText && Number(invoice.total) - Number(invoice.amountPaid) > 0.005) {
+        doc.fontSize(8).fillColor('#6B7280').text(policyText, startX, Math.min(y + 14, 715), { width: 500 });
       }
       doc.rect(0, 740, 612, 22).fill('#ECF7F3');
       doc

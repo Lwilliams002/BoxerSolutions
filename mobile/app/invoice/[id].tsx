@@ -25,6 +25,9 @@ interface InvoiceDetail {
   balanceDue: string | null;
   pdfFileId: string | null;
   items: { id: string; description: string; quantity: string | number; unitPrice: string; lineTotal: string }[];
+  lateFeeDays?: number;
+  lateFeeAmount?: string | number;
+  lateFeeWaived?: boolean;
 }
 
 interface Method {
@@ -381,6 +384,41 @@ export default function InvoiceScreen() {
           </>
         )}
       </Card>
+
+      {(Number(inv.lateFeeDays ?? 0) > 0 || inv.lateFeeWaived) ? (
+        <Card>
+          <Label>Late fee</Label>
+          {inv.lateFeeWaived ? (
+            <Value>Waived for this invoice. No daily fee accrues.</Value>
+          ) : (
+            <Value>{money(inv.lateFeeAmount ?? 0)} so far · {Number(inv.lateFeeDays)} day{Number(inv.lateFeeDays) === 1 ? '' : 's'} past the grace period. It keeps growing daily until the invoice is paid.</Value>
+          )}
+          {hasPermission('invoices:write') ? (
+            <Button
+              title={inv.lateFeeWaived ? 'Reinstate Late Fee' : 'Waive Late Fee'}
+              variant="outline"
+              loading={busy === 'latefee'}
+              onPress={() => confirmAction({
+                title: inv.lateFeeWaived ? 'Reinstate late fee' : 'Waive late fee',
+                message: inv.lateFeeWaived ? 'The daily late fee will be added back to this invoice.' : 'Removes the late fee from this invoice and stops it from accruing. The customer sees the lower balance right away.',
+                confirmText: inv.lateFeeWaived ? 'Reinstate' : 'Waive',
+                onConfirm: async () => {
+                  setBusy('latefee');
+                  try {
+                    await api(`/invoices/${id}/late-fee`, { method: 'PATCH', body: { waived: !inv.lateFeeWaived } });
+                    await qc.invalidateQueries({ queryKey: ['invoice', id] });
+                    void qc.invalidateQueries({ queryKey: ['customerInvoices'] });
+                  } catch (e) {
+                    notify('Could not update', (e as Error).message);
+                  } finally {
+                    setBusy(null);
+                  }
+                },
+              })}
+            />
+          ) : null}
+        </Card>
+      ) : null}
 
       {unpaid && (companyInfo.cardSurchargePercent ?? 0) > 0 ? (
         <Card>

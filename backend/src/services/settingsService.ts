@@ -1,4 +1,5 @@
 import { Queryable, pool } from '../config/db';
+import { lateFeePolicyText } from '../utils/lateFee';
 
 export interface CompanySettings {
   companyName: string;
@@ -12,6 +13,10 @@ export interface CompanySettings {
   chargeRecurringOnCompletion: boolean;
   /** Percentage added to card payments to offset processing fees (0 disables). Never applied to bank/cash/check. */
   cardSurchargePercent: number;
+  /** Late fee added per day once an invoice is past its grace period (0 disables). */
+  lateFeeDaily: number;
+  /** Days after the due date before the daily late fee starts. */
+  lateFeeGraceDays: number;
   appointmentReminderHours: number;
 }
 
@@ -25,6 +30,8 @@ export const DEFAULT_SETTINGS: CompanySettings = {
   invoiceDueDays: 15,
   chargeRecurringOnCompletion: false,
   cardSurchargePercent: 4,
+  lateFeeDaily: 25,
+  lateFeeGraceDays: 7,
   appointmentReminderHours: 24,
 };
 
@@ -49,6 +56,8 @@ export async function getCompanySettings(db: Queryable = pool): Promise<CompanyS
     invoiceDueDays: readNumber(invoicing.invoiceDueDays ?? invoicing.defaultDueDays, DEFAULT_SETTINGS.invoiceDueDays),
     chargeRecurringOnCompletion: invoicing.chargeRecurringOnCompletion === true,
     cardSurchargePercent: readNumber(invoicing.cardSurchargePercent, DEFAULT_SETTINGS.cardSurchargePercent),
+    lateFeeDaily: readNumber(invoicing.lateFeeDaily, DEFAULT_SETTINGS.lateFeeDaily),
+    lateFeeGraceDays: readNumber(invoicing.lateFeeGraceDays, DEFAULT_SETTINGS.lateFeeGraceDays),
     appointmentReminderHours: readNumber(appointments.appointmentReminderHours ?? appointments.reminderHours, DEFAULT_SETTINGS.appointmentReminderHours),
   };
 }
@@ -66,6 +75,8 @@ export interface CompanyInfo {
   license: string;
   licenseNumber: string;
   cardSurchargePercent: number;
+  /** One-line late fee policy for invoices and emails; empty when the fee is off. */
+  lateFeePolicy: string;
 }
 
 export function formatPhone(raw: string) {
@@ -85,7 +96,7 @@ export function splitAddressLines(address: string): string[] {
   return [trimmed.slice(0, comma).trim(), trimmed.slice(comma + 1).trim()].filter(Boolean);
 }
 
-export function toCompanyInfo(settings: Pick<CompanySettings, 'companyName' | 'phone' | 'email' | 'address' | 'licenseNumber'> & { cardSurchargePercent?: number }): CompanyInfo {
+export function toCompanyInfo(settings: Pick<CompanySettings, 'companyName' | 'phone' | 'email' | 'address' | 'licenseNumber'> & { cardSurchargePercent?: number; lateFeeDaily?: number; lateFeeGraceDays?: number }): CompanyInfo {
   const licenseNumber = settings.licenseNumber.trim();
   return {
     name: settings.companyName.trim() || DEFAULT_SETTINGS.companyName,
@@ -95,6 +106,7 @@ export function toCompanyInfo(settings: Pick<CompanySettings, 'companyName' | 'p
     license: `License #: ${licenseNumber || LICENSE_PLACEHOLDER}`,
     licenseNumber,
     cardSurchargePercent: Number(settings.cardSurchargePercent ?? 0) || 0,
+    lateFeePolicy: lateFeePolicyText({ dailyFee: Number(settings.lateFeeDaily ?? 0) || 0, graceDays: Number(settings.lateFeeGraceDays ?? 0) || 0 }),
   };
 }
 

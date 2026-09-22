@@ -7,6 +7,9 @@ import { ok, parsePagination } from '../utils/http';
 import { invoiceService } from '../services/invoiceService';
 import { fileService } from '../services/fileService';
 import { ApiError } from '../utils/errors';
+import { lateFeeService } from '../services/lateFeeService';
+
+const lateFeeSchema = z.object({ waived: z.boolean() });
 
 const router = Router();
 router.use(authenticate);
@@ -107,6 +110,16 @@ router.delete(
   asyncHandler(async (req, res) => {
     await invoiceService.softDelete(req.params.id, req.user!.id);
     ok(res, null, 'Invoice deleted');
+  }),
+);
+
+/** Office: waive or reinstate the daily late fee on one invoice. */
+router.patch(
+  '/:id/late-fee',
+  authorize('invoices:write'),
+  asyncHandler(async (req, res) => {
+    const body = lateFeeSchema.parse(req.body ?? {});
+    ok(res, await lateFeeService.setWaived(req.params.id, body.waived, req.user!.id), body.waived ? 'Late fee waived' : 'Late fee reinstated');
   }),
 );
 

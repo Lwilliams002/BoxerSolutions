@@ -1,6 +1,7 @@
 import { logger } from '../utils/logger';
 import { generateAllRecurringAppointments } from './recurring';
 import { processAutopay, sendAppointmentReminders, markPastDueInvoices } from './billing';
+import { lateFeeService } from '../services/lateFeeService';
 import { notifyDueRecurringServices } from './recurringDue';
 import { geocodePendingLocations } from '../services/geocodingService';
 import { scheduleRecurringVisits } from './recurringVisits';
@@ -25,6 +26,7 @@ export function startJobScheduler() {
       if (!systemUserId) return;
 
       const pastDue = await markPastDueInvoices();
+      const lateFees = await lateFeeService.applyLateFees().catch((err) => { logger.warn({ err }, 'late fee cycle failed'); return null; });
       const reminders = await sendAppointmentReminders();
       const recurring = await generateAllRecurringAppointments(systemUserId);
       const autopay = await processAutopay(systemUserId);
@@ -36,7 +38,7 @@ export function startJobScheduler() {
         ? await routeService.buildForDate(todayIso(), null, systemUserId).catch((err) => { logger.warn({ err }, 'route build failed'); return null; })
         : null;
       const digest = await dispatchService.dailyDigest().catch((err) => { logger.warn({ err }, 'dispatch digest failed'); return null; });
-      logger.info({ pastDue, reminders, recurring, autopay, dueServices, geocoding, recurringVisits, routeBuild, digest }, 'background jobs cycle complete');
+      logger.info({ pastDue, lateFees, reminders, recurring, autopay, dueServices, geocoding, recurringVisits, routeBuild, digest }, 'background jobs cycle complete');
     } catch (err) {
       logger.error(err, 'background job cycle failed');
     }
