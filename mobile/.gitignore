@@ -40,3 +40,6 @@ yarn-error.*
 /ios
 /android
 dist-web/
+
+# Google Play service account key for EAS Submit (never commit)
+google-play-service-account.json
