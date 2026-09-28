@@ -21,7 +21,7 @@ async function getStops(routeId: string) {
             a.id AS appointment_id, a.status, a.scheduled_date, a.window_start, a.window_end, a.duration_minutes,
             a.customer_id, c.first_name || ' ' || c.last_name AS customer_name, c.company, c.phone,
             sl.address_line1, sl.city, sl.state, sl.postal_code, sl.latitude, sl.longitude, sl.access_notes,
-            (SELECT json_agg(json_build_object('name', s.name, 'unitPrice', aps.unit_price, 'quantity', aps.quantity))
+            (SELECT COALESCE(json_agg(json_build_object('name', s.name, 'unitPrice', aps.unit_price, 'quantity', aps.quantity)), '[]'::json)
              FROM appointment_services aps JOIN services s ON s.id = aps.service_id
              WHERE aps.appointment_id = a.id) AS services,
             (SELECT coalesce(sum(aps.unit_price * aps.quantity), 0) FROM appointment_services aps

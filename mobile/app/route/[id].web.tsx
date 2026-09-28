@@ -26,7 +26,7 @@ interface Stop {
   postalCode: string;
   latitude: number | null;
   longitude: number | null;
-  services: { name: string; unitPrice: number; quantity: number }[];
+  services: { name: string; unitPrice: number; quantity: number }[] | null;
   estimatedTotal: string;
 }
 
@@ -194,7 +194,7 @@ export default function RouteDetailScreenWeb() {
               <Text style={styles.stopName}>{item.company ?? item.customerName}</Text>
               <Text style={styles.stopAddr}>{item.addressLine1}, {item.city}</Text>
               <View style={styles.stopFooter}>
-                <Text style={styles.stopSvc}>{item.services.map((s) => s.name).join(', ')}</Text>
+                <Text style={styles.stopSvc}>{(item.services ?? []).map((s) => s.name).join(', ') || 'Recurring service'}</Text>
                 <Text style={styles.stopTotal}>{money(item.estimatedTotal)}</Text>
               </View>
             </View>

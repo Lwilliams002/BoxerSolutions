@@ -29,7 +29,7 @@ interface ApptRow {
   windowEnd: string;
   technicianId: string | null;
   technicianName: string | null;
-  services: { name: string; unitPrice: number; quantity: number }[];
+  services: { name: string; unitPrice: number; quantity: number }[] | null;
 }
 
 function addDays(iso: string, n: number): string {
@@ -276,7 +276,7 @@ export default function NewRouteScreen() {
                       <Text style={styles.apptName}>{custName}</Text>
                       <Text style={styles.apptAddr}>{item.addressLine1}, {item.city}</Text>
                       <Text style={styles.apptSvc}>
-                        {item.services.map((s) => s.name).join(', ')}
+                        {(item.services ?? []).map((s) => s.name).join(', ') || 'Recurring service'}
                         {item.technicianName ? ` · ${item.technicianName}` : ' · Unassigned'}
                       </Text>
                     </View>

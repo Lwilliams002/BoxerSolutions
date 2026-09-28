@@ -32,7 +32,8 @@ interface Stop {
   postalCode: string;
   latitude: number | null;
   longitude: number | null;
-  services: { name: string; unitPrice: number; quantity: number }[];
+  /** Null for recurring visits that carry no service lines. */
+  services: { name: string; unitPrice: number; quantity: number }[] | null;
   estimatedTotal: string;
 }
 
@@ -497,7 +498,7 @@ export default function RouteDetailScreen() {
                 ) : null}
                 <View style={styles.stopFooter}>
                   <Text style={styles.stopSvc}>
-                    {item.services.map((s) => s.name).join(', ')}
+                    {(item.services ?? []).map((s) => s.name).join(', ') || 'Recurring service'}
                   </Text>
                   <Text style={styles.stopTotal}>{money(item.estimatedTotal)}</Text>
                 </View>
