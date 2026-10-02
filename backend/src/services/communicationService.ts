@@ -509,11 +509,13 @@ export const communicationService = {
     const [company, settings, invoice, plan, method, customer, servicesTotal] = await Promise.all([
       getCompanyInfo(),
       getCompanySettings(),
+      // An invoice already issued for this visit: linked to it, or (older agreements) simply due on the visit date.
       pool.query(
-        `SELECT (total - amount_paid) AS balance, charge_on_due FROM invoices
-         WHERE appointment_id = $1 AND deleted_at IS NULL AND status IN ('open','sent','past_due','partially_paid')
-         ORDER BY created_at LIMIT 1`,
-        [appointmentId],
+        `SELECT invoice_number, (total - amount_paid) AS balance, charge_on_due FROM invoices
+         WHERE deleted_at IS NULL AND status IN ('open','sent','past_due','partially_paid')
+           AND (appointment_id = $1 OR (customer_id = $2 AND appointment_id IS NULL AND due_date = $3::date))
+         ORDER BY (appointment_id = $1) DESC NULLS LAST, created_at LIMIT 1`,
+        [appointmentId, ctx.customer_id, String(ctx.scheduled_date instanceof Date ? todayIso(ctx.scheduled_date) : ctx.scheduled_date).slice(0, 10)],
       ),
       ctx.recurring_charge_id
         ? pool.query('SELECT amount FROM recurring_charges WHERE id = $1 AND active = true', [ctx.recurring_charge_id])
@@ -532,10 +534,21 @@ export const communicationService = {
       ? Number(inv.balance)
       : (!isInitial && plan.rows[0] ? Number(plan.rows[0].amount) : (Number(servicesTotal.rows[0]?.total ?? 0) || null));
     const pm = method.rows[0];
-    const methodLabel = pm ? `${pm.method_type === 'bank_account' ? 'bank account' : (pm.brand ?? 'card')}${pm.last4 ? ` ending in ${pm.last4}` : ''}` : null;
+    const brand = pm?.brand && String(pm.brand).toLowerCase() !== 'card' ? String(pm.brand) : 'card';
+    const methodLabel = pm ? `${pm.method_type === 'bank_account' ? 'bank account' : brand}${pm.last4 ? ` ending in ${pm.last4}` : ''}` : null;
+    const issued = inv && Number(inv.balance) > 0.005 ? String(inv.invoice_number) : null;
     const automatic = Boolean(inv?.charge_on_due) || Boolean(customer.rows[0]?.autopay_enabled) || (Boolean(ctx.recurring_charge_id) && settings.chargeRecurringOnCompletion);
     let highlight: string | null = null;
-    if (amount != null && amount > 0.005) {
+    if (amount != null && amount > 0.005 && issued) {
+      // The invoice for this visit already exists, so name it and let them pay ahead.
+      if (methodLabel && automatic) {
+        highlight = `Payment: ${money(amount)} (invoice ${issued}) will be charged to your ${methodLabel} on the day of service. To use a different payment method, call ${company.phone} before your visit.`;
+      } else if (methodLabel) {
+        highlight = `Payment: invoice ${issued} for ${money(amount)} is due on the day of service. You can pay it now in your customer portal or with your ${methodLabel} on file.`;
+      } else {
+        highlight = `Payment: invoice ${issued} for ${money(amount)} is due on the day of service and there is no payment method on file. You can pay it now in your customer portal, which also saves your card for future visits.`;
+      }
+    } else if (amount != null && amount > 0.005) {
       if (methodLabel && automatic) {
         highlight = `Payment: ${money(amount)} will be charged to your ${methodLabel} ${inv?.charge_on_due ? 'on the day of service' : 'once the visit is completed'}. To use a different payment method, call ${company.phone} before your visit.`;
       } else if (methodLabel) {
