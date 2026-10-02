@@ -152,7 +152,7 @@ export default function RouteDetailScreen() {
         latitudeDelta: 0.14,
         longitudeDelta: 0.14,
       }
-    : { latitude: 30.2672, longitude: -97.7431, latitudeDelta: 0.2, longitudeDelta: 0.2 };
+    : { latitude: 25.964, longitude: -80.229, latitudeDelta: 0.2, longitudeDelta: 0.2 };
 
   const stopMetrics = useMemo(() => {
     const metrics: Record<string, string> = {};

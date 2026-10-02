@@ -16,7 +16,8 @@ const router = Router();
 router.use(authenticate);
 
 const ROLE_CODES = ['OWNER', 'TRUSTED_TECHNICIAN', 'TECHNICIAN'] as const;
-const TECH_ROLE_CODES = ['TRUSTED_TECHNICIAN', 'TECHNICIAN'] as const;
+/** Who can be assigned visits and routes: technicians, and the owner when he runs a route himself. */
+const TECH_ROLE_CODES = ['TRUSTED_TECHNICIAN', 'TECHNICIAN', 'OWNER'] as const;
 
 router.get(
   '/',
@@ -44,13 +45,13 @@ router.get(
   asyncHandler(async (_req, res) => {
     const { rows } = await pool.query(
       `SELECT e.id AS employee_id, u.id AS user_id, u.first_name, u.last_name, e.job_title, e.color,
-              e.work_start_time, e.work_end_time, e.home_base_lat, e.home_base_lng
+              e.work_start_time, e.work_end_time, e.home_base_lat, e.home_base_lng,
+              EXISTS (SELECT 1 FROM user_roles ur JOIN roles r ON r.id = ur.role_id WHERE ur.user_id = u.id AND r.code = 'OWNER') AS is_owner
        FROM employees e
        JOIN users u ON u.id = e.user_id
-       JOIN user_roles ur ON ur.user_id = u.id
-       JOIN roles r ON r.id = ur.role_id AND r.code = ANY($1::text[])
-       WHERE e.deleted_at IS NULL AND e.is_active AND u.is_active
-       ORDER BY u.last_name`,
+       WHERE e.deleted_at IS NULL AND e.is_active AND u.is_active AND u.deleted_at IS NULL
+         AND EXISTS (SELECT 1 FROM user_roles ur JOIN roles r ON r.id = ur.role_id WHERE ur.user_id = u.id AND r.code = ANY($1::text[]))
+       ORDER BY is_owner, u.last_name`,
       [TECH_ROLE_CODES],
     );
     ok(res, rowsToCamel(rows));
@@ -111,7 +112,8 @@ router.post(
           [user.id, code],
         );
       }
-      if (body.employee || body.roleCodes.includes('TRUSTED_TECHNICIAN') || body.roleCodes.includes('TECHNICIAN')) {
+      // Every staff role (owner included) gets an employee record so they can be assigned visits and routes.
+      if (body.employee || body.roleCodes.length > 0) {
         const e = body.employee ?? {};
         await tx.query(
           `INSERT INTO employees (user_id, job_title, hire_date, home_base_lat, home_base_lng, work_start_time, work_end_time, color)

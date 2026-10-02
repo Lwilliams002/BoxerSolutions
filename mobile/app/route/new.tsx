@@ -5,6 +5,7 @@ import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { api } from '../../src/lib/api';
 import { notify } from '../../src/lib/confirm';
+import { useAuth } from '../../src/lib/authStore';
 import { colors, fmtTime, todayISO, money } from '../../src/lib/theme';
 import { Button, SectionTitle, Loading, ErrorText, StatusBadge } from '../../src/components/ui';
 import { SyncBanner } from '../../src/components/SyncBanner';
@@ -15,6 +16,7 @@ interface Tech {
   firstName: string;
   lastName: string;
   color?: string;
+  isOwner?: boolean;
 }
 
 interface ApptRow {
@@ -53,6 +55,7 @@ export default function NewRouteScreen() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [apptSearch, setApptSearch] = useState('');
+  const currentUserId = useAuth((s) => s.user)?.id ?? null;
 
   const days = useMemo(() => Array.from({ length: 14 }, (_, i) => addDays(todayISO(), i)), []);
 
@@ -197,8 +200,9 @@ export default function NewRouteScreen() {
                   </View>
                   <View style={{ flex: 1 }}>
                     <Text style={[styles.techName, techId === t.employeeId && { color: '#fff' }]}>
-                      {t.firstName} {t.lastName}
+                      {t.firstName} {t.lastName}{t.userId === currentUserId ? ' (you)' : ''}
                     </Text>
+                    {t.isOwner ? <Text style={{ fontSize: 12, color: colors.textMuted, marginTop: 1 }}>Owner</Text> : null}
                   </View>
                   {techId === t.employeeId && (
                     <Ionicons name="checkmark-circle" size={22} color="#2DC4A2" />
