@@ -758,6 +758,7 @@ export default function CustomerScreen() {
                       ))}
                     </View>
                     <Button title="Apply to upcoming visits" onPress={applyVisitSchedule} loading={applyingVisits} style={{ marginTop: 12 }} />
+                    <Text style={styles.metaText}>The customer is emailed their updated schedule. They also get a notice 3 days before each visit with the payment for that visit, and a reminder the day before.</Text>
                   </Card>
                 ) : null}
 
@@ -1220,7 +1221,7 @@ export default function CustomerScreen() {
             <Pressable style={styles.commSheet} onPress={() => undefined}>
               <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 8 }} keyboardShouldPersistTaps="handled">
               <Value style={{ fontWeight: '800', fontSize: 17 }}>Reschedule visit</Value>
-              <Text style={styles.metaText}>Pick the day and arrival window. The customer gets a reschedule notice.</Text>
+              <Text style={styles.metaText}>Pick the day and arrival window. The customer is emailed the new date and time.</Text>
               <Label>Day</Label>
               <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
                 {[0, 1, 2, 3, 7].map((d) => { const iso = shiftIso(resched.date, d); return (

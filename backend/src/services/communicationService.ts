@@ -13,10 +13,12 @@ import {
   ServiceNotificationContext, ServiceNotificationKind,
   renderServiceNotificationHtml, renderServiceNotificationText,
 } from '../content/serviceNotificationEmail';
-import { getCompanyInfo } from './settingsService';
-import { parseIsoDateLocal } from '../utils/dates';
+import { getCompanyInfo, getCompanySettings } from './settingsService';
+import { parseIsoDateLocal, todayIso } from '../utils/dates';
 import { escapeHtml } from '../content/serviceNotificationEmail';
 import { serviceMediaService } from './serviceMediaService';
+import { ScheduleEmailInput, renderScheduleEmailHtml, renderScheduleEmailText } from '../content/scheduleEmail';
+import { SERVICE_FREQUENCY_LABELS, parseServiceFrequency } from '../utils/serviceSchedule';
 
 /** Where customers sign in to see their visits, invoices and service photos. */
 const CUSTOMER_PORTAL_URL = 'https://boxersolutionspestcontrol.com/app/customer-portal';
@@ -36,7 +38,10 @@ export type CommunicationTemplateKey =
   | 'service_completed'
   | 'service_request_declined'
   | 'payment_method_request'
-  | 'late_fee_added';
+  | 'late_fee_added'
+  | 'schedule_created'
+  | 'schedule_updated'
+  | 'upcoming_visit_notice';
 
 const COMPANY = {
   name: 'Boxer Solutions Pest Control',
@@ -44,11 +49,13 @@ const COMPANY = {
   email: 'service@boxersolutionspestcontrol.com',
 };
 
+// Visit notices go by email: there is no SMS provider connected, so the
+// text-message channel would silently deliver nothing.
 const DEFAULT_CHANNEL: Record<CommunicationTemplateKey, CommunicationChannel> = {
-  appointment_confirmation: 'sms',
-  appointment_reminder: 'sms',
-  technician_on_my_way: 'sms',
-  appointment_rescheduled: 'sms',
+  appointment_confirmation: 'email',
+  appointment_reminder: 'email',
+  technician_on_my_way: 'email',
+  appointment_rescheduled: 'email',
   invoice_created: 'email',
   payment_received: 'email',
   payment_failed: 'email',
@@ -59,7 +66,26 @@ const DEFAULT_CHANNEL: Record<CommunicationTemplateKey, CommunicationChannel> = 
   service_request_declined: 'email',
   payment_method_request: 'email',
   late_fee_added: 'email',
+  schedule_created: 'email',
+  schedule_updated: 'email',
+  upcoming_visit_notice: 'email',
 };
+
+const APPOINTMENT_EMAIL_HEADING: Record<'appointment_confirmation' | 'appointment_reminder' | 'technician_on_my_way' | 'appointment_rescheduled', string> = {
+  appointment_confirmation: 'Your appointment is confirmed',
+  appointment_reminder: 'Reminder: your service visit is coming up',
+  technician_on_my_way: 'Your technician is on the way',
+  appointment_rescheduled: 'Your appointment was rescheduled',
+};
+
+/** "Monday, October 5, 2026" */
+function fmtDateLong(value: string | Date) {
+  const date = value instanceof Date ? value : (/^\d{4}-\d{2}-\d{2}/.test(String(value)) ? parseIsoDateLocal(String(value).slice(0, 10)) : new Date(value));
+  return date.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' });
+}
+
+/** How many visits a schedule email lists before summarizing the rest. */
+const SCHEDULE_EMAIL_MAX_VISITS = 12;
 
 function fmtDate(value: string | Date) {
   const date = value instanceof Date ? value : (/^\d{4}-\d{2}-\d{2}$/.test(String(value)) ? parseIsoDateLocal(String(value)) : new Date(value));
@@ -294,6 +320,21 @@ function renderTemplate(templateKey: CommunicationTemplateKey, ctx: QueryResultR
         subject: `Payment received for invoice ${ctx.invoice_number}`,
         body: `Thank you, ${firstName(ctx)}. We received your payment of ${money(extra?.amount as number | string | undefined)} for invoice ${ctx.invoice_number}.`,
       };
+    case 'upcoming_visit_notice':
+      return {
+        subject: `Your service visit on ${date} — ${String(extra?.companyName ?? COMPANY.name)}`,
+        body: `Hi ${firstName(ctx)}, this is a heads-up that your ${serviceNames(ctx)} with ${String(extra?.companyName ?? COMPANY.name)} is scheduled for ${date}, ${window}.`,
+      };
+    case 'schedule_created':
+      return {
+        subject: `Your service schedule with ${String(extra?.companyName ?? COMPANY.name)}`,
+        body: `Hi ${firstName(ctx)}, your service schedule with ${String(extra?.companyName ?? COMPANY.name)} is set. Your upcoming visits are listed below.`,
+      };
+    case 'schedule_updated':
+      return {
+        subject: `Your service schedule was updated — ${String(extra?.companyName ?? COMPANY.name)}`,
+        body: `Hi ${firstName(ctx)}, your service schedule with ${String(extra?.companyName ?? COMPANY.name)} was updated. Your upcoming visits with the new times are listed below.`,
+      };
     case 'late_fee_added':
       return {
         subject: `Late fee added to invoice ${ctx.invoice_number} — ${String(extra?.companyName ?? COMPANY.name)}`,
@@ -422,17 +463,182 @@ export const communicationService = {
   ) {
     const ctx = await appointmentContext(appointmentId);
     if (!ctx) throw new Error('Appointment not found for communication');
+    // No email on file: nothing to send (and nothing to log as a failure).
+    if (!ctx.customer_email) return null;
     const rendered = renderTemplate(templateKey, ctx, extra);
+    const company = await getCompanyInfo();
+    const window = ctx.window_start ? `${fmtTime(String(ctx.window_start))} – ${fmtTime(String(ctx.window_end))}` : '';
+    const email: ScheduleEmailInput = {
+      company,
+      heading: APPOINTMENT_EMAIL_HEADING[templateKey],
+      intro: rendered.body,
+      address: [ctx.address_line1, ctx.city, ctx.state].filter(Boolean).join(', ') || null,
+      visits: [{
+        date: fmtDateLong(ctx.scheduled_date),
+        window: templateKey === 'technician_on_my_way' ? String(extra?.etaWindow ?? window) : window,
+        technician: String(extra?.technicianName ?? ctx.technician_name ?? '') || null,
+      }],
+      closing: templateKey === 'technician_on_my_way'
+        ? `Questions? Call ${company.phone}.`
+        : `Need a different day or time? Reply to this email or call ${company.phone} and we will move it.`,
+      portalUrl: CUSTOMER_PORTAL_URL,
+    };
     return insertAndSend({
       customerId: ctx.customer_id,
       appointmentId,
       invoiceId: null,
-      channel: DEFAULT_CHANNEL[templateKey],
+      channel: 'email',
       templateKey,
-      subject: rendered.subject,
-      body: rendered.body,
+      subject: `${rendered.subject} — ${company.name}`,
+      body: renderScheduleEmailText(email),
+      html: renderScheduleEmailHtml(email),
       sentBy,
-      to: DEFAULT_CHANNEL[templateKey] === 'email' ? ctx.customer_email : ctx.customer_phone,
+      to: ctx.customer_email,
+    });
+  },
+
+  /**
+   * Heads-up a few days before a visit: when we are coming and what the
+   * payment for that visit will be (charged to the method on file, or an
+   * invoice to pay in the portal). Driven by the visit's current scheduled date.
+   */
+  async sendUpcomingVisitNotice(appointmentId: string, sentBy?: string | null) {
+    const ctx = await appointmentContext(appointmentId);
+    if (!ctx) throw new Error('Appointment not found for communication');
+    if (!ctx.customer_email) return null;
+    const [company, settings, invoice, plan, method, customer, servicesTotal] = await Promise.all([
+      getCompanyInfo(),
+      getCompanySettings(),
+      pool.query(
+        `SELECT (total - amount_paid) AS balance, charge_on_due FROM invoices
+         WHERE appointment_id = $1 AND deleted_at IS NULL AND status IN ('open','sent','past_due','partially_paid')
+         ORDER BY created_at LIMIT 1`,
+        [appointmentId],
+      ),
+      ctx.recurring_charge_id
+        ? pool.query('SELECT amount FROM recurring_charges WHERE id = $1 AND active = true', [ctx.recurring_charge_id])
+        : Promise.resolve({ rows: [] as QueryResultRow[] }),
+      pool.query(
+        `SELECT method_type, brand, last4 FROM payment_methods WHERE customer_id = $1 AND deleted_at IS NULL ORDER BY is_default DESC, created_at DESC LIMIT 1`,
+        [ctx.customer_id],
+      ),
+      pool.query('SELECT autopay_enabled FROM customers WHERE id = $1', [ctx.customer_id]),
+      pool.query('SELECT COALESCE(sum(unit_price * quantity), 0) AS total FROM appointment_services WHERE appointment_id = $1', [appointmentId]),
+    ]);
+    const inv = invoice.rows[0];
+    const isInitial = String(ctx.notes ?? '').startsWith('Initial service');
+    // What this visit will cost: the invoice already tied to it, else the plan's per-visit amount, else its service lines.
+    const amount = inv && Number(inv.balance) > 0.005
+      ? Number(inv.balance)
+      : (!isInitial && plan.rows[0] ? Number(plan.rows[0].amount) : (Number(servicesTotal.rows[0]?.total ?? 0) || null));
+    const pm = method.rows[0];
+    const methodLabel = pm ? `${pm.method_type === 'bank_account' ? 'bank account' : (pm.brand ?? 'card')}${pm.last4 ? ` ending in ${pm.last4}` : ''}` : null;
+    const automatic = Boolean(inv?.charge_on_due) || Boolean(customer.rows[0]?.autopay_enabled) || (Boolean(ctx.recurring_charge_id) && settings.chargeRecurringOnCompletion);
+    let highlight: string | null = null;
+    if (amount != null && amount > 0.005) {
+      if (methodLabel && automatic) {
+        highlight = `Payment: ${money(amount)} will be charged to your ${methodLabel} ${inv?.charge_on_due ? 'on the day of service' : 'once the visit is completed'}. To use a different payment method, call ${company.phone} before your visit.`;
+      } else if (methodLabel) {
+        highlight = `Payment: ${money(amount)} is due for this visit. An invoice will be issued when the visit is completed, and you can pay it in your customer portal or with your ${methodLabel} on file.`;
+      } else {
+        highlight = `Payment: ${money(amount)} is due for this visit and there is no payment method on file. An invoice will be issued when the visit is completed; you can pay it in your customer portal, which also saves your card for future visits.`;
+      }
+    }
+    const rendered = renderTemplate('upcoming_visit_notice', ctx, { companyName: company.name });
+    const scheduled = parseIsoDateLocal(String(ctx.scheduled_date instanceof Date ? todayIso(ctx.scheduled_date) : ctx.scheduled_date).slice(0, 10));
+    const today = parseIsoDateLocal(todayIso());
+    const days = Math.round((scheduled.getTime() - today.getTime()) / 86_400_000);
+    const email: ScheduleEmailInput = {
+      company,
+      heading: days > 1 ? `Your service visit is in ${days} days` : (days === 1 ? 'Your service visit is tomorrow' : 'Your upcoming service visit'),
+      intro: rendered.body,
+      address: [ctx.address_line1, ctx.city, ctx.state].filter(Boolean).join(', ') || null,
+      visits: [{
+        date: fmtDateLong(ctx.scheduled_date),
+        window: ctx.window_start ? `${fmtTime(String(ctx.window_start))} – ${fmtTime(String(ctx.window_end))}` : '',
+        technician: ctx.technician_name ?? null,
+        note: isInitial ? 'Initial service' : null,
+      }],
+      highlight,
+      closing: `Need a different day or time? Reply to this email or call ${company.phone} and we will move it.`,
+      portalUrl: CUSTOMER_PORTAL_URL,
+    };
+    return insertAndSend({
+      customerId: ctx.customer_id,
+      appointmentId,
+      invoiceId: null,
+      channel: 'email',
+      templateKey: 'upcoming_visit_notice',
+      subject: rendered.subject,
+      body: renderScheduleEmailText(email),
+      html: renderScheduleEmailHtml(email),
+      sentBy,
+      to: ctx.customer_email,
+    });
+  },
+
+  /**
+   * One email with the customer's upcoming visits: sent when their schedule is
+   * built from an agreement ('schedule_created') or changed in bulk
+   * ('schedule_updated'). Lists the next visits and summarizes the rest.
+   */
+  async sendScheduleSummary(customerId: string, kind: 'schedule_created' | 'schedule_updated', sentBy?: string | null) {
+    const ctx = await customerContext(customerId);
+    if (!ctx) throw new Error('Customer not found for communication');
+    if (!ctx.customer_email) return null;
+    const [visits, location, plan, company] = await Promise.all([
+      pool.query(
+        `SELECT a.scheduled_date::text AS d, a.window_start::text AS ws, a.window_end::text AS we, a.notes,
+                tu.first_name || ' ' || tu.last_name AS technician_name
+         FROM appointments a
+         LEFT JOIN employees te ON te.id = a.technician_id
+         LEFT JOIN users tu ON tu.id = te.user_id
+         WHERE a.customer_id = $1 AND a.deleted_at IS NULL AND a.status = 'scheduled' AND a.scheduled_date >= CURRENT_DATE
+         ORDER BY a.scheduled_date, a.window_start
+         LIMIT 400`,
+        [customerId],
+      ),
+      pool.query(
+        `SELECT address_line1, city, state FROM service_locations WHERE customer_id = $1 AND deleted_at IS NULL ORDER BY is_primary DESC, created_at LIMIT 1`,
+        [customerId],
+      ),
+      pool.query('SELECT frequency FROM recurring_charges WHERE customer_id = $1 AND active = true LIMIT 1', [customerId]),
+      getCompanyInfo(),
+    ]);
+    if (!visits.rows.length) return null;
+    const rendered = renderTemplate(kind, ctx, { companyName: company.name });
+    const shown = visits.rows.slice(0, SCHEDULE_EMAIL_MAX_VISITS);
+    const rest = visits.rows.length - shown.length;
+    const frequency = parseServiceFrequency(plan.rows[0]?.frequency);
+    const loc = location.rows[0];
+    const email: ScheduleEmailInput = {
+      company,
+      heading: kind === 'schedule_created' ? 'Your service schedule' : 'Your service schedule was updated',
+      intro: `${rendered.body}${frequency ? ` Service frequency: ${SERVICE_FREQUENCY_LABELS[frequency].toLowerCase()}.` : ''}`,
+      address: loc ? [loc.address_line1, loc.city, loc.state].filter(Boolean).join(', ') : null,
+      visits: shown.map((v) => ({
+        date: fmtDateLong(String(v.d)),
+        window: v.ws ? `${fmtTime(String(v.ws))} – ${fmtTime(String(v.we))}` : '',
+        technician: v.technician_name ?? null,
+        note: String(v.notes ?? '').startsWith('Initial service') ? 'Initial service' : null,
+      })),
+      moreNote: rest > 0
+        ? `Plus ${rest} more visit${rest === 1 ? '' : 's'} through ${fmtDateLong(String(visits.rows[visits.rows.length - 1].d))}, on the same schedule. They are all listed in your customer portal.`
+        : null,
+      closing: `Need a different day or time? Reply to this email or call ${company.phone} and we will move it. You will get a reminder before each visit.`,
+      portalUrl: CUSTOMER_PORTAL_URL,
+    };
+    return insertAndSend({
+      customerId,
+      appointmentId: null,
+      invoiceId: null,
+      channel: 'email',
+      templateKey: kind,
+      subject: rendered.subject,
+      body: renderScheduleEmailText(email),
+      html: renderScheduleEmailHtml(email),
+      sentBy,
+      to: ctx.customer_email,
     });
   },
 
@@ -648,6 +854,14 @@ export const communicationService = {
       case 'service_completed':
         if (!comm.appointment_id) throw ApiError.badRequest('Appointment no longer exists');
         result = await communicationService.sendServiceReport(comm.appointment_id, sentBy);
+        break;
+      case 'schedule_created':
+      case 'schedule_updated':
+        result = await communicationService.sendScheduleSummary(comm.customer_id, key, sentBy);
+        break;
+      case 'upcoming_visit_notice':
+        if (!comm.appointment_id) throw ApiError.badRequest('Appointment no longer exists');
+        result = await communicationService.sendUpcomingVisitNotice(comm.appointment_id, sentBy);
         break;
       case 'agreement_signed_copy': {
         const file = await pool.query(

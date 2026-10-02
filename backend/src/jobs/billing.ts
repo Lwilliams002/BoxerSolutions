@@ -95,6 +95,46 @@ export async function processAutopay(systemUserId: string) {
   return { succeeded, failed, skipped, processed: rows.length };
 }
 
+/** How many days before a visit the customer gets the "upcoming visit and payment" notice. */
+export const UPCOMING_VISIT_NOTICE_DAYS = 3;
+
+/**
+ * 3-day notice: every scheduled visit gets one email about the upcoming
+ * service and its payment, keyed to the visit's current date. A visit that is
+ * rescheduled gets a new notice before its new date. Visits booked or moved
+ * inside the window are caught up while they are still at least 2 days out;
+ * the day-before reminder covers anything closer.
+ */
+export async function sendUpcomingVisitNotices() {
+  const { rows } = await pool.query(
+    `SELECT a.id, a.scheduled_date::text AS scheduled_date
+     FROM appointments a
+     WHERE a.status = 'scheduled' AND a.deleted_at IS NULL
+       AND a.scheduled_date BETWEEN CURRENT_DATE + 2 AND CURRENT_DATE + $1::int
+       AND a.payment_notice_date IS DISTINCT FROM a.scheduled_date
+     ORDER BY a.scheduled_date`,
+    [UPCOMING_VISIT_NOTICE_DAYS],
+  );
+  let sent = 0;
+  for (const row of rows) {
+    try {
+      const result = await communicationService.sendUpcomingVisitNotice(row.id, null);
+      // Mark it handled either way (no email on file returns null) so the job does not retry hourly.
+      await pool.query('UPDATE appointments SET payment_notice_date = $2::date WHERE id = $1', [row.id, row.scheduled_date]);
+      if (result) sent++;
+    } catch (err) {
+      logger.error({ err, appointmentId: row.id }, 'upcoming visit notice failed');
+    }
+  }
+  return sent;
+}
+
+/** Customer emails go out during the day only (office local time). */
+export function isCustomerEmailHour(now: Date = new Date()) {
+  const hour = now.getHours();
+  return hour >= 8 && hour < 20;
+}
+
 /** Appointment reminder job: notify customers of tomorrow's appointments. */
 export async function sendAppointmentReminders() {
   const { rows } = await pool.query(

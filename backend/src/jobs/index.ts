@@ -1,6 +1,6 @@
 import { logger } from '../utils/logger';
 import { generateAllRecurringAppointments } from './recurring';
-import { processAutopay, sendAppointmentReminders, markPastDueInvoices } from './billing';
+import { processAutopay, sendAppointmentReminders, sendUpcomingVisitNotices, isCustomerEmailHour, markPastDueInvoices } from './billing';
 import { lateFeeService } from '../services/lateFeeService';
 import { notifyDueRecurringServices } from './recurringDue';
 import { geocodePendingLocations } from '../services/geocodingService';
@@ -33,7 +33,10 @@ export function startJobScheduler() {
       const lateFees = lastLateFeeDate === today
         ? 'skipped (already ran today)'
         : await lateFeeService.applyLateFees(today).then((r) => { lastLateFeeDate = today; return r; }).catch((err) => { logger.warn({ err }, 'late fee cycle failed'); return null; });
-      const reminders = await sendAppointmentReminders();
+      // Visit emails are real emails now, so they only go out between 8am and 8pm office time.
+      const emailHours = isCustomerEmailHour();
+      const reminders = emailHours ? await sendAppointmentReminders() : 'outside email hours';
+      const visitNotices = emailHours ? await sendUpcomingVisitNotices().catch((err) => { logger.warn({ err }, 'upcoming visit notices failed'); return null; }) : 'outside email hours';
       const recurring = await generateAllRecurringAppointments(systemUserId);
       const autopay = await processAutopay(systemUserId);
       const dueServices = await notifyDueRecurringServices();
@@ -44,7 +47,7 @@ export function startJobScheduler() {
         ? await routeService.buildForDate(todayIso(), null, systemUserId).catch((err) => { logger.warn({ err }, 'route build failed'); return null; })
         : null;
       const digest = await dispatchService.dailyDigest().catch((err) => { logger.warn({ err }, 'dispatch digest failed'); return null; });
-      logger.info({ pastDue, lateFees, reminders, recurring, autopay, dueServices, geocoding, recurringVisits, routeBuild, digest }, 'background jobs cycle complete');
+      logger.info({ pastDue, lateFees, reminders, visitNotices, recurring, autopay, dueServices, geocoding, recurringVisits, routeBuild, digest }, 'background jobs cycle complete');
     } catch (err) {
       logger.error(err, 'background job cycle failed');
     }

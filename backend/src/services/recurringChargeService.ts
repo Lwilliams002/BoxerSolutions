@@ -12,6 +12,7 @@ import {
 import { todayIso, toIsoDate } from '../utils/dates';
 import { buildTermVisits, cancelFutureVisits, createInitialVisit, addMinutes } from '../jobs/recurringVisits';
 import { dispatchService } from './dispatchService';
+import { communicationService, safelyQueueCommunication } from './communicationService';
 
 export interface RecurringChargeUpsertOptions {
   frequency?: ServiceFrequency | null;
@@ -125,6 +126,10 @@ export const recurringChargeService = {
           ).catch((err) => logger.warn({ err, customerId }, 'could not link the initial invoice to the initial visit'));
         }
         const built = await buildTermVisits(row.id, actorId, termMonths);
+        // Tell the customer their schedule: a new agreement always, an update only when visits were added.
+        if (!options.isUpdate || built.created > 0) {
+          safelyQueueCommunication(() => communicationService.sendScheduleSummary(customerId, options.isUpdate ? 'schedule_updated' : 'schedule_created', options.createdBy ?? null));
+        }
         if (built.created) {
           const unassigned = await pool.query('SELECT count(*)::int AS n FROM appointments WHERE recurring_charge_id = $1 AND technician_id IS NULL AND status = $2 AND deleted_at IS NULL', [row.id, 'scheduled']);
           if (unassigned.rows[0].n > 0) {
@@ -190,6 +195,11 @@ export const recurringChargeService = {
       await pool.query('UPDATE customers SET assigned_technician_id = $2, updated_at = now() WHERE id = $1 AND assigned_technician_id IS NULL', [plan.rows[0].customer_id, input.technicianId]);
     }
     await recordAudit({ userId, action: 'recurring_charge.visit_schedule_set', entityType: 'recurring_charge', entityId: id, newValue: { windowStart: start, windowEnd: end, technicianId: input.technicianId ?? null, visitsUpdated: updated.rowCount } });
+    // The arrival window (and maybe the technician) changed on every upcoming visit: send the customer the new schedule.
+    if ((updated.rowCount ?? 0) > 0) {
+      const customerId = String(plan.rows[0].customer_id);
+      safelyQueueCommunication(() => communicationService.sendScheduleSummary(customerId, 'schedule_updated', userId));
+    }
     return { updated: updated.rowCount ?? 0, windowStart: start, windowEnd: end };
   },
 
@@ -198,6 +208,11 @@ export const recurringChargeService = {
     const cancelled = await cancelFutureVisits(id);
     const term = await pool.query('SELECT term_months FROM recurring_charges WHERE id = $1', [id]);
     const built = await buildTermVisits(id, userId, Number(term.rows[0]?.term_months ?? 12));
+    const owner = await pool.query('SELECT customer_id FROM recurring_charges WHERE id = $1', [id]);
+    if (owner.rows[0] && built.created > 0) {
+      const customerId = String(owner.rows[0].customer_id);
+      safelyQueueCommunication(() => communicationService.sendScheduleSummary(customerId, 'schedule_updated', userId));
+    }
     return { cancelled, created: built.created };
   },
 
