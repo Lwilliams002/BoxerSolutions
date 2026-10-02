@@ -891,6 +891,47 @@ export const agreementSigningService = {
    * customer-initiated token sale; bank = ACH SALE inside the checkout. Either
    * way the method ends up on file for recurring charges.
    */
+  /**
+   * Customer portal: link to the hosted page where the customer pays one of
+   * their invoices. The card or bank account they use is charged for the
+   * balance and saved on file as their default method.
+   */
+  async buildInvoicePaymentLink(customerId: string, invoiceId: string, apiBaseUrl: string) {
+    const { rows } = await pool.query(
+      'SELECT status, (total - amount_paid) AS balance FROM invoices WHERE id = $1 AND customer_id = $2 AND deleted_at IS NULL',
+      [invoiceId, customerId],
+    );
+    if (!rows[0]) throw ApiError.notFound('Invoice not found');
+    if (['void', 'draft'].includes(String(rows[0].status)) || Number(rows[0].balance) <= 0.005) {
+      throw ApiError.badRequest('This invoice has no balance to pay.');
+    }
+    const token = issueInitialPaymentToken({ type: 'agreement_initial_payment', customerId, invoiceId });
+    return `${apiBaseUrl}/api/v1/payment-links/invoice?token=${encodeURIComponent(token)}`;
+  },
+
+  /** What the hosted "pay invoice" page shows before the secure form loads. */
+  async invoicePaymentContext(paymentToken: string) {
+    const payload = parseInitialPaymentToken(paymentToken);
+    const { rows } = await pool.query(
+      `SELECT i.invoice_number, i.status, i.due_date::text AS due_date, i.total, i.amount_paid, c.first_name,
+              (SELECT count(*)::int FROM payment_methods pm WHERE pm.customer_id = c.id AND pm.deleted_at IS NULL) AS methods
+       FROM invoices i JOIN customers c ON c.id = i.customer_id
+       WHERE i.id = $1 AND i.customer_id = $2 AND i.deleted_at IS NULL`,
+      [payload.invoiceId, payload.customerId],
+    );
+    if (!rows[0]) throw ApiError.badRequest('This payment link is no longer valid.');
+    const balance = Math.max(0, Number(rows[0].total) - Number(rows[0].amount_paid));
+    return {
+      invoiceNumber: String(rows[0].invoice_number),
+      firstName: String(rows[0].first_name ?? ''),
+      dueDate: String(rows[0].due_date).slice(0, 10),
+      total: Number(rows[0].total),
+      balanceDue: Math.round(balance * 100) / 100,
+      payable: balance > 0.005 && !['void', 'draft'].includes(String(rows[0].status)),
+      methodsOnFile: Number(rows[0].methods ?? 0),
+    };
+  },
+
   async createInitialPaymentSession(paymentToken: string) {
     const payload = parseInitialPaymentToken(paymentToken);
     await assertInvoiceBelongsToCustomer(payload.invoiceId, payload.customerId);

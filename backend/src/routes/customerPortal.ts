@@ -10,6 +10,7 @@ import { recordAudit } from '../services/auditService';
 import { notifications } from '../integrations/notifications';
 import { logger } from '../utils/logger';
 import { serviceMediaService } from '../services/serviceMediaService';
+import { agreementSigningService } from '../services/agreementSigningService';
 
 const router = Router();
 
@@ -127,6 +128,23 @@ router.get(
       [session.customerId, limit, offset],
     );
     ok(res, { items: rows, page, pageSize, total: count.rows[0].total });
+  }),
+);
+
+/**
+ * Pay one of the customer's own invoices: returns a short-lived link to the
+ * hosted secure payment page. Paying there charges the balance and saves the
+ * card or bank account on file.
+ */
+router.post(
+  '/invoices/:id/pay-link',
+  asyncHandler(async (req, res) => {
+    const session = portalCustomer(req);
+    const invoiceId = z.string().uuid().parse(req.params.id);
+    const forwardedProto = req.header('x-forwarded-proto');
+    const proto = (forwardedProto ? forwardedProto.split(',')[0] : req.protocol).trim();
+    const url = await agreementSigningService.buildInvoicePaymentLink(session.customerId, invoiceId, `${proto}://${req.get('host')}`);
+    ok(res, { url }, 'Payment link created', 201);
   }),
 );
 

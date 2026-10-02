@@ -105,7 +105,7 @@ export default function CustomerPortalHomeScreen() {
           ) : (
             <Text style={styles.meta}>No open invoices.</Text>
           )}
-          <Button title="View Invoices" variant="outline" onPress={() => router.push('/(auth)/customer-portal-invoices')} />
+          <Button title={openInvoices.length > 0 ? 'View & Pay Invoices' : 'View Invoices'} variant={openInvoices.length > 0 ? 'success' : 'outline'} onPress={() => router.push('/(auth)/customer-portal-invoices')} />
         </Card>
 
         <Card>

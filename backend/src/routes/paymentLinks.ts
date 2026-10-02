@@ -9,6 +9,10 @@ import { paymentMethodLinkService, PAYMENT_METHOD_LINK_TTL_DAYS } from '../servi
 import { communicationService } from '../services/communicationService';
 import { getCompanyInfo } from '../services/settingsService';
 import { logger } from '../utils/logger';
+import { agreementSigningService } from '../services/agreementSigningService';
+
+/** Where the customer goes back to after paying. */
+const CUSTOMER_PORTAL_URL = 'https://boxersolutionspestcontrol.com/app/customer-portal';
 
 const router = Router();
 
@@ -128,6 +132,89 @@ router.get('/store', asyncHandler(async (req, res) => {
       <p style="margin:16px 0 0 0;color:#607D78;font-size:12px;">Questions? Call ${htmlEscape(company.phone)} or reply to the email that sent you here.</p>
     </div>
     <script src="/api/v1/payment-links/store/client.js?v=1"></script>
+  </body>
+</html>`);
+}));
+
+/**
+ * Customer-facing "pay this invoice" page, opened from the customer portal.
+ * Uses the same secure form and client script as the post-signing payment:
+ * the card or bank account is charged for the balance and saved on file.
+ */
+router.get('/invoice', asyncHandler(async (req, res) => {
+  const query = z.object({ token: z.string().min(20) }).parse(req.query);
+  const ctx = await agreementSigningService.invoicePaymentContext(query.token);
+  const company = await getCompanyInfo();
+  const money = (n: number) => `$${n.toFixed(2)}`;
+  const due = (() => { const [y, m, d] = ctx.dueDate.split('-').map(Number); return new Date(Date.UTC(y, m - 1, d, 12)).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric', timeZone: 'UTC' }); })();
+  applyNorthCheckoutPageHeaders(res);
+  res.status(200).setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
+  const header = `
+      <div style="background:#0D0D0D;border-radius:10px;padding:12px;margin-bottom:14px;">
+        <img src="/api/v1/agreements/assets/logo-mark.png?v=3" alt="" style="width:40px;height:40px;object-fit:contain;vertical-align:middle;margin-right:10px;" />
+        <span style="font-size:18px;font-weight:900;color:#FFFFFF;vertical-align:middle;">${htmlEscape(company.name)}</span>
+      </div>`;
+  const backLink = `<p style="margin:16px 0 0 0;font-size:13px;"><a href="${CUSTOMER_PORTAL_URL}" style="color:#1E9C81;font-weight:700;">&larr; Back to the customer portal</a></p>`;
+  if (!ctx.payable) {
+    res.type('html').send(`<!doctype html>
+<html><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width, initial-scale=1"/><title>Invoice ${htmlEscape(ctx.invoiceNumber)} · ${htmlEscape(company.name)}</title></head>
+  <body style="font-family:Arial,sans-serif;background:#F5FAF8;padding:24px;">
+    <div style="max-width:620px;margin:0 auto;background:#fff;border:1px solid #D5EDE9;border-radius:12px;padding:20px;">${header}
+      <h2 style="margin:0 0 6px 0;color:#0D0D0D;">Invoice ${htmlEscape(ctx.invoiceNumber)} is paid</h2>
+      <p style="margin:0;color:#30433F;font-size:14px;line-height:1.5;">There is no balance due on this invoice. Thank you!</p>
+      ${backLink}
+    </div>
+  </body></html>`);
+    return;
+  }
+  res.type('html').send(`<!doctype html>
+<html>
+  <head><meta charset="utf-8"/><meta name="viewport" content="width=device-width, initial-scale=1"/><title>Pay invoice ${htmlEscape(ctx.invoiceNumber)} · ${htmlEscape(company.name)}</title><style>
+    #checkout-root { height: 560px; }
+    #checkout-root iframe { width: 100% !important; height: 100% !important; border: 0; display: block; }
+    @media (max-width: 640px) { #checkout-root { height: 820px; } }
+  </style></head>
+  <body style="font-family:Arial,sans-serif;background:#F5FAF8;padding:24px;">
+    <div style="max-width:620px;margin:0 auto;background:#fff;border:1px solid #D5EDE9;border-radius:12px;padding:20px;">${header}
+      <h2 style="margin:0 0 6px 0;color:#0D0D0D;">Pay invoice ${htmlEscape(ctx.invoiceNumber)}</h2>
+      <p style="margin:0 0 10px 0;color:#30433F;font-size:14px;line-height:1.5;">
+        ${ctx.firstName ? `Hi ${htmlEscape(ctx.firstName)}, ` : ''}the balance on this invoice is <b>${money(ctx.balanceDue)}</b>, due ${htmlEscape(due)}. Enter a card or bank account below. Your details are tokenized by our payment processor and never touch our systems.
+      </p>
+      <p style="margin:0 0 10px 0;color:#30433F;font-size:13px;line-height:1.5;background:#EAF8F5;border:1px solid #BFE8DF;border-radius:8px;padding:10px;">
+        The payment method you use is charged for this invoice and <b>saved on file</b> as your default for future service charges${ctx.methodsOnFile > 0 ? ', replacing the one currently on file as the default' : ''}.${company.cardSurchargePercent > 0 ? ` Card payments include a ${company.cardSurchargePercent}% processing fee; bank account payments have no fee.` : ''}
+      </p>
+      <div id="payBreakdown" style="font-size:14px;color:#0D0D0D;border:1px solid #D5EDE9;border-radius:10px;padding:10px 12px;margin:0 0 12px 0;"></div>
+      <input id="payToken" type="hidden" value="${htmlEscape(query.token)}" />
+      <p id="payStatus" style="color:#607D78;font-size:14px;margin:10px 0;">Loading secure payment form…</p>
+      <p id="payError" style="color:#B3261E;font-size:14px;margin:10px 0;display:none;"></p>
+      <button type="button" id="payRetry" style="display:none;margin:0 0 12px 0;padding:8px 12px;border:1px solid #CBD7D4;border-radius:8px;background:#fff;cursor:pointer;">Try Again</button>
+      <div id="checkoutWrap" style="border:1px solid #D5EDE9;border-radius:14px;background:#fff;padding:12px;">
+        <div id="checkout-root" style="width:100%;background:#FFFFFF;"></div>
+      </div>
+      <div id="achConsentWrap" style="display:none;margin-top:12px;border:1px solid #F0E3C4;background:#FDF8EC;border-radius:10px;padding:12px;">
+        <h4 id="achConsentTitle" style="margin:0 0 6px 0;color:#0D0D0D;font-size:15px;">Authorize your bank account</h4>
+        <p style="margin:0 0 10px 0;color:#30433F;font-size:13px;">Your bank account has been securely stored. Confirm the account type and authorize this payment and future debits for your service charges.</p>
+        <div style="display:flex;gap:16px;margin:0 0 10px 0;font-size:14px;color:#0D0D0D;">
+          <span style="font-weight:600;">Account type:</span>
+          <label style="display:flex;gap:6px;align-items:center;cursor:pointer;"><input type="radio" name="achAccountType" value="checking" checked /> Checking</label>
+          <label style="display:flex;gap:6px;align-items:center;cursor:pointer;"><input type="radio" name="achAccountType" value="savings" /> Savings</label>
+        </div>
+        <pre id="achTermsText" style="white-space:pre-wrap;font-family:inherit;font-size:13px;color:#4A4A4A;margin:0 0 10px 0;"></pre>
+        <label style="display:flex;gap:8px;align-items:flex-start;font-size:14px;color:#0D0D0D;cursor:pointer;">
+          <input id="achConsent" type="checkbox" style="margin-top:3px;" />
+          <span>I have read the ACH authorization above and authorize ${htmlEscape(company.name)} to debit my bank account for this invoice and for amounts due for my services as described in those terms.</span>
+        </label>
+      </div>
+      <button type="button" id="payNow" disabled style="display:inline-block;margin-top:12px;padding:12px 18px;background:#2DC4A2;color:#0D0D0D;border:none;border-radius:8px;font-weight:700;font-size:15px;cursor:pointer;">Pay ${money(ctx.balanceDue)}</button>
+      <div id="paySuccess" style="display:none;border:1px solid #BFE8DF;background:#EAF8F5;border-radius:10px;padding:14px;margin-top:12px;">
+        <h3 style="margin:0 0 6px 0;color:#0D0D0D;font-size:15px;">Payment received — thank you!</h3>
+        <p style="margin:0;color:#30433F;font-size:13px;">Invoice ${htmlEscape(ctx.invoiceNumber)} has been paid and your payment method is saved on file. A receipt is on its way to your email. You can close this page and return to the portal.</p>
+        <p id="paySuccessDetail" style="margin:8px 0 0 0;color:#30433F;font-size:13px;"></p>
+      </div>
+      ${backLink}
+      <p style="margin:10px 0 0 0;color:#607D78;font-size:12px;">Questions? Call ${htmlEscape(company.phone)}.</p>
+    </div>
+    <script src="/api/v1/agreements/sign/pay/client.js?v=11"></script>
   </body>
 </html>`);
 }));
