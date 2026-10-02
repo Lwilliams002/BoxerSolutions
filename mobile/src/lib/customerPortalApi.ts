@@ -9,6 +9,8 @@ export interface CustomerPortalRequestOptions {
 }
 
 export async function customerPortalApi<T = unknown>(path: string, opts: CustomerPortalRequestOptions = {}): Promise<T> {
+  // A page reload (web) or cold start lands here before the saved session is read back.
+  if (!useCustomerPortal.getState().hydrated) await useCustomerPortal.getState().hydrate();
   const { portalSessionToken, clearSession } = useCustomerPortal.getState();
   if (!portalSessionToken) throw new ApiRequestError('Portal session not found', 401);
 

@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { View, Text, TextInput, StyleSheet, KeyboardAvoidingView, Platform, Image } from 'react-native';
 import { useRouter } from 'expo-router';
 import { Button, ErrorText } from '../../src/components/ui';
@@ -29,6 +29,18 @@ export default function CustomerPortalScreen() {
   const [info, setInfo] = useState('');
   const [busy, setBusy] = useState(false);
   const [busyTest, setBusyTest] = useState(false);
+
+  // Already signed in (for example, coming back from the secure payment page): go straight to the portal.
+  useEffect(() => {
+    let cancelled = false;
+    void (async () => {
+      const store = useCustomerPortal.getState();
+      if (!store.hydrated) await store.hydrate();
+      if (!cancelled && useCustomerPortal.getState().portalSessionToken) router.replace('/(auth)/customer-portal-home');
+    })();
+    return () => { cancelled = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const requestCode = async () => {
     setError('');
