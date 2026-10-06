@@ -43,16 +43,19 @@ export default function NewCustomerScreen() {
     city?: string;
     state?: string;
     postal?: string;
+    firstName?: string;
+    lastName?: string;
+    phone?: string;
   }>();
   const qc = useQueryClient();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
 
-  const [firstName, setFirstName] = useState('');
-  const [lastName, setLastName] = useState('');
+  const [firstName, setFirstName] = useState(typeof params.firstName === 'string' ? params.firstName : '');
+  const [lastName, setLastName] = useState(typeof params.lastName === 'string' ? params.lastName : '');
   const [company, setCompany] = useState('');
   const [email, setEmail] = useState('');
-  const [phone, setPhone] = useState('');
+  const [phone, setPhone] = useState(typeof params.phone === 'string' ? params.phone : '');
   const [commercial, setCommercial] = useState(false);
   const [address1, setAddress1] = useState(typeof params.address1 === 'string' ? params.address1 : '');
   const [city, setCity] = useState(typeof params.city === 'string' ? params.city : '');

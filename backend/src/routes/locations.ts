@@ -45,12 +45,16 @@ router.get(
               EXISTS (
                 SELECT 1 FROM appointments a WHERE a.customer_id = c.id AND a.status = 'completed' AND a.deleted_at IS NULL
               ) AS has_completed_service,
+              (SELECT max(a.scheduled_date)::text FROM appointments a WHERE a.customer_id = c.id AND a.status = 'completed' AND a.deleted_at IS NULL) AS last_service_date,
+              (SELECT min(a.scheduled_date)::text FROM appointments a WHERE a.customer_id = c.id AND a.status = 'scheduled' AND a.deleted_at IS NULL AND a.scheduled_date >= CURRENT_DATE) AS next_service_date,
+              rc.amount AS plan_amount, rc.frequency AS plan_frequency,
               ${canOpenSql} AS can_open
        FROM service_locations sl
        JOIN customers c ON c.id = sl.customer_id
        LEFT JOIN users cu ON cu.id = c.created_by
        LEFT JOIN employees te ON te.id = c.assigned_technician_id
        LEFT JOIN users tu ON tu.id = te.user_id
+       LEFT JOIN LATERAL (SELECT amount, frequency FROM recurring_charges r WHERE r.customer_id = c.id AND r.active ORDER BY r.updated_at DESC LIMIT 1) rc ON true
        WHERE sl.deleted_at IS NULL AND c.deleted_at IS NULL AND sl.latitude IS NOT NULL AND sl.longitude IS NOT NULL
        ORDER BY c.last_name, c.first_name`,
       params,

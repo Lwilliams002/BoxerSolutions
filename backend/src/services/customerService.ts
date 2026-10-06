@@ -2,6 +2,7 @@ import { pool, withTransaction } from '../config/db';
 import { config } from '../config';
 import { ApiError } from '../utils/errors';
 import { recordAudit } from './auditService';
+import { prospectService } from './prospectService';
 import { queueGeocode } from './geocodingService';
 import { cognitoUsers } from '../integrations/cognito';
 
@@ -170,6 +171,11 @@ export const customerService = {
       return camel(customer);
     });
     if (pendingGeocodeId) queueGeocode(pendingGeocodeId);
+    // A door-knocking pin at this address becomes this customer.
+    const loc = data.serviceLocation;
+    if (loc && loc.latitude != null && loc.longitude != null) {
+      prospectService.markConvertedNear((created as any).id, Number(loc.latitude), Number(loc.longitude), userId).catch(() => undefined);
+    }
     return created;
   },
 

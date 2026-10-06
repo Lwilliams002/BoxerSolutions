@@ -12,6 +12,7 @@ import authRoutes from './routes/auth';
 import userRoutes from './routes/users';
 import customerRoutes from './routes/customers';
 import locationRoutes from './routes/locations';
+import prospectRoutes from './routes/prospects';
 import serviceRoutes from './routes/services';
 import appointmentRoutes from './routes/appointments';
 import routeRoutes from './routes/routes';
@@ -90,6 +91,7 @@ export function createApp() {
   v1.use('/users', userRoutes);
   v1.use('/customers', customerRoutes);
   v1.use('/locations', locationRoutes);
+  v1.use('/prospects', prospectRoutes);
   v1.use('/services', serviceRoutes);
   v1.use('/appointments', appointmentRoutes);
   v1.use('/routes', routeRoutes);
