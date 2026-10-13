@@ -306,7 +306,9 @@ function privacy(ctx: SiteContext) {
   <h2>Sharing</h2>
   <p>We do not sell or rent your information. We share it only with service providers that help us operate, such as our payment processor, email delivery provider and cloud hosting provider, and when required by law.</p>
   <h2>Communications</h2>
-  <p>By providing your phone number and email you agree to receive service-related texts and emails. Reply STOP to any text or contact us to opt out of non-essential messages.</p>
+  <p>By providing your email you agree to receive service-related emails. Text messages are sent only if you opt in on your service agreement or in your customer portal; see our <a href="${ctx.base}/terms#sms">text message terms</a>. Reply STOP to any text to stop texts, or contact us to opt out of non-essential messages.</p>
+  <h2>Mobile information</h2>
+  <p>No mobile information, phone numbers, or text message opt-in data will be shared with third parties or affiliates for marketing or promotional purposes. Text messaging originator opt-in data and consent are not shared with any third party, except with vendors who help us deliver the messages, and only for that purpose.</p>
   <h2>Retention and security</h2>
   <p>Service and billing records are retained as required by Florida law and for as long as needed to serve your account. Data is transmitted over encrypted connections and stored on access-controlled systems.</p>
   <h2>Your choices</h2>
@@ -336,6 +338,13 @@ function terms(ctx: SiteContext) {
   <p>Please provide access to the areas to be treated, keep children and pets away from treated areas until materials have dried, and follow any instructions given by your technician. All materials used are registered with the U.S. Environmental Protection Agency.</p>
   <h2>Early termination</h2>
   <p>If an agreement is terminated before the end of its term, any initial service discount applied under the agreement becomes repayable as stated on the agreement.</p>
+  <h2 id="sms">Text message (SMS) terms</h2>
+  <p><b>Program.</b> ${e(c.name)} appointment updates. By checking the "Text me appointment updates" box on your service agreement or turning texts on in your customer portal, you agree to receive text messages from ${e(c.name)} about your service: appointment confirmations, reminders before each visit, technician-on-the-way alerts, reschedule notices, and replies to your questions. We do not send marketing texts.</p>
+  <p><b>Frequency.</b> Message frequency varies with your service schedule, typically 2 to 6 messages per month around each visit.</p>
+  <p><b>Cost.</b> Message and data rates may apply. Check with your mobile carrier for details.</p>
+  <p><b>Opting out.</b> Reply <b>STOP</b> to any message to stop receiving texts. You will receive one final message confirming you have been unsubscribed. You can also turn texts off in your customer portal or by calling ${e(c.phone)}. Opting out of texts does not cancel your service; we will continue to contact you by email and phone.</p>
+  <p><b>Help.</b> Reply <b>HELP</b> to any message, call ${e(c.phone)}, or email <a href="mailto:${e(c.email)}">${e(c.email)}</a>.</p>
+  <p><b>Privacy.</b> Your phone number and opt-in are used only to deliver these messages and are never sold or shared with third parties for marketing. See our <a href="${ctx.base}/privacy">Privacy Policy</a>. Carriers are not liable for delayed or undelivered messages.</p>
   <h2>Contact</h2>
   <p>${e(c.name)} · ${e(c.phone)} · <a href="mailto:${e(c.email)}">${e(c.email)}</a>${c.addressLines.length ? ` · ${e(c.addressLines.join(', '))}` : ''} · ${e(c.license)}</p>
 </div></section>`;
