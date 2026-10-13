@@ -141,6 +141,8 @@ export default function AgreementScreen() {
 
   const [initials, setInitials] = useState('');
   const [agreed, setAgreed] = useState(false);
+  /** Consent to appointment text messages; recorded on the customer with the time and source. */
+  const [smsOptIn, setSmsOptIn] = useState(false);
   const [busy, setBusy] = useState(false);
   const [signing, setSigning] = useState(false);
   const [signatureDataUrl, setSignatureDataUrl] = useState<string | null>(null);
@@ -411,7 +413,10 @@ export default function AgreementScreen() {
     try {
       const targetCustomerId =
         existingCustomerId ??
-        (await api<{ id: string }>('/customers', { method: 'POST', body: data })).id;
+        (await api<{ id: string }>('/customers', { method: 'POST', body: { ...data, smsOptIn } })).id;
+      if (existingCustomerId && smsOptIn) {
+        await api(`/customers/${existingCustomerId}`, { method: 'PATCH', body: { smsOptIn: true } }).catch(() => undefined);
+      }
       let signatureRequestSent = !sendForSignature;
       let initialInvoiceId: string | null = null;
 
@@ -448,6 +453,7 @@ export default function AgreementScreen() {
         `Selections: ${JSON.stringify(selections)}`,
         `Term: ${termMonths} months`,
         `Covered pests: ${coveredPests.join(', ')}`,
+        `Text message updates: ${smsOptIn ? 'YES (opted in on this agreement)' : 'NO'}`,
         `Signed: ${signedDate}`,
       ].join('\n');
       await api('/notes', {
@@ -1197,6 +1203,12 @@ export default function AgreementScreen() {
               {agreed && <Ionicons name="checkmark" size={16} color="#0D0D0D" />}
             </View>
             <Text style={[styles.agreeText, sendForSignature && { opacity: 0.5 }]}>I have read and accept the terms of this service agreement.</Text>
+          </TouchableOpacity>
+          <TouchableOpacity style={styles.agreeRow} onPress={() => setSmsOptIn((v) => !v)} activeOpacity={0.7} disabled={sendForSignature}>
+            <View style={[styles.checkbox, smsOptIn && styles.checkboxOn]}>
+              {smsOptIn && <Ionicons name="checkmark" size={16} color="#0D0D0D" />}
+            </View>
+            <Text style={[styles.agreeText, sendForSignature && { opacity: 0.5 }]}>Text me appointment updates (reminders, technician on the way, reschedules) at {data.phone || 'my mobile number'}. Msg &amp; data rates may apply. Message frequency varies. Reply STOP to cancel, HELP for help. See boxersolutionspestcontrol.com/terms#sms.</Text>
           </TouchableOpacity>
         </View>
       </ScrollView>

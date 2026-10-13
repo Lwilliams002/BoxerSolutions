@@ -1,4 +1,5 @@
 import { Router } from 'express';
+import { pool } from '../config/db';
 import fs from 'fs/promises';
 import path from 'path';
 import { z } from 'zod';
@@ -328,6 +329,7 @@ function signingClientScript() {
   var signerInput = document.getElementById('signerName');
   var initialsInput = document.getElementById('initials');
   var acceptEl = document.getElementById('acceptTerms');
+  var smsEl = document.getElementById('smsOptIn');
   var tokenEl = document.getElementById('signToken');
   if (!canvas || !form || !clearBtn || !errorEl || !signerInput || !initialsInput || !acceptEl || !tokenEl) return;
 
@@ -461,6 +463,7 @@ function signingClientScript() {
     var signerName = String(signerInput.value || '').trim();
     var initials = String(initialsInput.value || '').trim().toUpperCase();
     var acceptedTerms = !!acceptEl.checked;
+    var smsOptIn = !!(smsEl && smsEl.checked);
     var token = String(tokenEl.value || '');
 
     if (!signerName) {
@@ -495,6 +498,7 @@ function signingClientScript() {
           initials: initials,
           signatureDataUrl: signatureDataUrl,
           acceptedTerms: acceptedTerms,
+          smsOptIn: smsOptIn,
           signedAtIso: new Date().toISOString(),
           signerTimeZone: (Intl.DateTimeFormat().resolvedOptions() || {}).timeZone || undefined
         })
@@ -856,6 +860,10 @@ router.get(
           <input id="acceptTerms" type="checkbox" style="margin-top:2px;" />
           <span>I reviewed this service agreement and consent to sign electronically.</span>
         </label>
+        <label id="smsOptInRow" style="display:flex;align-items:flex-start;gap:8px;margin-top:10px;color:#30433F;">
+          <input id="smsOptIn" type="checkbox" style="margin-top:2px;" />
+          <span>Text me appointment updates (reminders, technician on the way, reschedules) at the mobile number on this agreement. Msg &amp; data rates may apply. Message frequency varies. Reply STOP to cancel, HELP for help. <a href="https://boxersolutionspestcontrol.com/terms#sms" target="_blank" rel="noopener">SMS terms</a> &middot; <a href="https://boxersolutionspestcontrol.com/privacy" target="_blank" rel="noopener">Privacy</a></span>
+        </label>
         <button type="submit" style="display:inline-block;margin-top:16px;padding:10px 14px;background:#2DC4A2;color:#0D0D0D;border:none;border-radius:8px;font-weight:700;cursor:pointer;">Sign Agreement</button>
       </form>
       <p id="formError" style="color:#B3261E;font-size:14px;margin-top:10px;display:none;"></p>`;
@@ -888,10 +896,18 @@ router.post(
       initials: z.string().min(1).max(4),
       signatureDataUrl: z.string().min(30),
       acceptedTerms: z.boolean(),
+      smsOptIn: z.boolean().optional(),
       signedAtIso: z.string().datetime().optional(),
       signerTimeZone: z.string().min(1).max(100).optional(),
     }).parse(req.body);
     const result = await agreementSigningService.signFromToken(payload);
+    // Text-message consent given on the signing page: record it with the source.
+    if (!result.alreadySigned && payload.smsOptIn) {
+      await pool.query(
+        `UPDATE customers SET sms_opt_in = true, sms_opt_in_at = now(), sms_opt_in_source = 'agreement_web', sms_opt_out_at = NULL, updated_at = now() WHERE id = $1`,
+        [result.customerId],
+      ).catch(() => undefined);
+    }
     if (!result.alreadySigned && result.signedFileId) {
       safelyQueueCommunication(() => communicationService.sendSignedAgreementCopy(result.customerId, result.signedFileId!, null));
     }

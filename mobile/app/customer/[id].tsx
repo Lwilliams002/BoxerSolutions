@@ -670,6 +670,29 @@ export default function CustomerScreen() {
                 <Label>AutoPay</Label>
                 <Value>{cust.autopayEnabled ? 'Enabled ⟳' : 'Disabled'}</Value>
               </View>
+              <View style={{ marginTop: 8 }}>
+                <Label>Text message updates</Label>
+                <Value>{cust.smsOptIn ? `On${cust.smsOptInAt ? ` · opted in ${fmtDate(cust.smsOptInAt)}${cust.smsOptInSource ? ` (${String(cust.smsOptInSource).replace('_', ' ')})` : ''}` : ''}` : 'Off'}</Value>
+                {hasPermission('customers:write') ? (
+                  <Button
+                    title={cust.smsOptIn ? 'Turn Texts Off' : 'Turn Texts On (customer agreed)'}
+                    variant="outline"
+                    onPress={() => confirmAction({
+                      title: cust.smsOptIn ? 'Turn texts off' : 'Turn texts on',
+                      message: cust.smsOptIn ? 'The customer will stop receiving appointment texts.' : 'Only turn this on when the customer has agreed to receive appointment texts (on the agreement, in the portal, or verbally).',
+                      confirmText: cust.smsOptIn ? 'Turn off' : 'Turn on',
+                      onConfirm: async () => {
+                        try {
+                          await api(`/customers/${id}`, { method: 'PATCH', body: { smsOptIn: !cust.smsOptIn } });
+                          void qc.invalidateQueries({ queryKey: ['customer', id] });
+                        } catch (e) {
+                          notify('Could not update', (e as Error).message);
+                        }
+                      },
+                    })}
+                  />
+                ) : null}
+              </View>
               {hasPermission('payments:write') ? (
                 <Button
                   title={cust.autopayEnabled ? 'Disable AutoPay' : 'Enable AutoPay'}

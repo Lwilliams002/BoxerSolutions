@@ -183,6 +183,7 @@ export interface CustomerPortalMe {
   customer_type: string;
   balance: string | number;
   autopay_enabled: boolean;
+  sms_opt_in?: boolean;
   address_line1: string | null;
   address_line2: string | null;
   city: string | null;

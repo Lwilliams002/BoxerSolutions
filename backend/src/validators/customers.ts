@@ -15,6 +15,8 @@ export const createCustomerSchema = z.object({
   billingPostalCode: z.string().max(20).nullish(),
   assignedTechnicianId: z.string().uuid().nullish(),
   autopayEnabled: z.boolean().default(false),
+  /** Consent to text messages (appointment updates). Recorded with time and source. */
+  smsOptIn: z.boolean().optional(),
   notes: z.string().nullish(),
   serviceLocation: z
     .object({

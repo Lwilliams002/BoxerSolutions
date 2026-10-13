@@ -32,7 +32,7 @@ router.get(
     const session = portalCustomer(req);
     const { rows } = await pool.query(
       `SELECT c.id, c.first_name, c.last_name, c.company, c.email, c.phone, c.status, c.customer_type,
-              c.balance, c.autopay_enabled,
+              c.balance, c.autopay_enabled, c.sms_opt_in,
               sl.id AS primary_location_id, sl.address_line1, sl.address_line2, sl.city, sl.state, sl.postal_code
        FROM customers c
        LEFT JOIN LATERAL (
@@ -47,6 +47,22 @@ router.get(
     );
     if (!rows[0]) throw ApiError.notFound('Customer not found');
     ok(res, rows[0]);
+  }),
+);
+
+/** Customer: turn text message updates on or off. */
+router.patch(
+  '/me/sms',
+  asyncHandler(async (req, res) => {
+    const session = portalCustomer(req);
+    const body = z.object({ smsOptIn: z.boolean() }).parse(req.body ?? {});
+    await pool.query(
+      body.smsOptIn
+        ? `UPDATE customers SET sms_opt_in = true, sms_opt_in_at = now(), sms_opt_in_source = 'portal', sms_opt_out_at = NULL, updated_at = now() WHERE id = $1`
+        : `UPDATE customers SET sms_opt_in = false, sms_opt_out_at = now(), updated_at = now() WHERE id = $1`,
+      [session.customerId],
+    );
+    ok(res, { smsOptIn: body.smsOptIn }, body.smsOptIn ? 'Text updates on' : 'Text updates off');
   }),
 );
 

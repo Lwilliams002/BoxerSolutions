@@ -135,14 +135,17 @@ export const customerService = {
       const { rows } = await tx.query(
         `INSERT INTO customers (first_name, last_name, company, email, phone, customer_type, status,
            billing_address_line1, billing_address_line2, billing_city, billing_state, billing_postal_code,
-           assigned_technician_id, autopay_enabled, notes, created_by)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16)
+           assigned_technician_id, autopay_enabled, notes, created_by,
+           sms_opt_in, sms_opt_in_at, sms_opt_in_source)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,
+           $17, CASE WHEN $17 THEN now() ELSE NULL END, CASE WHEN $17 THEN 'agreement_app' ELSE NULL END)
          RETURNING *`,
         [
           data.firstName, data.lastName, data.company ?? null, data.email ?? null, data.phone ?? null,
           data.customerType, data.status, data.billingAddressLine1 ?? null, data.billingAddressLine2 ?? null,
           data.billingCity ?? null, data.billingState ?? null, data.billingPostalCode ?? null,
           data.assignedTechnicianId ?? null, data.autopayEnabled, data.notes ?? null, userId,
+          data.smsOptIn === true,
         ],
       );
       const customer = rows[0];
@@ -187,6 +190,7 @@ export const customerService = {
       billingAddressLine1: 'billing_address_line1', billingAddressLine2: 'billing_address_line2',
       billingCity: 'billing_city', billingState: 'billing_state', billingPostalCode: 'billing_postal_code',
       assignedTechnicianId: 'assigned_technician_id', autopayEnabled: 'autopay_enabled', notes: 'notes',
+      smsOptIn: 'sms_opt_in',
     };
     const sets: string[] = [];
     const params: unknown[] = [];
@@ -195,6 +199,13 @@ export const customerService = {
         params.push(data[k]);
         sets.push(`${col} = $${params.length}`);
       }
+    }
+    // Consent bookkeeping: when texts are switched on or off, stamp when and where.
+    if ('smsOptIn' in data) {
+      params.push(data.smsOptInSource ?? 'office');
+      sets.push(data.smsOptIn
+        ? `sms_opt_in_at = now(), sms_opt_in_source = $${params.length}, sms_opt_out_at = NULL`
+        : `sms_opt_out_at = now(), sms_opt_in_source = $${params.length}`);
     }
     if (sets.length === 0) return existing;
     params.push(id);
