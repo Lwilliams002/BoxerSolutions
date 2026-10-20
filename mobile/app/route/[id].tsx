@@ -99,6 +99,25 @@ export default function RouteDetailScreen() {
     onSuccess: () => void qc.invalidateQueries({ queryKey: ['route', id] }),
   });
 
+  const deleteRoute = useMutation({
+    mutationFn: () => api<{ removedStops: number }>(`/routes/${id}`, { method: 'DELETE' }),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ['routes'] });
+      void qc.invalidateQueries({ queryKey: ['unrouted'] });
+      void qc.removeQueries({ queryKey: ['route', id] });
+      router.back();
+    },
+    onError: (e) => notify('Could not delete route', (e as Error).message),
+  });
+  const confirmDeleteRoute = () =>
+    confirmAction({
+      title: 'Delete this route?',
+      message: `The ${total} visit(s) stay scheduled for the customers; they just come off this route so you can rebuild it.`,
+      confirmText: 'Delete route',
+      destructive: true,
+      onConfirm: () => deleteRoute.mutate(),
+    });
+
   const updateStopStatus = useMutation({
     mutationFn: async ({ appointmentId, status }: { appointmentId: string; status: string }) => {
       const { queued } = await mutateOrQueue(`/appointments/${appointmentId}/status`, {
@@ -336,6 +355,11 @@ export default function RouteDetailScreen() {
             <Ionicons name="map" size={16} color={viewMode === 'map' ? '#0D0D0D' : '#6B7C78'} />
           </TouchableOpacity>
         </View>
+        {hasPermission('routes:write') && (
+          <TouchableOpacity onPress={confirmDeleteRoute} style={styles.deleteBtn} disabled={deleteRoute.isPending} hitSlop={{ top: 8, bottom: 8, left: 4, right: 4 }}>
+            <Ionicons name="trash-outline" size={18} color="#FF6B6B" />
+          </TouchableOpacity>
+        )}
       </View>
 
       {/* Progress bar */}
@@ -575,6 +599,7 @@ const styles = StyleSheet.create({
   },
   toggleBtn: { padding: 6, borderRadius: 8 },
   toggleBtnActive: { backgroundColor: '#2DC4A2' },
+  deleteBtn: { marginLeft: 8, padding: 8, borderRadius: 10, backgroundColor: 'rgba(255,107,107,0.12)' },
   progressWrap: {
     flexDirection: 'row', alignItems: 'center',
     backgroundColor: '#111', paddingHorizontal: 16, paddingVertical: 8,

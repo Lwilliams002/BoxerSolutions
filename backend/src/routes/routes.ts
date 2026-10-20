@@ -87,6 +87,14 @@ router.post(
 );
 
 router.delete(
+  '/:id',
+  authorize('routes:write'),
+  asyncHandler(async (req, res) => {
+    ok(res, await routeService.remove(req.params.id, req.user!.id), 'Route deleted');
+  }),
+);
+
+router.delete(
   '/:id/stops/:stopId',
   authorize('routes:write'),
   asyncHandler(async (req, res) => {

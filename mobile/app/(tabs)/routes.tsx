@@ -72,7 +72,8 @@ export default function RoutesScreen() {
       confirmText: 'Build',
       onConfirm: () => build.mutate(buildDate),
     });
-  const unroutedDays = Object.entries(unrouted.data?.byDate ?? {}).sort(([a], [b]) => a.localeCompare(b));
+  // The week is fetched once (cheap, one query per week) but the screen shows only the selected day.
+  const unroutedDays = Object.entries(unrouted.data?.byDate ?? {}).filter(([d]) => d === date).sort(([a], [b]) => a.localeCompare(b));
 
   useFocusEffect(
     useCallback(() => {
@@ -80,7 +81,7 @@ export default function RoutesScreen() {
     }, [refetch]),
   );
 
-  const items = data?.items ?? [];
+  const items = (data?.items ?? []).filter((r) => r.routeDate.slice(0, 10) === date);
 
   return (
     <View style={{ flex: 1, backgroundColor: colors.bg }}>
@@ -89,7 +90,7 @@ export default function RoutesScreen() {
         <View style={{ flex: 1 }}>
           <Text style={styles.headerTitle}>Routes</Text>
           <Text style={styles.headerSub}>
-            {fmtDate(weekStart)} – {fmtDate(weekEnd)}
+            {fmtDate(date)} · {items.length} route{items.length === 1 ? '' : 's'}
           </Text>
         </View>
         {canCreate && (
@@ -106,9 +107,9 @@ export default function RoutesScreen() {
 
       {canCreate ? (
         <View style={styles.buildBar}>
-          <TouchableOpacity style={styles.buildBtn} onPress={() => buildFor(todayISO())} disabled={build.isPending}>
+          <TouchableOpacity style={styles.buildBtn} onPress={() => buildFor(date)} disabled={build.isPending}>
             <Ionicons name="flash-outline" size={16} color="#0D0D0D" />
-            <Text style={styles.buildBtnText}>{build.isPending ? 'Building…' : "Build today's routes"}</Text>
+            <Text style={styles.buildBtnText}>{build.isPending ? 'Building…' : date === todayISO() ? "Build today's routes" : `Build ${fmtDate(date)}`}</Text>
           </TouchableOpacity>
           {unroutedDays.length ? (
             <View style={{ flex: 1 }}>
@@ -121,7 +122,7 @@ export default function RoutesScreen() {
               ))}
             </View>
           ) : (
-            <Text style={styles.buildHint}>{unrouted.isLoading ? '' : 'All scheduled stops this week are routed.'}</Text>
+            <Text style={styles.buildHint}>{unrouted.isLoading ? '' : 'All scheduled stops on this day are routed.'}</Text>
           )}
         </View>
       ) : null}
@@ -137,7 +138,8 @@ export default function RoutesScreen() {
           ListEmptyComponent={
             <View style={styles.empty}>
               <Ionicons name="navigate-outline" size={48} color={colors.border} />
-              <Text style={styles.emptyTitle}>No routes for this week</Text>
+              <Text style={styles.emptyTitle}>No routes on {fmtDate(date)}</Text>
+              <Text style={styles.emptySub}>Pick another day above, or build one.</Text>
               {canCreate && (
                 <TouchableOpacity style={styles.emptyAction} onPress={() => router.push('/route/new')}>
                   <Ionicons name="add-circle" size={20} color="#0D0D0D" />
@@ -210,6 +212,7 @@ const styles = StyleSheet.create({
   unroutedAction: { fontSize: 12, fontWeight: '800', color: colors.primaryDark },
   empty: { alignItems: 'center', paddingVertical: 60 },
   emptyTitle: { fontSize: 16, color: colors.textMuted, fontWeight: '600', marginTop: 12 },
+  emptySub: { fontSize: 13, color: colors.textMuted, marginTop: 4, textAlign: 'center' },
   emptyAction: {
     flexDirection: 'row', alignItems: 'center',
     backgroundColor: '#2DC4A2', borderRadius: 20,

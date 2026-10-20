@@ -171,6 +171,19 @@ export const routeService = {
     }));
   },
 
+  /** Delete a route. Its visits stay scheduled; they are just no longer on a route. */
+  async remove(routeId: string, userId: string) {
+    return withTransaction(async (tx) => {
+      const route = await tx.query('SELECT id, route_date, technician_id, status FROM routes WHERE id = $1 AND deleted_at IS NULL', [routeId]);
+      if (!route.rows[0]) throw ApiError.notFound('Route not found');
+      const stops = await tx.query('DELETE FROM route_stops WHERE route_id = $1 RETURNING appointment_id', [routeId]);
+      await tx.query('UPDATE routes SET deleted_at = now(), updated_at = now() WHERE id = $1', [routeId]);
+      await recordAudit({ userId, action: 'route.deleted', entityType: 'route', entityId: routeId,
+        previousValue: { routeDate: toIsoDate(route.rows[0].route_date), technicianId: route.rows[0].technician_id, status: route.rows[0].status, stops: stops.rowCount } }, tx);
+      return { removedStops: stops.rowCount ?? 0 };
+    });
+  },
+
   /** Add an appointment to a route as the last stop. */
   async addStop(routeId: string, appointmentId: string, userId: string) {
     return withTransaction(async (tx) => {
