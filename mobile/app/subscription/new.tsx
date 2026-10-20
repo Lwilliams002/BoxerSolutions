@@ -74,7 +74,7 @@ export default function NewSubscriptionScreen() {
   if (isLoading && customerId) return <Loading />;
 
   return (
-    <ScrollView contentContainerStyle={styles.container}>
+    <ScrollView automaticallyAdjustKeyboardInsets keyboardShouldPersistTaps="handled" contentContainerStyle={styles.container}>
       {!initialCustomerId && (
         <>
           <SectionTitle>Customer</SectionTitle>

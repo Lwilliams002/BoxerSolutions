@@ -1,5 +1,5 @@
 import React, { useMemo, useRef, useState } from 'react';
-import { Animated, Modal, PanResponder, RefreshControl, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
+import { Animated, Modal, PanResponder, RefreshControl, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View, KeyboardAvoidingView, Platform } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useRouter } from 'expo-router';
@@ -360,6 +360,7 @@ export default function ScheduleScreen() {
       )}
 
       <Modal visible={!!selected} transparent animationType="slide" onRequestClose={() => setSelected(null)}>
+        <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={{ flex: 1 }}>
         <View style={styles.modalBackdrop}>
           <View style={styles.sheet}>
             {selected ? (
@@ -469,6 +470,7 @@ export default function ScheduleScreen() {
             ) : null}
           </View>
         </View>
+        </KeyboardAvoidingView>
       </Modal>
     </View>
   );
@@ -534,7 +536,7 @@ function DispatchView({ selectedDate, technicians, dayAppointments, queue, duePl
   const sortedRows = queued ? [...rows].sort((a, b) => Number(b.fit?.ok) - Number(a.fit?.ok) || a.mine.length - b.mine.length) : rows;
 
   return (
-    <ScrollView refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={colors.primary} />} contentContainerStyle={{ paddingBottom: 40 }}>
+    <ScrollView automaticallyAdjustKeyboardInsets keyboardShouldPersistTaps="handled" refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={colors.primary} />} contentContainerStyle={{ paddingBottom: 40 }}>
       <View style={styles.dispatchHead}>
         <View style={{ flex: 1 }}>
           <Text style={styles.dispatchTitle}>{queue.length ? `${queue.length} visit${queue.length === 1 ? '' : 's'} need a technician` : 'Every visit has a technician'}</Text>
@@ -618,7 +620,7 @@ function DayBoard({ appointments, lanes, refreshing, onRefresh, onAppointmentPre
   const [dragging, setDragging] = useState(false);
   if (!appointments.length) {
     return (
-      <ScrollView refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={colors.primary} />} contentContainerStyle={styles.emptyWrap}>
+      <ScrollView automaticallyAdjustKeyboardInsets keyboardShouldPersistTaps="handled" refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={colors.primary} />} contentContainerStyle={styles.emptyWrap}>
         <EmptyState title="No appointments" subtitle="Nothing scheduled for this day." />
       </ScrollView>
     );
@@ -651,7 +653,7 @@ function DayBoard({ appointments, lanes, refreshing, onRefresh, onAppointmentPre
   };
 
   return (
-    <ScrollView scrollEnabled={!dragging} refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={colors.primary} />}>
+    <ScrollView automaticallyAdjustKeyboardInsets keyboardShouldPersistTaps="handled" scrollEnabled={!dragging} refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={colors.primary} />}>
       {canDrag ? <Text style={styles.dragHint}>Hold an appointment to drag it to a new time or technician.</Text> : null}
       <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.daySummaryRail}>
         {laneData.map((lane) => (
@@ -786,7 +788,7 @@ function WeekView({ days, appointments, loading, refreshing, onRefresh, onDayPre
 }) {
   if (loading) return <Loading />;
   return (
-    <ScrollView contentContainerStyle={styles.weekWrap} refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={colors.primary} />}>
+    <ScrollView automaticallyAdjustKeyboardInsets keyboardShouldPersistTaps="handled" contentContainerStyle={styles.weekWrap} refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={colors.primary} />}>
       {days.map((day) => {
         const dayKey = day.slice(0, 10);
         const dayItems = appointments

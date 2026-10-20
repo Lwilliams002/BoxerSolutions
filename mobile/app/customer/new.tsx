@@ -104,7 +104,7 @@ export default function NewCustomerScreen() {
   };
 
   return (
-    <ScrollView contentContainerStyle={styles.container} keyboardShouldPersistTaps="handled">
+    <ScrollView automaticallyAdjustKeyboardInsets contentContainerStyle={styles.container} keyboardShouldPersistTaps="handled">
       <SectionTitle>Contact</SectionTitle>
       <Field label="First Name *" value={firstName} onChange={setFirstName} />
       <Field label="Last Name *" value={lastName} onChange={setLastName} />

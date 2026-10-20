@@ -157,7 +157,7 @@ export default function NewRouteScreen() {
       {step === STEP_DATE && (
         <View style={{ flex: 1 }}>
           <SectionTitle>Select Date</SectionTitle>
-          <ScrollView contentContainerStyle={styles.padH}>
+          <ScrollView automaticallyAdjustKeyboardInsets keyboardShouldPersistTaps="handled" contentContainerStyle={styles.padH}>
             {days.map((d) => {
               const dt = new Date(`${d}T12:00:00`);
               const active = d === date;
@@ -186,7 +186,7 @@ export default function NewRouteScreen() {
         <View style={{ flex: 1 }}>
           <SectionTitle>Select Technician</SectionTitle>
           {loadingTechs ? <Loading /> : (
-            <ScrollView contentContainerStyle={styles.padH}>
+            <ScrollView automaticallyAdjustKeyboardInsets keyboardShouldPersistTaps="handled" contentContainerStyle={styles.padH}>
               {(techs ?? []).map((t) => (
                 <TouchableOpacity
                   key={t.employeeId}
@@ -305,7 +305,7 @@ export default function NewRouteScreen() {
 
       {/* STEP 3: Review & create */}
       {step === STEP_REVIEW && (
-        <ScrollView contentContainerStyle={[styles.padH, { paddingBottom: 40 }]}>
+        <ScrollView automaticallyAdjustKeyboardInsets keyboardShouldPersistTaps="handled" contentContainerStyle={[styles.padH, { paddingBottom: 40 }]}>
           <SectionTitle>Review Route</SectionTitle>
 
           <View style={styles.summaryCard}>

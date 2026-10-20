@@ -196,7 +196,7 @@ export default function ServiceRequestsAdminScreen() {
 
   if (!canManage) {
     return (
-      <ScrollView style={styles.screen} contentContainerStyle={styles.content}>
+      <ScrollView automaticallyAdjustKeyboardInsets keyboardShouldPersistTaps="handled" style={styles.screen} contentContainerStyle={styles.content}>
         <Card>
           <Text style={styles.customer}>Access restricted</Text>
           <Text style={styles.meta}>You do not have permission to review service requests.</Text>
@@ -206,7 +206,7 @@ export default function ServiceRequestsAdminScreen() {
   }
 
   return (
-    <ScrollView style={styles.screen} contentContainerStyle={styles.content}>
+    <ScrollView automaticallyAdjustKeyboardInsets keyboardShouldPersistTaps="handled" style={styles.screen} contentContainerStyle={styles.content}>
       {rows.map((r) => {
         const selectedTech = techById[r.id] ?? r.assigned_technician_id ?? null;
         const selectedTechName = (technicians.data ?? []).find((t) => t.employeeId === selectedTech);

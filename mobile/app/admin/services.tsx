@@ -44,7 +44,7 @@ export default function AdminServicesScreen() {
   const startCreate = () => { setEditing(null); setForm(emptyForm); setOpen(true); };
   const startEdit = (s: Service) => { setEditing(s); setForm(toForm(s)); setOpen(true); };
   return (
-    <ScrollView contentContainerStyle={styles.container} refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => { void services.refetch(); void categories.refetch(); }} tintColor={colors.primary} />}>
+    <ScrollView automaticallyAdjustKeyboardInsets keyboardShouldPersistTaps="handled" contentContainerStyle={styles.container} refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => { void services.refetch(); void categories.refetch(); }} tintColor={colors.primary} />}>
       <Row style={{ marginBottom: 12 }}><Text style={styles.title}>Service Catalog</Text><Button title="New" onPress={startCreate} style={styles.smallButton} /></Row>
       {items.length === 0 ? <EmptyState title="No services" /> : items.map((s) => (
         <TouchableOpacity key={s.id} onPress={() => startEdit(s)} activeOpacity={0.75}>
@@ -57,7 +57,7 @@ export default function AdminServicesScreen() {
         </TouchableOpacity>
       ))}
       <Modal visible={open} animationType="slide" presentationStyle="pageSheet" onRequestClose={() => setOpen(false)}>
-        <ScrollView contentContainerStyle={styles.modal}>
+        <ScrollView automaticallyAdjustKeyboardInsets keyboardShouldPersistTaps="handled" contentContainerStyle={styles.modal}>
           <Text style={styles.title}>{editing ? 'Edit Service' : 'New Service'}</Text>
           <Label>Name</Label><TextInput style={styles.input} value={form.name} onChangeText={(name) => setForm({ ...form, name })} />
           <Label>Description</Label><TextInput style={[styles.input, styles.textArea]} value={form.description} multiline onChangeText={(description) => setForm({ ...form, description })} />

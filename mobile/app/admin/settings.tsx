@@ -21,7 +21,7 @@ export default function AdminSettingsScreen() {
   const save = useMutation({ mutationFn: () => api<Settings>('/settings', { method: 'PUT', body: toBody(form!) }), onSuccess: async (data) => { setForm(toForm(data)); await qc.invalidateQueries({ queryKey: ['settings'] }); notify('Saved', 'Company settings updated. Emails and agreements now use these details.'); }, onError: (e: Error) => notify('Save failed', e.message) });
   if (query.isLoading || !form) return <Loading />;
   return (
-    <ScrollView contentContainerStyle={styles.container} refreshControl={<RefreshControl refreshing={query.isRefetching} onRefresh={() => void query.refetch()} tintColor={colors.primary} />}>
+    <ScrollView automaticallyAdjustKeyboardInsets keyboardShouldPersistTaps="handled" contentContainerStyle={styles.container} refreshControl={<RefreshControl refreshing={query.isRefetching} onRefresh={() => void query.refetch()} tintColor={colors.primary} />}>
       <Text style={styles.title}>Company Settings</Text>
       <Label>Company Name</Label><TextInput style={styles.input} value={form.companyName} onChangeText={(companyName) => setForm({ ...form, companyName })} />
       <Text style={styles.hint}>Printed on customer emails (service notifications) and on service agreements.</Text>

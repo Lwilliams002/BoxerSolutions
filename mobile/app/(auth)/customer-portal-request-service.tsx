@@ -129,7 +129,7 @@ export default function CustomerPortalRequestServiceScreen() {
   );
 
   return (
-    <ScrollView style={styles.screen} contentContainerStyle={styles.content}>
+    <ScrollView automaticallyAdjustKeyboardInsets keyboardShouldPersistTaps="handled" style={styles.screen} contentContainerStyle={styles.content}>
       <Card>
         <Text style={styles.title}>Request Service</Text>
         <Text style={styles.meta}>Describe the issue and attach photos so the office can assign a technician and quote.</Text>

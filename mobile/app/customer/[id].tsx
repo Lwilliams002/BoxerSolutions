@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { View, Text, ScrollView, StyleSheet, TouchableOpacity, Alert, TextInput, Linking, RefreshControl, Modal, Pressable, Platform, Share } from 'react-native';
+import { View, Text, ScrollView, StyleSheet, TouchableOpacity, Alert, TextInput, Linking, RefreshControl, Modal, Pressable, Platform, Share, KeyboardAvoidingView } from 'react-native';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import DateTimePicker from '@react-native-community/datetimepicker';
@@ -643,7 +643,7 @@ export default function CustomerScreen() {
         ))}
       </ScrollView>
 
-      <ScrollView
+      <ScrollView automaticallyAdjustKeyboardInsets keyboardShouldPersistTaps="handled"
         contentContainerStyle={styles.content}
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => void refreshCustomer()} tintColor={colors.primary} colors={[colors.primary]} />}
       >
@@ -1240,6 +1240,7 @@ export default function CustomerScreen() {
 
       {resched ? (
         <Modal transparent animationType="fade" visible onRequestClose={() => setResched(null)}>
+          <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={{ flex: 1 }}>
           <Pressable style={styles.commBackdrop} onPress={() => setResched(null)}>
             <Pressable style={styles.commSheet} onPress={() => undefined}>
               <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 8 }} keyboardShouldPersistTaps="handled">
@@ -1282,11 +1283,13 @@ export default function CustomerScreen() {
               </View>
             </Pressable>
           </Pressable>
+          </KeyboardAvoidingView>
         </Modal>
       ) : null}
 
       {edit ? (
         <Modal transparent animationType="fade" visible onRequestClose={() => setEdit(null)}>
+          <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={{ flex: 1 }}>
           <Pressable style={styles.commBackdrop} onPress={() => setEdit(null)}>
             <Pressable style={styles.commSheet} onPress={() => undefined}>
               <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 8 }} keyboardShouldPersistTaps="handled">
@@ -1309,6 +1312,7 @@ export default function CustomerScreen() {
               </View>
             </Pressable>
           </Pressable>
+          </KeyboardAvoidingView>
         </Modal>
       ) : null}
 
@@ -1319,7 +1323,7 @@ export default function CustomerScreen() {
               {commDetailLoading || !commDetail ? (
                 <Loading />
               ) : (
-                <ScrollView contentContainerStyle={{ paddingBottom: 12 }} showsVerticalScrollIndicator={false}>
+                <ScrollView automaticallyAdjustKeyboardInsets keyboardShouldPersistTaps="handled" contentContainerStyle={{ paddingBottom: 12 }} showsVerticalScrollIndicator={false}>
                   <Row>
                     <Text style={[styles.commTitle, { flex: 1, marginRight: 10 }]}>{commDetail.subject ?? commDetail.templateKey}</Text>
                     <StatusBadge status={commDetail.status} />

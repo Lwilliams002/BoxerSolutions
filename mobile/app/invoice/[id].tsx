@@ -324,7 +324,7 @@ export default function InvoiceScreen() {
   const paymentRows = payments?.items ?? [];
 
   return (
-    <ScrollView contentContainerStyle={styles.container}>
+    <ScrollView automaticallyAdjustKeyboardInsets keyboardShouldPersistTaps="handled" contentContainerStyle={styles.container}>
       <Card>
         <Row>
           <Text style={styles.number}>{inv.invoiceNumber}</Text>

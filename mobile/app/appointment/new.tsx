@@ -204,7 +204,7 @@ export default function NewAppointmentScreen() {
   if (customerId && isLoading) return <Loading />;
 
   return (
-    <ScrollView contentContainerStyle={styles.container}>
+    <ScrollView automaticallyAdjustKeyboardInsets keyboardShouldPersistTaps="handled" contentContainerStyle={styles.container}>
       <SectionTitle>Customer</SectionTitle>
       {customerId && cust ? (
         <View style={styles.selectedCustomer}>

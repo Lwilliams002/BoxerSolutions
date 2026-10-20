@@ -46,7 +46,7 @@ export default function AdminEmployeesScreen() {
   };
   const showRole = (code: string) => notify(roleByCode[code]?.name ?? code, (roleByCode[code]?.permissions ?? []).join('\n') || 'No permissions');
   return (
-    <ScrollView contentContainerStyle={styles.container} refreshControl={<RefreshControl refreshing={users.isRefetching || roles.isRefetching} onRefresh={() => { void users.refetch(); void roles.refetch(); }} tintColor={colors.primary} />}>
+    <ScrollView automaticallyAdjustKeyboardInsets keyboardShouldPersistTaps="handled" contentContainerStyle={styles.container} refreshControl={<RefreshControl refreshing={users.isRefetching || roles.isRefetching} onRefresh={() => { void users.refetch(); void roles.refetch(); }} tintColor={colors.primary} />}>
       <Row style={{ marginBottom: 12 }}><Text style={styles.title}>Employees & Users</Text><Button title="New" onPress={startCreate} style={styles.smallButton} /></Row>
       {(users.data ?? []).length === 0 ? <EmptyState title="No users" /> : users.data?.map((u) => (
         <TouchableOpacity key={u.id} onPress={() => startEdit(u)} activeOpacity={0.75}>
@@ -59,7 +59,7 @@ export default function AdminEmployeesScreen() {
         </TouchableOpacity>
       ))}
       <Modal visible={open} animationType="slide" presentationStyle="pageSheet" onRequestClose={() => setOpen(false)}>
-        <ScrollView contentContainerStyle={styles.modal}>
+        <ScrollView automaticallyAdjustKeyboardInsets keyboardShouldPersistTaps="handled" contentContainerStyle={styles.modal}>
           <Text style={styles.title}>{editing ? 'Edit User' : 'New User'}</Text>
           <Label>First Name</Label><TextInput style={styles.input} value={form.firstName} onChangeText={(firstName) => setForm({ ...form, firstName })} />
           <Label>Last Name</Label><TextInput style={styles.input} value={form.lastName} onChangeText={(lastName) => setForm({ ...form, lastName })} />

@@ -33,7 +33,7 @@ export default function ProductsAdminScreen() {
   const items = query.data?.items ?? [];
 
   return (
-    <ScrollView contentContainerStyle={styles.container} refreshControl={<RefreshControl refreshing={query.isRefetching} onRefresh={() => void query.refetch()} tintColor={colors.primary} />}>
+    <ScrollView automaticallyAdjustKeyboardInsets keyboardShouldPersistTaps="handled" contentContainerStyle={styles.container} refreshControl={<RefreshControl refreshing={query.isRefetching} onRefresh={() => void query.refetch()} tintColor={colors.primary} />}>
       <Text style={styles.title}>Products</Text>
       <Text style={styles.hint}>Products technicians can record on a visit. They print on the customer's service notification with quantity and application method.</Text>
 

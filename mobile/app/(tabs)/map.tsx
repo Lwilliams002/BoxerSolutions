@@ -482,7 +482,7 @@ export default function TerritoryMapScreen() {
             <Pressable style={styles.sheetCard} onPress={() => undefined}>
               <Text style={styles.sheetTitle}>Call backs due</Text>
               <Text style={styles.sheetSub}>Houses that asked you to come back today or earlier. Tap one to jump to it.</Text>
-              <ScrollView style={{ maxHeight: 380 }} showsVerticalScrollIndicator={false}>
+              <ScrollView automaticallyAdjustKeyboardInsets keyboardShouldPersistTaps="handled" style={{ maxHeight: 380 }} showsVerticalScrollIndicator={false}>
                 {(callbacks.data ?? []).length === 0 ? <Text style={styles.sheetSub}>Nothing due. Nice.</Text> : null}
                 {(callbacks.data ?? []).map((p) => (
                   <TouchableOpacity key={p.id} style={styles.cbRow} onPress={() => focusProspect(p)}>

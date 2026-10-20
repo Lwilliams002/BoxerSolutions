@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { View, Text, ScrollView, StyleSheet, Image, TextInput, TouchableOpacity, Modal, Pressable } from 'react-native';
+import { View, Text, ScrollView, StyleSheet, Image, TextInput, TouchableOpacity, Modal, Pressable, KeyboardAvoidingView, Platform } from 'react-native';
 import * as ImagePicker from 'expo-image-picker';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useLocalSearchParams, useRouter } from 'expo-router';
@@ -290,7 +290,7 @@ export default function StopScreen() {
   return (
     <View style={{ flex: 1 }}>
       <SyncBanner />
-      <ScrollView contentContainerStyle={styles.container}>
+      <ScrollView automaticallyAdjustKeyboardInsets keyboardShouldPersistTaps="handled" contentContainerStyle={styles.container}>
         <Card>
           <Row>
             <Text style={styles.name}>{name}</Text>
@@ -449,6 +449,7 @@ export default function StopScreen() {
 
       {pendingCapture ? (
         <Modal transparent animationType="fade" visible onRequestClose={() => setPendingCapture(null)}>
+          <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={{ flex: 1 }}>
           <Pressable style={styles.tagBackdrop} onPress={() => undefined}>
             <View style={styles.tagSheet}>
               <Text style={styles.tagTitle}>Tag this {pendingCapture.kind === 'video' ? 'video' : 'photo'}</Text>
@@ -474,6 +475,7 @@ export default function StopScreen() {
               </Row>
             </View>
           </Pressable>
+          </KeyboardAvoidingView>
         </Modal>
       ) : null}
     </View>
