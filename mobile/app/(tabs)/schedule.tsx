@@ -61,7 +61,7 @@ const HOUR_HEIGHT = 92;
 const LANE_WIDTH = 178;
 const AXIS_WIDTH = 74;
 const BOARD_HEIGHT = (END_HOUR - START_HOUR) * HOUR_HEIGHT;
-const QUICK_TIMES = ['07:00', '08:00', '09:00', '10:00', '11:00', '12:00', '13:00', '14:00', '15:00', '16:00', '17:00'];
+const QUICK_TIMES = ['07:00', '08:00', '09:00', '10:00', '11:00', '12:00', '13:00', '14:00', '15:00', '16:00', '17:00', '18:00', '19:00', '20:00', '21:00'];
 const QUICK_DURATIONS = [30, 60, 90, 120];
 
 function addDays(iso: string, n: number): string {

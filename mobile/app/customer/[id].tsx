@@ -224,7 +224,7 @@ export default function CustomerScreen() {
   });
   const [rebuilding, setRebuilding] = useState(false);
   // ---- Visit times & technician for the plan (set by the office after signing)
-  const VISIT_STARTS = ['08:00', '09:00', '10:00', '11:00', '12:00', '13:00', '14:00', '15:00', '16:00', '17:00'];
+  const VISIT_STARTS = ['08:00', '09:00', '10:00', '11:00', '12:00', '13:00', '14:00', '15:00', '16:00', '17:00', '18:00', '19:00', '20:00', '21:00'];
   const { data: technicians } = useQuery({
     queryKey: ['technicians'],
     queryFn: () => api<{ employeeId: string; firstName: string; lastName: string }[]>('/users/technicians'),

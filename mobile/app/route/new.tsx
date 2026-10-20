@@ -59,7 +59,7 @@ interface StopPick {
   windowEnd: string;
 }
 
-const QUICK_TIMES = ['08:00', '09:00', '10:00', '11:00', '12:00', '13:00', '14:00', '15:00', '16:00', '17:00'];
+const QUICK_TIMES = ['08:00', '09:00', '10:00', '11:00', '12:00', '13:00', '14:00', '15:00', '16:00', '17:00', '18:00', '19:00', '20:00', '21:00'];
 const QUICK_DURATIONS = [30, 60, 90, 120];
 
 function addMinutes(hhmm: string, minutes: number) {
@@ -91,6 +91,7 @@ export default function NewRouteScreen() {
   const [promptDate, setPromptDate] = useState<string>('');
   const [promptTime, setPromptTime] = useState<string>('09:00');
   const [promptDuration, setPromptDuration] = useState<number>(60);
+  const [promptTechId, setPromptTechId] = useState<string | null>(null);
   const [promptBusy, setPromptBusy] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
@@ -128,6 +129,7 @@ export default function NewRouteScreen() {
     setPromptDate(date);
     setPromptTime(c.nextVisit?.windowStart?.slice(0, 5) && QUICK_TIMES.includes(c.nextVisit.windowStart.slice(0, 5)) ? c.nextVisit.windowStart.slice(0, 5) : '09:00');
     setPromptDuration(60);
+    setPromptTechId(techId ?? null);
     setPrompt({ candidate: c, mode: c.nextVisit ? 'move' : 'create' });
   };
 
@@ -142,19 +144,22 @@ export default function NewRouteScreen() {
       if (prompt.mode === 'move' && c.nextVisit) {
         appt = await api<{ id: string }>(`/appointments/${c.nextVisit.id}/reschedule`, {
           method: 'POST',
-          body: { scheduledDate: promptDate, windowStart: promptTime, windowEnd, technicianId: techId ?? c.nextVisit.technicianId ?? null, allowConflict: true },
+          body: { scheduledDate: promptDate, windowStart: promptTime, windowEnd, technicianId: promptTechId ?? c.nextVisit.technicianId ?? null, allowConflict: true },
         });
         appt = { id: c.nextVisit.id };
       } else {
         appt = await api<{ id: string }>('/appointments/quick', {
           method: 'POST',
-          body: { customerId: c.customerId, serviceLocationId: c.locationId, technicianId: techId ?? null, scheduledDate: promptDate, windowStart: promptTime, windowEnd, allowConflict: true },
+          body: { customerId: c.customerId, serviceLocationId: c.locationId, technicianId: promptTechId ?? null, scheduledDate: promptDate, windowStart: promptTime, windowEnd, allowConflict: true },
         });
       }
-      if (promptDate === date) {
+      if (promptDate === date && promptTechId === techId) {
         addStop({ appointmentId: appt.id, customerId: c.customerId, name: c.name, addressLine1: c.addressLine1, city: c.city, windowStart: promptTime, windowEnd });
-      } else {
+      } else if (promptDate !== date) {
         notify('Visit scheduled', `${c.name} is now on ${fmtDate(promptDate)}. That is a different day than this route, so it was not added as a stop.`);
+      } else {
+        const t = techs?.find((x) => x.employeeId === promptTechId);
+        notify('Visit scheduled', `${c.name} is set for ${fmtTime(promptTime)} with ${t ? `${t.firstName} ${t.lastName}` : 'another technician'}. This route belongs to a different technician, so it was not added as a stop.`);
       }
       void qc.invalidateQueries({ queryKey: ['route-candidates'] });
       void qc.invalidateQueries({ queryKey: ['appointments'] });
@@ -481,7 +486,16 @@ export default function NewRouteScreen() {
                     </TouchableOpacity>
                   ))}
                 </View>
-                <Text style={styles.promptSub}>{selectedTech ? `Technician: ${selectedTech.firstName} ${selectedTech.lastName}. ` : ''}{prompt.mode === 'move' ? 'The customer is emailed the new date and time.' : 'The customer is emailed a confirmation.'}</Text>
+                <Text style={styles.promptLabel}>Technician</Text>
+                <View style={styles.wrapRow}>
+                  {(techs ?? []).map((t) => (
+                    <TouchableOpacity key={t.employeeId} style={[styles.chip, promptTechId === t.employeeId && styles.chipOn]} onPress={() => setPromptTechId(t.employeeId)}>
+                      <Text style={[styles.chipText, promptTechId === t.employeeId && styles.chipTextOn]}>{t.firstName} {t.lastName}{t.employeeId === techId ? ' (this route)' : ''}</Text>
+                    </TouchableOpacity>
+                  ))}
+                </View>
+                {promptTechId !== techId && promptDate === date ? <Text style={styles.promptWarn}>Stops on this route are done by {selectedTech ? `${selectedTech.firstName} ${selectedTech.lastName}` : 'the route technician'}. Picking someone else schedules the visit for them without adding it to this route.</Text> : null}
+                <Text style={styles.promptSub}>{prompt.mode === 'move' ? 'The customer is emailed the new date and time.' : 'The customer is emailed a confirmation.'}</Text>
                 <View style={{ flexDirection: 'row', gap: 8, marginTop: 10 }}>
                   <Button title="Cancel" variant="outline" onPress={() => setPrompt(null)} style={{ flex: 1 }} />
                   <Button title={prompt.mode === 'move' ? `Move to ${fmtTime(promptTime)}` : `Schedule ${fmtTime(promptTime)}`} onPress={() => void confirmPrompt()} loading={promptBusy} style={{ flex: 1.5 }} />
