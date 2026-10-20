@@ -117,6 +117,60 @@ export const routeService = {
     return { routeDate, routes: summary, added: summary.reduce((s, r) => s + r.added, 0) };
   },
 
+  /**
+   * Route builder search: customers (by name, company, phone or address) with
+   * the visit they already have on the route day, or their next upcoming visit
+   * so the office can pull it onto this route. With no search text, the
+   * customers who already have a visit that day are listed.
+   */
+  async candidates(routeDate: string, search: string | null) {
+    const params: unknown[] = [routeDate];
+    let where = 'c.deleted_at IS NULL';
+    if (search && search.trim()) {
+      params.push(`%${search.trim().toLowerCase()}%`);
+      const p = `$${params.length}`;
+      where += ` AND (lower(c.first_name || ' ' || c.last_name) LIKE ${p} OR lower(coalesce(c.company,'')) LIKE ${p}
+        OR coalesce(c.phone,'') LIKE ${p} OR EXISTS (SELECT 1 FROM service_locations sl WHERE sl.customer_id = c.id AND sl.deleted_at IS NULL AND lower(sl.address_line1 || ' ' || sl.city) LIKE ${p}))`;
+    } else {
+      where += ` AND EXISTS (SELECT 1 FROM appointments a WHERE a.customer_id = c.id AND a.deleted_at IS NULL AND a.scheduled_date = $1::date AND a.status NOT IN ('cancelled','completed','no_access'))`;
+    }
+    const { rows } = await pool.query(
+      `SELECT c.id AS customer_id, c.first_name, c.last_name, c.company, c.phone,
+              sl.id AS location_id, sl.address_line1, sl.city, sl.latitude, sl.longitude,
+              rc.frequency AS plan_frequency,
+              (SELECT json_build_object('id', a.id, 'windowStart', a.window_start::text, 'windowEnd', a.window_end::text, 'status', a.status,
+                        'technicianId', a.technician_id, 'technicianName', tu.first_name || ' ' || tu.last_name,
+                        'routeId', (SELECT rs.route_id FROM route_stops rs WHERE rs.appointment_id = a.id LIMIT 1))
+                 FROM appointments a LEFT JOIN employees te ON te.id = a.technician_id LEFT JOIN users tu ON tu.id = te.user_id
+                 WHERE a.customer_id = c.id AND a.deleted_at IS NULL AND a.scheduled_date = $1::date AND a.status NOT IN ('cancelled','completed','no_access')
+                 ORDER BY a.window_start LIMIT 1) AS same_day,
+              (SELECT json_build_object('id', a.id, 'scheduledDate', a.scheduled_date::text, 'windowStart', a.window_start::text, 'windowEnd', a.window_end::text,
+                        'technicianId', a.technician_id, 'technicianName', tu.first_name || ' ' || tu.last_name, 'recurring', a.recurring_charge_id IS NOT NULL)
+                 FROM appointments a LEFT JOIN employees te ON te.id = a.technician_id LEFT JOIN users tu ON tu.id = te.user_id
+                 WHERE a.customer_id = c.id AND a.deleted_at IS NULL AND a.status = 'scheduled' AND a.scheduled_date >= CURRENT_DATE AND a.scheduled_date <> $1::date
+                 ORDER BY a.scheduled_date, a.window_start LIMIT 1) AS next_visit
+       FROM customers c
+       LEFT JOIN LATERAL (SELECT id, address_line1, city, latitude, longitude FROM service_locations s WHERE s.customer_id = c.id AND s.deleted_at IS NULL ORDER BY s.is_primary DESC, s.created_at LIMIT 1) sl ON true
+       LEFT JOIN LATERAL (SELECT frequency FROM recurring_charges r WHERE r.customer_id = c.id AND r.active ORDER BY r.updated_at DESC LIMIT 1) rc ON true
+       WHERE ${where}
+       ORDER BY (sl.id IS NULL), c.last_name, c.first_name
+       LIMIT 40`,
+      params,
+    );
+    return rows.map((r) => ({
+      customerId: String(r.customer_id),
+      name: r.company || `${r.first_name} ${r.last_name}`,
+      phone: r.phone ?? null,
+      locationId: r.location_id ? String(r.location_id) : null,
+      addressLine1: r.address_line1 ?? null,
+      city: r.city ?? null,
+      hasCoordinates: r.latitude != null && r.longitude != null,
+      planFrequency: r.plan_frequency ?? null,
+      sameDay: r.same_day ?? null,
+      nextVisit: r.next_visit ?? null,
+    }));
+  },
+
   /** Add an appointment to a route as the last stop. */
   async addStop(routeId: string, appointmentId: string, userId: string) {
     return withTransaction(async (tx) => {

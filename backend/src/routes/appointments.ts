@@ -29,6 +29,17 @@ const createSchema = z.object({
   allowConflict: z.boolean().optional(),
 });
 
+/** Route builder: put a customer on a day without picking services (the visit carries their plan). */
+const quickSchema = z.object({
+  customerId: z.string().uuid(),
+  serviceLocationId: z.string().uuid().nullish(),
+  technicianId: z.string().uuid().nullish(),
+  scheduledDate: z.string().regex(dateRe),
+  windowStart: z.string().regex(timeRe),
+  windowEnd: z.string().regex(timeRe),
+  allowConflict: z.boolean().optional(),
+});
+
 const rescheduleSchema = z.object({
   scheduledDate: z.string().regex(dateRe),
   windowStart: z.string().regex(timeRe),
@@ -170,6 +181,35 @@ router.post(
   asyncHandler(async (req, res) => {
     const body = createSchema.parse(req.body);
     ok(res, await appointmentService.create(body, req.user!.id), 'Appointment created', 201);
+  }),
+);
+
+router.post(
+  '/quick',
+  authorize('appointments:write'),
+  asyncHandler(async (req, res) => {
+    const body = quickSchema.parse(req.body ?? {});
+    let locationId = body.serviceLocationId ?? null;
+    if (!locationId) {
+      const loc = await pool.query(
+        'SELECT id FROM service_locations WHERE customer_id = $1 AND deleted_at IS NULL ORDER BY is_primary DESC, created_at LIMIT 1',
+        [body.customerId],
+      );
+      locationId = loc.rows[0]?.id ?? null;
+    }
+    if (!locationId) throw ApiError.badRequest('This customer has no service address yet. Add one on the customer screen first.');
+    const created = await appointmentService.create({
+      customerId: body.customerId,
+      serviceLocationId: locationId,
+      technicianId: body.technicianId ?? null,
+      scheduledDate: body.scheduledDate,
+      windowStart: body.windowStart,
+      windowEnd: body.windowEnd,
+      serviceIds: [],
+      notes: 'Scheduled from the route builder',
+      allowConflict: body.allowConflict,
+    } as any, req.user!.id);
+    ok(res, created, 'Visit scheduled', 201);
   }),
 );
 
