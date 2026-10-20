@@ -356,7 +356,7 @@ export default function NewRouteScreen() {
                           : <Ionicons name={item.nextVisit ? 'swap-horizontal' : 'add-circle-outline'} size={22} color={colors.primaryDark} />}
                     </View>
                     <View style={{ flex: 1 }}>
-                      <Text style={styles.apptName}>{item.name}</Text>
+                      <Text style={[styles.apptName, selected && styles.apptNameSelected]}>{item.name}</Text>
                       <Text style={styles.apptAddr}>{item.addressLine1 ? `${item.addressLine1}, ${item.city ?? ''}` : 'No service address'}</Text>
                       {item.sameDay ? (
                         <Text style={styles.apptSvc}>
@@ -578,7 +578,8 @@ const styles = StyleSheet.create({
   unchecked: { width: 22, height: 22, borderRadius: 11, borderWidth: 2, borderColor: colors.border },
   apptHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
   apptTime: { fontSize: 13, fontWeight: '800', color: '#2DC4A2' },
-  apptName: { fontSize: 15, fontWeight: '700', color: '#fff', marginTop: 2 },
+  apptName: { fontSize: 15, fontWeight: '700', color: colors.text, marginTop: 2 },
+  apptNameSelected: { color: '#fff' },
   apptAddr: { fontSize: 13, color: '#8FA6A1', marginTop: 1 },
   apptSvc: { fontSize: 12, color: '#6B7C78', marginTop: 3 },
   summaryCard: {
