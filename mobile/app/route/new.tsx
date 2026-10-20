@@ -336,7 +336,7 @@ export default function NewRouteScreen() {
               ListEmptyComponent={
                 <View style={styles.empty}>
                   <Ionicons name="people-outline" size={40} color={colors.border} />
-                  <Text style={styles.emptyText}>{custSearch.trim() ? 'No customers match' : 'No visits on this day yet. Search for a customer to add one.'}</Text>
+                  <Text style={styles.emptyText}>{candidates.error ? `Could not load customers: ${(candidates.error as Error).message}` : custSearch.trim() ? 'No customers match' : 'No visits on this day yet. Search for a customer to add one.'}</Text>
                 </View>
               }
               renderItem={({ item }) => {

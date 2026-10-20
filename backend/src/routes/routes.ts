@@ -30,6 +30,16 @@ router.get(
   }),
 );
 
+/** Route builder: customers with their visit on the route day or their next visit. */
+router.get(
+  '/candidates',
+  authorize('routes:write'),
+  asyncHandler(async (req, res) => {
+    const q = z.object({ date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/), search: z.string().max(100).optional() }).parse(req.query);
+    ok(res, await routeService.candidates(q.date, q.search ?? null));
+  }),
+);
+
 router.get(
   '/:id',
   authorize('routes:read', 'routes:read_assigned'),
@@ -38,16 +48,6 @@ router.get(
     const scope = technicianScope(req, 'routes:read');
     if (scope && route.technicianId !== scope) throw ApiError.forbidden('This route belongs to another technician');
     ok(res, route);
-  }),
-);
-
-/** Route builder: customers with their visit on the route day or their next visit. */
-router.get(
-  '/candidates',
-  authorize('routes:write'),
-  asyncHandler(async (req, res) => {
-    const q = z.object({ date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/), search: z.string().max(100).optional() }).parse(req.query);
-    ok(res, await routeService.candidates(q.date, q.search ?? null));
   }),
 );
 
