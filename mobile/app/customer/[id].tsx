@@ -69,7 +69,7 @@ export default function CustomerScreen() {
   const [noteText, setNoteText] = useState('');
   const [busy, setBusy] = useState(false);
   /** Edit the customer's contact details (name, company, email, phone). */
-  const [edit, setEdit] = useState<{ firstName: string; lastName: string; company: string; email: string; phone: string } | null>(null);
+  const [edit, setEdit] = useState<{ firstName: string; lastName: string; company: string; email: string; phone: string; billingAddressLine1: string; billingAddressLine2: string; billingCity: string; billingState: string; billingPostalCode: string } | null>(null);
   const [savingEdit, setSavingEdit] = useState(false);
   const openEdit = () => setEdit({
     firstName: String(cust?.firstName ?? ''),
@@ -77,7 +77,18 @@ export default function CustomerScreen() {
     company: String(cust?.company ?? ''),
     email: String(cust?.email ?? ''),
     phone: String(cust?.phone ?? ''),
+    billingAddressLine1: String(cust?.billingAddressLine1 ?? ''),
+    billingAddressLine2: String(cust?.billingAddressLine2 ?? ''),
+    billingCity: String(cust?.billingCity ?? ''),
+    billingState: String(cust?.billingState ?? ''),
+    billingPostalCode: String(cust?.billingPostalCode ?? ''),
   });
+  /** Copy the primary service address into the billing fields. */
+  const copyServiceToBilling = () => {
+    const l = (cust?.serviceLocations ?? []).find((x: any) => x.isPrimary) ?? (cust?.serviceLocations ?? [])[0];
+    if (!edit || !l) { notify('No service address', 'Add a service address first.'); return; }
+    setEdit({ ...edit, billingAddressLine1: String(l.addressLine1 ?? ''), billingAddressLine2: String(l.addressLine2 ?? ''), billingCity: String(l.city ?? ''), billingState: String(l.state ?? ''), billingPostalCode: String(l.postalCode ?? '') });
+  };
   /** Edit (or add) the customer's service address. The pin re-geocodes on the server when the address changes. */
   const [locEdit, setLocEdit] = useState<{ id: string | null; label: string; addressLine1: string; addressLine2: string; city: string; state: string; postalCode: string; accessNotes: string } | null>(null);
   const [savingLoc, setSavingLoc] = useState(false);
@@ -128,7 +139,14 @@ export default function CustomerScreen() {
     try {
       await api(`/customers/${id}`, {
         method: 'PATCH',
-        body: { firstName, lastName, company: edit.company.trim() || null, email: email || null, phone: edit.phone.trim() || null },
+        body: {
+          firstName, lastName, company: edit.company.trim() || null, email: email || null, phone: edit.phone.trim() || null,
+          billingAddressLine1: edit.billingAddressLine1.trim() || null,
+          billingAddressLine2: edit.billingAddressLine2.trim() || null,
+          billingCity: edit.billingCity.trim() || null,
+          billingState: edit.billingState.trim().toUpperCase() || null,
+          billingPostalCode: edit.billingPostalCode.trim() || null,
+        },
       });
       void qc.invalidateQueries({ queryKey: ['customer', id] });
       void qc.invalidateQueries({ queryKey: ['customers'] });
@@ -1387,7 +1405,7 @@ export default function CustomerScreen() {
             <Pressable style={styles.commSheet} onPress={() => undefined}>
               <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 8 }} keyboardShouldPersistTaps="handled">
                 <Value style={{ fontWeight: '800', fontSize: 17 }}>Edit customer</Value>
-                <Text style={styles.metaText}>Update the name, company, email or phone. Emails and receipts go to the new address from now on.</Text>
+                <Text style={styles.metaText}>Update the name, company, email, phone or billing address. Emails and receipts go to the new address from now on.</Text>
                 <Label>First name</Label>
                 <TextInput style={styles.editInput} value={edit.firstName} onChangeText={(v) => setEdit({ ...edit, firstName: v })} autoCapitalize="words" />
                 <Label>Last name</Label>
@@ -1398,6 +1416,29 @@ export default function CustomerScreen() {
                 <TextInput style={styles.editInput} value={edit.email} onChangeText={(v) => setEdit({ ...edit, email: v })} keyboardType="email-address" autoCapitalize="none" autoCorrect={false} placeholder="name@example.com" placeholderTextColor={colors.textMuted} />
                 <Label>Phone</Label>
                 <TextInput style={styles.editInput} value={edit.phone} onChangeText={(v) => setEdit({ ...edit, phone: v })} keyboardType="phone-pad" placeholder="(305) 555-0100" placeholderTextColor={colors.textMuted} />
+                <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: 6 }}>
+                  <Value style={{ fontWeight: '800', fontSize: 15 }}>Billing address</Value>
+                  <TouchableOpacity onPress={copyServiceToBilling} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+                    <Text style={{ color: colors.primaryDark, fontWeight: '800', fontSize: 13 }}>Same as service address</Text>
+                  </TouchableOpacity>
+                </View>
+                <Text style={styles.metaText}>Printed on invoices and receipts. Leave blank to use the service address.</Text>
+                <Label>Street address</Label>
+                <TextInput style={styles.editInput} value={edit.billingAddressLine1} onChangeText={(v) => setEdit({ ...edit, billingAddressLine1: v })} autoCapitalize="words" placeholder="Optional" placeholderTextColor={colors.textMuted} />
+                <Label>Apt / unit</Label>
+                <TextInput style={styles.editInput} value={edit.billingAddressLine2} onChangeText={(v) => setEdit({ ...edit, billingAddressLine2: v })} placeholder="Optional" placeholderTextColor={colors.textMuted} />
+                <Label>City</Label>
+                <TextInput style={styles.editInput} value={edit.billingCity} onChangeText={(v) => setEdit({ ...edit, billingCity: v })} autoCapitalize="words" />
+                <View style={{ flexDirection: 'row', gap: 10 }}>
+                  <View style={{ flex: 1 }}>
+                    <Label>State</Label>
+                    <TextInput style={styles.editInput} value={edit.billingState} onChangeText={(v) => setEdit({ ...edit, billingState: v })} autoCapitalize="characters" maxLength={2} />
+                  </View>
+                  <View style={{ flex: 2 }}>
+                    <Label>ZIP</Label>
+                    <TextInput style={styles.editInput} value={edit.billingPostalCode} onChangeText={(v) => setEdit({ ...edit, billingPostalCode: v })} keyboardType="number-pad" maxLength={10} />
+                  </View>
+                </View>
               </ScrollView>
               <View style={{ flexDirection: 'row', gap: 10, marginTop: 8 }}>
                 <Button title="Cancel" variant="outline" onPress={() => setEdit(null)} style={{ flex: 1 }} />
