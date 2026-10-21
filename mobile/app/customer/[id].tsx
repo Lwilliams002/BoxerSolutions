@@ -78,6 +78,45 @@ export default function CustomerScreen() {
     email: String(cust?.email ?? ''),
     phone: String(cust?.phone ?? ''),
   });
+  /** Edit (or add) the customer's service address. The pin re-geocodes on the server when the address changes. */
+  const [locEdit, setLocEdit] = useState<{ id: string | null; label: string; addressLine1: string; addressLine2: string; city: string; state: string; postalCode: string; accessNotes: string } | null>(null);
+  const [savingLoc, setSavingLoc] = useState(false);
+  const openLocEdit = (l?: any) => setLocEdit({
+    id: l?.id ?? null,
+    label: String(l?.label ?? 'Primary'),
+    addressLine1: String(l?.addressLine1 ?? ''),
+    addressLine2: String(l?.addressLine2 ?? ''),
+    city: String(l?.city ?? ''),
+    state: String(l?.state ?? 'FL'),
+    postalCode: String(l?.postalCode ?? ''),
+    accessNotes: String(l?.accessNotes ?? ''),
+  });
+  const saveLocEdit = async () => {
+    if (!locEdit) return;
+    const addressLine1 = locEdit.addressLine1.trim();
+    const city = locEdit.city.trim();
+    const state = locEdit.state.trim().toUpperCase();
+    const postalCode = locEdit.postalCode.trim();
+    if (!addressLine1 || !city || !state || !postalCode) { notify('Address incomplete', 'Street, city, state and ZIP are all needed.'); return; }
+    setSavingLoc(true);
+    try {
+      const body = { addressLine1, addressLine2: locEdit.addressLine2.trim() || null, city, state, postalCode, accessNotes: locEdit.accessNotes.trim() || null };
+      if (locEdit.id) {
+        await api(`/locations/${locEdit.id}`, { method: 'PATCH', body });
+      } else {
+        await api('/locations', { method: 'POST', body: { ...body, customerId: id, label: locEdit.label.trim() || 'Primary', isPrimary: true } });
+      }
+      void qc.invalidateQueries({ queryKey: ['customer', id] });
+      void qc.invalidateQueries({ queryKey: ['customers'] });
+      void qc.invalidateQueries({ queryKey: ['mapLocations'] });
+      setLocEdit(null);
+      notify(locEdit.id ? 'Service address updated' : 'Service address added', 'The map pin will move to the new address in a moment.');
+    } catch (e) {
+      notify('Could not save address', (e as Error).message);
+    } finally {
+      setSavingLoc(false);
+    }
+  };
   const saveEdit = async () => {
     if (!edit) return;
     const firstName = edit.firstName.trim();
@@ -712,13 +751,30 @@ export default function CustomerScreen() {
             </Card>
             {(cust.serviceLocations ?? []).map((l: any) => (
               <Card key={l.id}>
-                <Label>{l.isPrimary ? 'Primary Service Location' : l.label ?? 'Service Location'}</Label>
-                <Value>
-                  {l.addressLine1}, {l.city}, {l.state} {l.postalCode}
-                </Value>
-                {l.accessNotes ? <Text style={styles.accessNotes}>Access: {l.accessNotes}</Text> : null}
+                <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                  <View style={{ flex: 1 }}>
+                    <Label>{l.isPrimary ? 'Primary Service Location' : l.label ?? 'Service Location'}</Label>
+                    <Value>
+                      {l.addressLine1}{l.addressLine2 ? `, ${l.addressLine2}` : ''}, {l.city}, {l.state} {l.postalCode}
+                    </Value>
+                    {l.accessNotes ? <Text style={styles.accessNotes}>Access: {l.accessNotes}</Text> : null}
+                    {l.latitude == null ? <Text style={styles.metaText}>Pin not placed yet — the address is being located on the map.</Text> : null}
+                  </View>
+                  {hasPermission('customers:write') ? (
+                    <TouchableOpacity onPress={() => openLocEdit(l)} style={styles.editBtn} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }} accessibilityLabel="Edit service address">
+                      <Text style={styles.editBtnText}>Edit</Text>
+                    </TouchableOpacity>
+                  ) : null}
+                </View>
               </Card>
             ))}
+            {!(cust.serviceLocations ?? []).length && hasPermission('customers:write') ? (
+              <Card>
+                <Label>Service Location</Label>
+                <Text style={styles.metaText}>No service address on file. Visits and routes need one.</Text>
+                <Button title="+ Add Service Address" variant="outline" onPress={() => openLocEdit()} />
+              </Card>
+            ) : null}
             {hasPermission('appointments:write') && (
               <Button title="+ New Appointment" onPress={() => router.push({ pathname: '/appointment/new', params: { customerId: id } })} />
             )}
@@ -1280,6 +1336,43 @@ export default function CustomerScreen() {
               <View style={{ flexDirection: 'row', gap: 8, marginTop: 12 }}>
                 <Button title="Cancel" variant="outline" onPress={() => setResched(null)} style={{ flex: 1 }} />
                 <Button title="Save" onPress={() => saveReschedule(false)} loading={rescheduling} style={{ flex: 1 }} />
+              </View>
+            </Pressable>
+          </Pressable>
+          </KeyboardAvoidingView>
+        </Modal>
+      ) : null}
+
+      {locEdit ? (
+        <Modal transparent animationType="fade" visible onRequestClose={() => setLocEdit(null)}>
+          <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={{ flex: 1 }}>
+          <Pressable style={styles.commBackdrop} onPress={() => setLocEdit(null)}>
+            <Pressable style={styles.commSheet} onPress={() => undefined}>
+              <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 8 }} keyboardShouldPersistTaps="handled">
+                <Value style={{ fontWeight: '800', fontSize: 17 }}>{locEdit.id ? 'Edit service address' : 'Add service address'}</Value>
+                <Text style={styles.metaText}>Upcoming visits, routes and the map pin follow the new address. Past invoices and the signed agreement keep the old one.</Text>
+                <Label>Street address</Label>
+                <TextInput style={styles.editInput} value={locEdit.addressLine1} onChangeText={(v) => setLocEdit({ ...locEdit, addressLine1: v })} autoCapitalize="words" placeholder="1500 NW 89th Ct" placeholderTextColor={colors.textMuted} />
+                <Label>Apt / unit</Label>
+                <TextInput style={styles.editInput} value={locEdit.addressLine2} onChangeText={(v) => setLocEdit({ ...locEdit, addressLine2: v })} placeholder="Optional" placeholderTextColor={colors.textMuted} />
+                <Label>City</Label>
+                <TextInput style={styles.editInput} value={locEdit.city} onChangeText={(v) => setLocEdit({ ...locEdit, city: v })} autoCapitalize="words" />
+                <View style={{ flexDirection: 'row', gap: 10 }}>
+                  <View style={{ flex: 1 }}>
+                    <Label>State</Label>
+                    <TextInput style={styles.editInput} value={locEdit.state} onChangeText={(v) => setLocEdit({ ...locEdit, state: v })} autoCapitalize="characters" maxLength={2} />
+                  </View>
+                  <View style={{ flex: 2 }}>
+                    <Label>ZIP</Label>
+                    <TextInput style={styles.editInput} value={locEdit.postalCode} onChangeText={(v) => setLocEdit({ ...locEdit, postalCode: v })} keyboardType="number-pad" maxLength={10} />
+                  </View>
+                </View>
+                <Label>Access notes</Label>
+                <TextInput style={[styles.editInput, { minHeight: 60 }]} value={locEdit.accessNotes} onChangeText={(v) => setLocEdit({ ...locEdit, accessNotes: v })} multiline placeholder="Gate code, dogs, where to find the key…" placeholderTextColor={colors.textMuted} />
+              </ScrollView>
+              <View style={{ flexDirection: 'row', gap: 10, marginTop: 8 }}>
+                <Button title="Cancel" variant="outline" onPress={() => setLocEdit(null)} style={{ flex: 1 }} />
+                <Button title="Save" onPress={() => void saveLocEdit()} loading={savingLoc} style={{ flex: 1 }} />
               </View>
             </Pressable>
           </Pressable>
