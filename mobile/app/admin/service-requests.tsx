@@ -17,6 +17,8 @@ interface Tech {
 
 const START_HOUR = 8;
 const END_HOUR = 18;
+/** Visit windows offered to the customer are two hours long. */
+const WINDOW_HOURS = 2;
 
 function pad2(value: number) {
   return String(value).padStart(2, '0');
@@ -28,7 +30,7 @@ function formatHourLabel(hour24: number) {
 }
 
 function hourWindow(hour24: number) {
-  const endHour = Math.min(hour24 + 1, END_HOUR);
+  const endHour = Math.min(hour24 + WINDOW_HOURS, END_HOUR);
   return {
     start: `${pad2(hour24)}:00`,
     end: `${pad2(endHour)}:00`,
@@ -59,7 +61,7 @@ function timeFromWindow(start?: string) {
 function snapToHourWindow(date: Date) {
   let hour = date.getMinutes() >= 30 ? date.getHours() + 1 : date.getHours();
   if (hour < START_HOUR) hour = START_HOUR;
-  if (hour >= END_HOUR) hour = END_HOUR - 1;
+  if (hour > END_HOUR - WINDOW_HOURS) hour = END_HOUR - WINDOW_HOURS;
   return hourWindow(hour);
 }
 
@@ -276,7 +278,7 @@ export default function ServiceRequestsAdminScreen() {
                     <Text style={styles.pickerValue}>{selectedWindowLabel ?? 'Pick a time'}</Text>
                   </TouchableOpacity>
                 </View>
-                <Text style={styles.intervalHint}>Time selections snap to 1-hour intervals between 8:00 AM and 6:00 PM.</Text>
+                <Text style={styles.intervalHint}>Time selections snap to 2-hour windows between 8:00 AM and 6:00 PM.</Text>
               </>
             ) : null}
             <TextInput
