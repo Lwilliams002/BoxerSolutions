@@ -13,6 +13,7 @@ import { computeSurcharge, surchargeLabel } from '../utils/surcharge';
 import { communicationService, safelyQueueCommunication } from './communicationService';
 import { storage } from '../integrations/storage';
 import { fileService } from './fileService';
+import { markPlanCycleCoveredByInvoice } from './planCoverage';
 
 const COMPANY = {
   name: 'Boxer Solutions Pest Control',
@@ -373,6 +374,7 @@ export const paymentService = {
          WHERE id = $4`,
         [newPaid, fullyPaid ? 'paid' : 'partially_paid', fullyPaid, invoiceId, attemptDate],
       );
+      if (fullyPaid) await markPlanCycleCoveredByInvoice(tx, invoiceId);
       // Customer balance: the surcharge was added to the invoice and paid in the same step, so only the original amount moves.
       await tx.query('UPDATE customers SET balance = balance - $1, updated_at = now() WHERE id = $2', [chargeAmount, invoice.customer_id]);
       await tx.query('UPDATE autopay_settings SET failure_count = 0, last_failure_at = NULL, updated_at = now() WHERE customer_id = $1', [invoice.customer_id]);
@@ -473,6 +475,7 @@ export const paymentService = {
          WHERE id = $4`,
         [newPaid, fullyPaid ? 'paid' : 'partially_paid', fullyPaid, invoiceId],
       );
+      if (fullyPaid) await markPlanCycleCoveredByInvoice(tx, invoiceId);
       await tx.query(
         'UPDATE customers SET balance = balance - $1, updated_at = now() WHERE id = $2',
         [chargeAmount, invoice.customer_id],
