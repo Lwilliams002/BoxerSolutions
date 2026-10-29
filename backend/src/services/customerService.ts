@@ -98,6 +98,8 @@ export const customerService = {
              ,(SELECT MIN(a.scheduled_date)::text FROM appointments a
                WHERE a.customer_id = c.id AND a.deleted_at IS NULL AND a.status = 'scheduled' AND a.scheduled_date >= CURRENT_DATE) AS next_visit_date
              ,(SELECT rc.next_due_date::text FROM recurring_charges rc WHERE rc.customer_id = c.id AND rc.active ORDER BY rc.updated_at DESC LIMIT 1) AS plan_due_date
+             ,(SELECT rc.frequency FROM recurring_charges rc WHERE rc.customer_id = c.id AND rc.active ORDER BY rc.updated_at DESC LIMIT 1) AS plan_frequency
+             ,(SELECT rc.amount FROM recurring_charges rc WHERE rc.customer_id = c.id AND rc.active ORDER BY rc.updated_at DESC LIMIT 1) AS plan_amount
        FROM customers c
        WHERE ${whereSql}
        ORDER BY ${orderBy}

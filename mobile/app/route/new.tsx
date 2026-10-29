@@ -9,6 +9,7 @@ import { useAuth } from '../../src/lib/authStore';
 import { colors, fmtTime, todayISO, money, fmtDate } from '../../src/lib/theme';
 import { Button, SectionTitle, Loading, ErrorText, StatusBadge } from '../../src/components/ui';
 import { SyncBanner } from '../../src/components/SyncBanner';
+import { SERVICE_FREQUENCY_LABELS, type ServiceFrequency } from '../../src/lib/serviceSchedule';
 
 interface Tech {
   employeeId: string;
@@ -47,6 +48,7 @@ interface Candidate {
   planDueDate: string | null;
   planAmount: number | null;
   lastPaidAt: string | null;
+  lastServicedDate: string | null;
   sameDay: { id: string; windowStart: string; windowEnd: string; status: string; technicianId: string | null; technicianName: string | null; routeId: string | null } | null;
   nextVisit: { id: string; scheduledDate: string; windowStart: string; windowEnd: string; technicianId: string | null; technicianName: string | null; recurring: boolean } | null;
 }
@@ -362,7 +364,7 @@ export default function NewRouteScreen() {
             {custSearch ? <TouchableOpacity onPress={() => setCustSearch('')} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}><Ionicons name="close-circle" size={18} color={colors.textMuted} /></TouchableOpacity> : null}
           </View>
           <Text style={styles.hintText}>
-            {custSearch.trim() ? 'Tap a customer. A visit already on this day is added; any other visit is moved to this day after you pick a time.' : `Visits on ${fmtDate(date)} plus plans due with nothing scheduled. Search to pull in anyone else.`}
+            {custSearch.trim() ? 'Tap a customer. A visit already on this day is added; any other visit is moved to this day after you pick a time.' : `Visits on ${fmtDate(date)} plus every plan due this month that has not been serviced yet. Search to pull in anyone else.`}
           </Text>
 
           {stops.length > 0 && (
@@ -404,9 +406,10 @@ export default function NewRouteScreen() {
                       <Text style={styles.apptAddr}>{item.addressLine1 ? `${item.addressLine1}, ${item.city ?? ''}` : 'No service address'}</Text>
                       {item.planDueDate || item.lastPaidAt ? (
                         <Text style={[styles.apptSvc, selected && { color: '#8FA6A1' }]}>
-                          {item.planDueDate ? <Text style={item.planDueDate <= todayISO() && !item.sameDay ? { color: '#B3261E', fontWeight: '800' } : undefined}>Plan due {fmtDate(item.planDueDate)}{item.planAmount != null ? ` · ${money(item.planAmount)}` : ''}</Text> : null}
+                          {item.planDueDate ? <Text style={item.planDueDate <= todayISO() && !item.sameDay ? { color: '#B3261E', fontWeight: '800' } : undefined}>{item.planFrequency ? `${SERVICE_FREQUENCY_LABELS[item.planFrequency as ServiceFrequency] ?? item.planFrequency} · ` : ''}Plan due {fmtDate(item.planDueDate)}{item.planAmount != null ? ` · ${money(item.planAmount)}` : ''}</Text> : null}
                           {item.planDueDate && item.lastPaidAt ? ' · ' : ''}
                           {item.lastPaidAt ? `Last paid ${fmtDate(item.lastPaidAt.slice(0, 10))}` : ''}
+                          {item.lastServicedDate ? ` · Last serviced ${fmtDate(item.lastServicedDate)}` : ' · Never serviced'}
                         </Text>
                       ) : null}
                       {item.sameDay ? (

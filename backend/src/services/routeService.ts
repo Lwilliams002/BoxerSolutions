@@ -137,8 +137,11 @@ export const routeService = {
       where += ` AND (
         EXISTS (SELECT 1 FROM appointments a WHERE a.customer_id = c.id AND a.deleted_at IS NULL AND a.scheduled_date = $1::date AND a.status NOT IN ('cancelled','completed','no_access'))
         OR EXISTS (SELECT 1 FROM recurring_charges r WHERE r.customer_id = c.id AND r.active AND c.status <> 'inactive'
-                     AND r.next_due_date IS NOT NULL AND r.next_due_date <= $1::date + 14
-                     AND NOT EXISTS (SELECT 1 FROM appointments a2 WHERE a2.customer_id = c.id AND a2.deleted_at IS NULL AND a2.status = 'scheduled' AND a2.scheduled_date >= CURRENT_DATE))
+                     AND r.next_due_date IS NOT NULL
+                     AND r.next_due_date < (date_trunc('month', $1::date) + interval '1 month')::date
+                     AND NOT EXISTS (SELECT 1 FROM appointments a2 WHERE a2.customer_id = c.id AND a2.deleted_at IS NULL AND a2.status = 'completed'
+                                       AND a2.scheduled_date >= date_trunc('month', $1::date)::date
+                                       AND a2.scheduled_date < (date_trunc('month', $1::date) + interval '1 month')::date))
       )`;
     }
     const { rows } = await pool.query(
@@ -146,6 +149,7 @@ export const routeService = {
               sl.id AS location_id, sl.address_line1, sl.city, sl.latitude, sl.longitude,
               rc.frequency AS plan_frequency, rc.next_due_date::text AS plan_due_date, rc.amount AS plan_amount,
               (SELECT max(p.created_at) FROM payments p WHERE p.customer_id = c.id AND p.status = 'succeeded') AS last_paid_at,
+              (SELECT max(a.scheduled_date)::text FROM appointments a WHERE a.customer_id = c.id AND a.deleted_at IS NULL AND a.status = 'completed') AS last_serviced_date,
               (SELECT json_build_object('id', a.id, 'windowStart', a.window_start::text, 'windowEnd', a.window_end::text, 'status', a.status,
                         'technicianId', a.technician_id, 'technicianName', tu.first_name || ' ' || tu.last_name,
                         'routeId', (SELECT rs.route_id FROM route_stops rs WHERE rs.appointment_id = a.id LIMIT 1))
@@ -179,6 +183,7 @@ export const routeService = {
       planDueDate: r.plan_due_date ?? null,
       planAmount: r.plan_amount != null ? Number(r.plan_amount) : null,
       lastPaidAt: r.last_paid_at ?? null,
+      lastServicedDate: r.last_serviced_date ?? null,
       sameDay: r.same_day ?? null,
       nextVisit: r.next_visit ?? null,
     }));

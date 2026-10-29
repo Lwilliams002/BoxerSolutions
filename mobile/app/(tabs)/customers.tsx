@@ -1,3 +1,4 @@
+import { Ionicons } from '@expo/vector-icons';
 import React, { useState, useEffect } from 'react';
 import {
   View,
@@ -13,6 +14,7 @@ import { api, ApiRequestError } from '../../src/lib/api';
 import { useAuth } from '../../src/lib/authStore';
 import { colors, money, fmtDate, todayISO } from '../../src/lib/theme';
 import { Loading, EmptyState, StatusBadge, Button } from '../../src/components/ui';
+import { SERVICE_FREQUENCY_LABELS, type ServiceFrequency } from '../../src/lib/serviceSchedule';
 import { SyncBanner } from '../../src/components/SyncBanner';
 
 interface CustomerRow {
@@ -30,6 +32,8 @@ interface CustomerRow {
   lastPaidAt: string | null;
   nextVisitDate: string | null;
   planDueDate: string | null;
+  planFrequency: string | null;
+  planAmount: string | null;
 }
 
 const FILTERS = [
@@ -142,6 +146,12 @@ export default function CustomersScreen() {
               <StatusBadge status={item.status} />
             </View>
             {item.primaryAddress ? <Text style={styles.sub}>{item.primaryAddress}</Text> : null}
+            {item.planFrequency ? (
+              <View style={styles.planPill}>
+                <Ionicons name="repeat" size={12} color={colors.primaryDark} />
+                <Text style={styles.planPillText}>{SERVICE_FREQUENCY_LABELS[item.planFrequency as ServiceFrequency] ?? item.planFrequency}{item.planAmount ? ` · ${money(item.planAmount)}` : ''}</Text>
+              </View>
+            ) : null}
             <View style={styles.factRow}>
               <View style={styles.fact}>
                 <Text style={styles.factLabel}>Last paid</Text>
@@ -217,6 +227,8 @@ const styles = StyleSheet.create({
   name: { fontSize: 16, fontWeight: '700', color: colors.text, flex: 1, marginRight: 8 },
   sub: { fontSize: 13, color: colors.textMuted, marginTop: 2 },
   factRow: { flexDirection: 'row', gap: 12, marginTop: 8 },
+  planPill: { flexDirection: 'row', alignItems: 'center', gap: 4, alignSelf: 'flex-start', backgroundColor: '#E8FBF6', borderRadius: 10, paddingVertical: 3, paddingHorizontal: 8, marginTop: 6 },
+  planPillText: { fontSize: 12, fontWeight: '800', color: colors.primaryDark },
   fact: { flex: 1 },
   factLabel: { fontSize: 10, fontWeight: '800', color: colors.textMuted, textTransform: 'uppercase', letterSpacing: 0.4 },
   factValue: { fontSize: 13, fontWeight: '700', color: colors.text, marginTop: 1 },
