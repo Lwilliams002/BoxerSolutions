@@ -132,12 +132,20 @@ export const routeService = {
       where += ` AND (lower(c.first_name || ' ' || c.last_name) LIKE ${p} OR lower(coalesce(c.company,'')) LIKE ${p}
         OR coalesce(c.phone,'') LIKE ${p} OR EXISTS (SELECT 1 FROM service_locations sl WHERE sl.customer_id = c.id AND sl.deleted_at IS NULL AND lower(sl.address_line1 || ' ' || sl.city) LIKE ${p}))`;
     } else {
-      where += ` AND EXISTS (SELECT 1 FROM appointments a WHERE a.customer_id = c.id AND a.deleted_at IS NULL AND a.scheduled_date = $1::date AND a.status NOT IN ('cancelled','completed','no_access'))`;
+      // No search: customers already visiting that day, plus customers whose recurring plan is due
+      // (or due within two weeks of the route day) and has no visit scheduled yet.
+      where += ` AND (
+        EXISTS (SELECT 1 FROM appointments a WHERE a.customer_id = c.id AND a.deleted_at IS NULL AND a.scheduled_date = $1::date AND a.status NOT IN ('cancelled','completed','no_access'))
+        OR EXISTS (SELECT 1 FROM recurring_charges r WHERE r.customer_id = c.id AND r.active AND c.status <> 'inactive'
+                     AND r.next_due_date IS NOT NULL AND r.next_due_date <= $1::date + 14
+                     AND NOT EXISTS (SELECT 1 FROM appointments a2 WHERE a2.customer_id = c.id AND a2.deleted_at IS NULL AND a2.status = 'scheduled' AND a2.scheduled_date >= CURRENT_DATE))
+      )`;
     }
     const { rows } = await pool.query(
       `SELECT c.id AS customer_id, c.first_name, c.last_name, c.company, c.phone,
               sl.id AS location_id, sl.address_line1, sl.city, sl.latitude, sl.longitude,
-              rc.frequency AS plan_frequency,
+              rc.frequency AS plan_frequency, rc.next_due_date::text AS plan_due_date, rc.amount AS plan_amount,
+              (SELECT max(p.created_at) FROM payments p WHERE p.customer_id = c.id AND p.status = 'succeeded') AS last_paid_at,
               (SELECT json_build_object('id', a.id, 'windowStart', a.window_start::text, 'windowEnd', a.window_end::text, 'status', a.status,
                         'technicianId', a.technician_id, 'technicianName', tu.first_name || ' ' || tu.last_name,
                         'routeId', (SELECT rs.route_id FROM route_stops rs WHERE rs.appointment_id = a.id LIMIT 1))
@@ -151,9 +159,11 @@ export const routeService = {
                  ORDER BY a.scheduled_date, a.window_start LIMIT 1) AS next_visit
        FROM customers c
        LEFT JOIN LATERAL (SELECT id, address_line1, city, latitude, longitude FROM service_locations s WHERE s.customer_id = c.id AND s.deleted_at IS NULL ORDER BY s.is_primary DESC, s.created_at LIMIT 1) sl ON true
-       LEFT JOIN LATERAL (SELECT frequency FROM recurring_charges r WHERE r.customer_id = c.id AND r.active ORDER BY r.updated_at DESC LIMIT 1) rc ON true
+       LEFT JOIN LATERAL (SELECT frequency, next_due_date, amount FROM recurring_charges r WHERE r.customer_id = c.id AND r.active ORDER BY r.updated_at DESC LIMIT 1) rc ON true
        WHERE ${where}
-       ORDER BY (sl.id IS NULL), c.last_name, c.first_name
+       ORDER BY (sl.id IS NULL),
+                (NOT EXISTS (SELECT 1 FROM appointments a WHERE a.customer_id = c.id AND a.deleted_at IS NULL AND a.scheduled_date = $1::date AND a.status NOT IN ('cancelled','completed','no_access'))),
+                rc.next_due_date NULLS LAST, c.last_name, c.first_name
        LIMIT 40`,
       params,
     );
@@ -166,6 +176,9 @@ export const routeService = {
       city: r.city ?? null,
       hasCoordinates: r.latitude != null && r.longitude != null,
       planFrequency: r.plan_frequency ?? null,
+      planDueDate: r.plan_due_date ?? null,
+      planAmount: r.plan_amount != null ? Number(r.plan_amount) : null,
+      lastPaidAt: r.last_paid_at ?? null,
       sameDay: r.same_day ?? null,
       nextVisit: r.next_visit ?? null,
     }));

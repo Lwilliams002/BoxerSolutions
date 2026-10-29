@@ -94,6 +94,10 @@ export const customerService = {
              ,(SELECT MAX(a.completed_at)
                FROM appointments a
                WHERE a.customer_id = c.id AND a.deleted_at IS NULL AND a.status = 'completed') AS last_serviced_at
+             ,(SELECT MAX(p.created_at) FROM payments p WHERE p.customer_id = c.id AND p.status = 'succeeded') AS last_paid_at
+             ,(SELECT MIN(a.scheduled_date)::text FROM appointments a
+               WHERE a.customer_id = c.id AND a.deleted_at IS NULL AND a.status = 'scheduled' AND a.scheduled_date >= CURRENT_DATE) AS next_visit_date
+             ,(SELECT rc.next_due_date::text FROM recurring_charges rc WHERE rc.customer_id = c.id AND rc.active ORDER BY rc.updated_at DESC LIMIT 1) AS plan_due_date
        FROM customers c
        WHERE ${whereSql}
        ORDER BY ${orderBy}

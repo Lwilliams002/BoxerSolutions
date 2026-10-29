@@ -1,7 +1,7 @@
 import React, { useState, useMemo } from 'react';
 import { View, Text, ScrollView, FlatList, StyleSheet, TouchableOpacity, TextInput, Modal, Pressable, KeyboardAvoidingView, Platform } from 'react-native';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { useRouter } from 'expo-router';
+import { useRouter, useLocalSearchParams } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { api } from '../../src/lib/api';
 import { notify } from '../../src/lib/confirm';
@@ -44,6 +44,9 @@ interface Candidate {
   city: string | null;
   hasCoordinates: boolean;
   planFrequency: string | null;
+  planDueDate: string | null;
+  planAmount: number | null;
+  lastPaidAt: string | null;
   sameDay: { id: string; windowStart: string; windowEnd: string; status: string; technicianId: string | null; technicianName: string | null; routeId: string | null } | null;
   nextVisit: { id: string; scheduledDate: string; windowStart: string; windowEnd: string; technicianId: string | null; technicianName: string | null; recurring: boolean } | null;
 }
@@ -57,6 +60,8 @@ interface StopPick {
   city: string | null;
   windowStart: string;
   windowEnd: string;
+  /** Set when the stop is already on the route being edited (needed to remove it). */
+  stopId?: string;
 }
 
 const QUICK_TIMES = ['08:00', '09:00', '10:00', '11:00', '12:00', '13:00', '14:00', '15:00', '16:00', '17:00', '18:00', '19:00', '20:00', '21:00'];
@@ -82,7 +87,11 @@ const STEP_REVIEW = 3;
 export default function NewRouteScreen() {
   const router = useRouter();
   const qc = useQueryClient();
+  /** Editing an existing route: date and tech are fixed, stops are prefilled. */
+  const { routeId: editRouteId } = useLocalSearchParams<{ routeId?: string }>();
+  const editing = !!editRouteId;
   const [step, setStep] = useState(STEP_DATE);
+  const [editLoaded, setEditLoaded] = useState(false);
   const [date, setDate] = useState(todayISO());
   const [techId, setTechId] = useState<string | null>(null);
   const [stops, setStops] = useState<StopPick[]>([]);
@@ -97,6 +106,21 @@ export default function NewRouteScreen() {
   const [error, setError] = useState('');
   const [custSearch, setCustSearch] = useState('');
   const currentUserId = useAuth((s) => s.user)?.id ?? null;
+
+  const editRoute = useQuery({
+    queryKey: ['route', editRouteId],
+    queryFn: () => api<{ id: string; routeDate: string; technicianId: string; stops: { stopId: string; appointmentId: string; customerId: string; customerName: string; company: string | null; addressLine1: string; city: string; windowStart: string; windowEnd: string; status: string }[] }>(`/routes/${editRouteId}`),
+    enabled: editing,
+  });
+  React.useEffect(() => {
+    if (!editing || editLoaded || !editRoute.data) return;
+    const r = editRoute.data;
+    setDate(String(r.routeDate).slice(0, 10));
+    setTechId(r.technicianId);
+    setStops(r.stops.map((s) => ({ stopId: s.stopId, appointmentId: s.appointmentId, customerId: s.customerId, name: s.company ?? s.customerName, addressLine1: s.addressLine1, city: s.city, windowStart: s.windowStart, windowEnd: s.windowEnd })));
+    setStep(STEP_STOPS);
+    setEditLoaded(true);
+  }, [editing, editLoaded, editRoute.data]);
 
   const days = useMemo(() => Array.from({ length: 14 }, (_, i) => addDays(todayISO(), i)), []);
 
@@ -178,14 +202,27 @@ export default function NewRouteScreen() {
     setError('');
     setBusy(true);
     try {
-      // 1. Create (or get existing) route for this tech + date
-      const route = await api<{ id: string }>('/routes', {
-        method: 'POST',
-        body: { routeDate: date, technicianId: techId },
-      });
+      // 1. Create (or get existing) route for this tech + date — or reuse the route being edited
+      const route = editing && editRouteId
+        ? { id: editRouteId }
+        : await api<{ id: string }>('/routes', {
+            method: 'POST',
+            body: { routeDate: date, technicianId: techId },
+          });
+
+      // 1b. Editing: drop the stops that were removed
+      if (editing && editRoute.data) {
+        const keep = new Set(stops.map((st) => st.appointmentId));
+        for (const s of editRoute.data.stops) {
+          if (!keep.has(s.appointmentId)) {
+            await api(`/routes/${route.id}/stops/${s.stopId}`, { method: 'DELETE' });
+          }
+        }
+      }
 
       // 2. Add each selected appointment as a stop (in order selected)
       for (const st of stops) {
+        if (st.stopId) continue; // already on this route
         try {
           await api(`/routes/${route.id}/stops`, {
             method: 'POST',
@@ -206,8 +243,8 @@ export default function NewRouteScreen() {
       void qc.invalidateQueries({ queryKey: ['routes'] });
       void qc.invalidateQueries({ queryKey: ['route', route.id] });
 
-      notify('Route Created!', `${stops.length} stop(s) added and optimized.`);
-      router.replace(`/route/${route.id}`);
+      notify(editing ? 'Route updated' : 'Route Created!', `${stops.length} stop(s) on the route, re-optimized.`);
+      if (editing) router.back(); else router.replace(`/route/${route.id}`);
     } catch (e) {
       setError((e as Error).message);
     } finally {
@@ -222,7 +259,7 @@ export default function NewRouteScreen() {
       {/* Step indicator */}
       <View style={styles.stepBar}>
         {['Date', 'Technician', 'Stops', 'Review'].map((label, i) => (
-          <TouchableOpacity key={i} style={styles.stepItem} onPress={() => i < step && setStep(i)}>
+          <TouchableOpacity key={i} style={styles.stepItem} onPress={() => i < step && !(editing && i < STEP_STOPS) && setStep(i)}>
             <View style={[styles.stepDot, i <= step && styles.stepDotActive]}>
               {i < step ? (
                 <Ionicons name="checkmark" size={12} color="#0D0D0D" />
@@ -308,7 +345,8 @@ export default function NewRouteScreen() {
       )}
 
       {/* STEP 2: Pick stops — search any customer, pull their visit onto this day */}
-      {step === STEP_STOPS && (
+      {step === STEP_STOPS && editing && !editLoaded && (editRoute.isLoading ? <Loading /> : editRoute.error ? <ErrorText message={(editRoute.error as Error).message} /> : null)}
+      {step === STEP_STOPS && (!editing || editLoaded) && (
         <View style={{ flex: 1 }}>
           <View style={styles.searchWrap}>
             <Ionicons name="search-outline" size={16} color={colors.textMuted} style={styles.searchIcon} />
@@ -323,7 +361,7 @@ export default function NewRouteScreen() {
             {custSearch ? <TouchableOpacity onPress={() => setCustSearch('')} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}><Ionicons name="close-circle" size={18} color={colors.textMuted} /></TouchableOpacity> : null}
           </View>
           <Text style={styles.hintText}>
-            {custSearch.trim() ? 'Tap a customer. A visit already on this day is added; any other visit is moved to this day after you pick a time.' : `Customers with a visit on ${fmtDate(date)}. Search to pull in anyone else.`}
+            {custSearch.trim() ? 'Tap a customer. A visit already on this day is added; any other visit is moved to this day after you pick a time.' : `Visits on ${fmtDate(date)} plus plans due with nothing scheduled. Search to pull in anyone else.`}
           </Text>
 
           {stops.length > 0 && (
@@ -363,6 +401,13 @@ export default function NewRouteScreen() {
                     <View style={{ flex: 1 }}>
                       <Text style={[styles.apptName, selected && styles.apptNameSelected]}>{item.name}</Text>
                       <Text style={styles.apptAddr}>{item.addressLine1 ? `${item.addressLine1}, ${item.city ?? ''}` : 'No service address'}</Text>
+                      {item.planDueDate || item.lastPaidAt ? (
+                        <Text style={[styles.apptSvc, selected && { color: '#8FA6A1' }]}>
+                          {item.planDueDate ? <Text style={item.planDueDate <= todayISO() && !item.sameDay ? { color: '#B3261E', fontWeight: '800' } : undefined}>Plan due {fmtDate(item.planDueDate)}{item.planAmount != null ? ` · ${money(item.planAmount)}` : ''}</Text> : null}
+                          {item.planDueDate && item.lastPaidAt ? ' · ' : ''}
+                          {item.lastPaidAt ? `Last paid ${fmtDate(item.lastPaidAt.slice(0, 10))}` : ''}
+                        </Text>
+                      ) : null}
                       {item.sameDay ? (
                         <Text style={styles.apptSvc}>
                           <Text style={{ color: colors.primaryDark, fontWeight: '800' }}>{fmtDate(date)} · {fmtTime(item.sameDay.windowStart)} – {fmtTime(item.sameDay.windowEnd)}</Text>
@@ -380,7 +425,7 @@ export default function NewRouteScreen() {
             />
           )}
           <View style={styles.navBar}>
-            <Button title="← Back" variant="outline" onPress={() => setStep(STEP_TECH)} style={{ flex: 1, marginRight: 8 }} />
+            <Button title={editing ? 'Cancel' : '← Back'} variant="outline" onPress={() => (editing ? router.back() : setStep(STEP_TECH))} style={{ flex: 1, marginRight: 8 }} />
             <Button
               title="Review →"
               onPress={() => {
@@ -441,7 +486,7 @@ export default function NewRouteScreen() {
           {error ? <ErrorText message={error} /> : null}
 
           <Button
-            title={`Create Route (${stops.length} stops)`}
+            title={editing ? `Save Route (${stops.length} stops)` : `Create Route (${stops.length} stops)`}
             onPress={createRoute}
             loading={busy}
             style={{ marginTop: 12 }}

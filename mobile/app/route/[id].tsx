@@ -355,6 +355,11 @@ export default function RouteDetailScreen() {
             <Ionicons name="map" size={16} color={viewMode === 'map' ? '#0D0D0D' : '#6B7C78'} />
           </TouchableOpacity>
         </View>
+        {hasPermission('routes:write') && !routeStarted && (
+          <TouchableOpacity onPress={() => router.push({ pathname: '/route/new', params: { routeId: id } })} style={styles.editStopsBtn} hitSlop={{ top: 8, bottom: 8, left: 4, right: 4 }} accessibilityLabel="Edit stops">
+            <Ionicons name="create-outline" size={18} color="#2DC4A2" />
+          </TouchableOpacity>
+        )}
         {hasPermission('routes:write') && (
           <TouchableOpacity onPress={confirmDeleteRoute} style={styles.deleteBtn} disabled={deleteRoute.isPending} hitSlop={{ top: 8, bottom: 8, left: 4, right: 4 }}>
             <Ionicons name="trash-outline" size={18} color="#FF6B6B" />
@@ -599,6 +604,7 @@ const styles = StyleSheet.create({
   },
   toggleBtn: { padding: 6, borderRadius: 8 },
   toggleBtnActive: { backgroundColor: '#2DC4A2' },
+  editStopsBtn: { marginLeft: 8, padding: 8, borderRadius: 10, backgroundColor: 'rgba(45,196,162,0.14)' },
   deleteBtn: { marginLeft: 8, padding: 8, borderRadius: 10, backgroundColor: 'rgba(255,107,107,0.12)' },
   progressWrap: {
     flexDirection: 'row', alignItems: 'center',

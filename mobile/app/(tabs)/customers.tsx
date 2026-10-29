@@ -11,7 +11,7 @@ import { useQuery } from '@tanstack/react-query';
 import { useRouter } from 'expo-router';
 import { api, ApiRequestError } from '../../src/lib/api';
 import { useAuth } from '../../src/lib/authStore';
-import { colors, money } from '../../src/lib/theme';
+import { colors, money, fmtDate, todayISO } from '../../src/lib/theme';
 import { Loading, EmptyState, StatusBadge, Button } from '../../src/components/ui';
 import { SyncBanner } from '../../src/components/SyncBanner';
 
@@ -27,6 +27,9 @@ interface CustomerRow {
   balance: string;
   autopayEnabled: boolean;
   primaryAddress: string | null;
+  lastPaidAt: string | null;
+  nextVisitDate: string | null;
+  planDueDate: string | null;
 }
 
 const FILTERS = [
@@ -139,6 +142,18 @@ export default function CustomersScreen() {
               <StatusBadge status={item.status} />
             </View>
             {item.primaryAddress ? <Text style={styles.sub}>{item.primaryAddress}</Text> : null}
+            <View style={styles.factRow}>
+              <View style={styles.fact}>
+                <Text style={styles.factLabel}>Last paid</Text>
+                <Text style={styles.factValue}>{item.lastPaidAt ? fmtDate(item.lastPaidAt.slice(0, 10)) : '—'}</Text>
+              </View>
+              <View style={styles.fact}>
+                <Text style={styles.factLabel}>Next visit</Text>
+                <Text style={[styles.factValue, !item.nextVisitDate && item.planDueDate && item.planDueDate <= todayISO() && { color: colors.danger }]}>
+                  {item.nextVisitDate ? fmtDate(item.nextVisitDate) : item.planDueDate ? `Due ${fmtDate(item.planDueDate)} · not scheduled` : '—'}
+                </Text>
+              </View>
+            </View>
             <View style={styles.rowBottom}>
               <Text style={styles.sub}>{item.phone ?? item.email ?? `#${item.customerNumber}`}</Text>
               <Text style={[styles.balance, parseFloat(item.balance) > 0 && { color: colors.danger }]}>
@@ -201,6 +216,10 @@ const styles = StyleSheet.create({
   rowBottom: { flexDirection: 'row', justifyContent: 'space-between', marginTop: 6 },
   name: { fontSize: 16, fontWeight: '700', color: colors.text, flex: 1, marginRight: 8 },
   sub: { fontSize: 13, color: colors.textMuted, marginTop: 2 },
+  factRow: { flexDirection: 'row', gap: 12, marginTop: 8 },
+  fact: { flex: 1 },
+  factLabel: { fontSize: 10, fontWeight: '800', color: colors.textMuted, textTransform: 'uppercase', letterSpacing: 0.4 },
+  factValue: { fontSize: 13, fontWeight: '700', color: colors.text, marginTop: 1 },
   balance: { fontSize: 14, fontWeight: '700', color: colors.success },
   fabWrap: { position: 'absolute', bottom: 16, left: 16, right: 16 },
 });
