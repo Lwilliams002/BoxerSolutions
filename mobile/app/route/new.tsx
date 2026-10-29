@@ -1,7 +1,7 @@
 import React, { useState, useMemo } from 'react';
 import { View, Text, ScrollView, FlatList, StyleSheet, TouchableOpacity, TextInput, Modal, Pressable, KeyboardAvoidingView, Platform } from 'react-native';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { useRouter, useLocalSearchParams } from 'expo-router';
+import { useRouter, useLocalSearchParams, Stack } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { api } from '../../src/lib/api';
 import { notify } from '../../src/lib/confirm';
@@ -254,6 +254,7 @@ export default function NewRouteScreen() {
 
   return (
     <View style={{ flex: 1, backgroundColor: colors.bg }}>
+      <Stack.Screen options={{ title: editing ? 'Edit Route' : 'New Route' }} />
       <SyncBanner />
 
       {/* Step indicator */}
