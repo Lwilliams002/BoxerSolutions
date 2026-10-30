@@ -25,12 +25,6 @@ export function isWebsiteHost(hostname: string) {
 
 const KEEP_WHEN_OFFLINE = new Set(['/privacy', '/terms']);
 
-function offlinePage(company: { name: string; phone: string }) {
-  return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex"><title>${company.name}</title>
-<style>body{margin:0;font-family:-apple-system,Segoe UI,Roboto,sans-serif;background:#0D0D0D;color:#fff;display:flex;min-height:100vh;align-items:center;justify-content:center;text-align:center;padding:24px}h1{font-size:28px;margin:0 0 12px}p{color:#B9C7C3;font-size:17px;line-height:1.5;margin:0 0 8px}a{color:#2DC4A2;font-weight:700;text-decoration:none}</style></head>
-<body><div><h1>${company.name}</h1><p>Our website is temporarily offline.</p><p>Call or text us at <a href="tel:${company.phone.replace(/[^\d+]/g, '')}">${company.phone}</a>.</p></div></body></html>`;
-}
-
 export function createWebsiteRouter(): Router {
   const router = Router();
   router.use('/assets', express.static(path.resolve(process.cwd(), 'public/website'), { maxAge: '1d' }));
@@ -39,10 +33,9 @@ export function createWebsiteRouter(): Router {
     router.use(asyncHandler(async (req, res, next) => {
       if (req.method === 'GET' && (KEEP_WHEN_OFFLINE.has(req.path) || req.path === '/robots.txt' || req.path.startsWith('/assets'))) return next();
       if (!SITE_PAGES.some((p) => p.path === req.path) && req.path !== '/estimate') return next(); // not a site page: fall through to the API
-      const company = await getCompanyInfo();
-      siteHeaders(res);
+      // Plain 404, as if the site did not exist.
       res.setHeader('Cache-Control', 'no-store');
-      res.status(503).type('html').send(offlinePage(company));
+      res.status(404).type('text').send('Not Found');
     }));
   }
 

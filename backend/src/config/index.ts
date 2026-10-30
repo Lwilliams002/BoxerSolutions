@@ -53,7 +53,7 @@ export const config = {
     /** Hostnames that serve the public company website instead of the API. */
     hosts: (process.env.WEBSITE_HOSTS ?? 'boxersolutionspestcontrol.com,www.boxersolutionspestcontrol.com')
       .split(',').map((h) => h.trim().toLowerCase()).filter(Boolean),
-    /** WEBSITE_OFFLINE=true replaces the marketing pages with a short "temporarily offline" notice. Privacy and Terms stay up. */
+    /** WEBSITE_OFFLINE=true makes the marketing pages answer 404. Privacy and Terms stay up for the SMS registration. */
     offline: /^(1|true|yes)$/i.test(process.env.WEBSITE_OFFLINE ?? ''),
   },
   jwt: {
